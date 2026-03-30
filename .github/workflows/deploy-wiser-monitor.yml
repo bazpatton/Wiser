@@ -1,0 +1,39 @@
+# Runs on your Pi self-hosted runner. Ensure:
+# - The clone on the Pi contains Wiser.Monitor/.env (not in git).
+# - The runner user can run Docker (sudo usermod -aG docker "$USER" then re-login).
+# - Git can pull this repo on that user account (SSH key for GitHub, or credential helper).
+# If the runner uses a different $HOME than where you cloned (e.g. /home/runner vs /home/pi),
+# set repository variable WISER_DEPLOY_PATH to the folder that contains .git (e.g. /home/pi/Wiser).
+# If you gave the runner labels, set runs-on to [self-hosted, your-label] below.
+
+name: Deploy Wiser.Monitor (Pi)
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "Wiser.Monitor/**"
+      - ".github/workflows/deploy-wiser-monitor.yml"
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: self-hosted
+
+    steps:
+      - name: Git pull and Docker Compose
+        env:
+          WISER_DEPLOY_PATH: ${{ vars.WISER_DEPLOY_PATH }}
+        run: |
+          set -euo pipefail
+          ROOT="${WISER_DEPLOY_PATH:-$HOME/Wiser}"
+          if [ ! -d "$ROOT/.git" ]; then
+            echo "No git repo at $ROOT — clone this repository there, or set Actions variable WISER_DEPLOY_PATH to your clone path."
+            exit 1
+          fi
+          cd "$ROOT"
+          git fetch origin main
+          git checkout main
+          git pull --ff-only origin main
+          cd Wiser.Monitor
+          docker compose up -d --build
