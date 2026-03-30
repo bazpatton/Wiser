@@ -65,7 +65,8 @@ app.MapGet("/api/rooms", (TemperatureStore store, MonitorState state) =>
     return Results.Json(new { rooms = names.OrderBy(x => x, StringComparer.OrdinalIgnoreCase).ToList() });
 });
 
-app.MapGet("/api/latest", (TemperatureStore store) => Results.Json(new { rooms = store.LatestByRoom() }));
+app.MapGet("/api/latest", (TemperatureStore store) =>
+    Results.Json(new { rooms = store.LatestByRoom(), system = store.GetLatestSystem() }));
 
 app.MapGet("/api/daily-summary", (int? days, TemperatureStore store, MonitorOptions o) =>
 {

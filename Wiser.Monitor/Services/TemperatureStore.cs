@@ -324,6 +324,30 @@ public sealed class TemperatureStore
         }
     }
 
+    /// <summary>Most recent boiler / heating-active flags (same poll batch as <see cref="LatestByRoom"/> when in sync).</summary>
+    public LatestSystemSnapshot? GetLatestSystem()
+    {
+        lock (_gate)
+        {
+            using var c = Open();
+            using var cmd = c.CreateCommand();
+            cmd.CommandText =
+                """
+                SELECT ts, heating_relay_on, heating_active
+                FROM system_readings
+                ORDER BY ts DESC
+                LIMIT 1
+                """;
+            using var r = cmd.ExecuteReader();
+            if (!r.Read())
+                return null;
+            return new LatestSystemSnapshot(
+                r.GetInt64(0),
+                r.GetInt32(1) != 0,
+                r.GetInt32(2) != 0);
+        }
+    }
+
     public IReadOnlyList<RoomSeriesRow> SeriesRoom(string room, long sinceTs)
     {
         lock (_gate)
@@ -375,6 +399,8 @@ public sealed record LatestDto(double TempC, double? SetpointC, int HeatDemand, 
     /// <summary>Hub reports demand via valve % and/or TRV output (see <see cref="HeatDemand"/>).</summary>
     public bool CallingForHeat => HeatDemand != 0;
 }
+
+public sealed record LatestSystemSnapshot(long Ts, bool HeatingRelayOn, bool HeatingActive);
 
 public sealed record RoomSeriesRow(long Ts, double TempC, double? SetpointC, int HeatDemand, int? PercentageDemand)
 {

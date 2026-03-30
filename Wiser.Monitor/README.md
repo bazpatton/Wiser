@@ -62,7 +62,7 @@ The dashboard is static HTML + Chart.js under `wwwroot/` so the container stays 
 
 ## API
 
-`GET /api/health`, `/api/rooms`, `/api/latest`, `/api/series?room=&hours=&include_outdoor=`
+`GET /api/health`, `/api/rooms`, `/api/latest` (includes optional `system`: `heating_relay_on`, `heating_active`, `ts`), `/api/series?room=&hours=&include_outdoor=`
 
 JSON uses **snake_case** property names for compatibility with the existing UI.
 

@@ -194,12 +194,169 @@
     .rooms-overview .sort-mark.sort-idle {
       opacity: 0.35;
     }
+    .app-tabs {
+      display: flex;
+      gap: 0.35rem;
+      margin-bottom: 1rem;
+      flex-wrap: wrap;
+    }
+    .app-tabs button[role="tab"] {
+      font: inherit;
+      font-size: 0.95rem;
+      padding: 0.45rem 0.9rem;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      background: var(--panel);
+      color: var(--muted);
+      cursor: pointer;
+    }
+    .app-tabs button[role="tab"][aria-selected="true"] {
+      color: var(--text);
+      border-color: var(--accent);
+      background: rgba(91, 155, 213, 0.12);
+    }
+    .app-tabs button[role="tab"]:focus-visible {
+      outline: 2px solid var(--accent);
+      outline-offset: 2px;
+    }
+    .tab-panel[hidden] {
+      display: none !important;
+    }
+    .home-intro {
+      color: var(--muted);
+      font-size: 0.88rem;
+      margin: 0 0 1rem;
+      max-width: 720px;
+    }
+    .home-status-card {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 0.85rem 1rem;
+      margin-bottom: 1rem;
+      max-width: 1100px;
+    }
+    .home-status-card h2 {
+      font-size: 0.75rem;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--muted);
+      margin: 0 0 0.35rem;
+      font-weight: 600;
+    }
+    .home-status-lines {
+      font-size: 0.95rem;
+      line-height: 1.5;
+    }
+    .home-status-lines .muted {
+      color: var(--muted);
+      font-size: 0.85rem;
+    }
+    .home-chips {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.5rem;
+      align-items: center;
+      margin-bottom: 0.85rem;
+    }
+    .home-chips .label {
+      font-size: 0.8rem;
+      color: var(--muted);
+      margin-right: 0.25rem;
+    }
+    .home-chips button.chip {
+      font: inherit;
+      font-size: 0.82rem;
+      padding: 0.3rem 0.65rem;
+      border-radius: 999px;
+      border: 1px solid var(--border);
+      background: var(--bg);
+      color: var(--text);
+      cursor: pointer;
+    }
+    .home-chips button.chip[aria-pressed="true"] {
+      border-color: var(--accent);
+      background: rgba(91, 155, 213, 0.15);
+    }
+    .home-room-list {
+      display: flex;
+      flex-direction: column;
+      gap: 0.65rem;
+      max-width: 1100px;
+    }
+    .home-card {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 0.85rem 1rem;
+      cursor: pointer;
+      text-align: left;
+      font: inherit;
+      color: inherit;
+      width: 100%;
+      transition: border-color 0.12s ease;
+    }
+    .home-card:hover {
+      border-color: var(--accent);
+    }
+    .home-card:focus-visible {
+      outline: 2px solid var(--accent);
+      outline-offset: 2px;
+    }
+    .home-card-top {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 0.75rem;
+    }
+    .home-card-name {
+      font-size: 1.05rem;
+      font-weight: 700;
+      margin: 0;
+      line-height: 1.25;
+    }
+    .home-card-mode {
+      font-size: 0.72rem;
+      font-weight: 700;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      margin: 0.15rem 0 0;
+    }
+    .home-card-temp {
+      font-size: 1.65rem;
+      font-weight: 700;
+      color: var(--accent);
+      line-height: 1;
+      flex-shrink: 0;
+    }
+    .home-card-detail {
+      font-size: 0.84rem;
+      color: var(--muted);
+      margin: 0.5rem 0 0;
+      line-height: 1.45;
+    }
+    .home-card-detail strong.heat-on {
+      color: #e8a0a0;
+      font-weight: 600;
+    }
+    @media (max-width: 600px) {
+      .home-card-temp {
+        font-size: 1.45rem;
+      }
+    }
   </style>
 </head>
 <body>
   <h1>Wiser Monitor</h1>
   <p class="sub">Room temp, <strong>heat target</strong> (setpoint), <strong>calling for heat</strong>, and <strong>valve demand %</strong> from the hub; optional outdoor (Open-Meteo).</p>
 
+  <nav class="app-tabs" role="tablist" aria-label="Main views">
+    <button type="button" role="tab" id="tab-charts" aria-controls="panel-charts" aria-selected="true">Charts</button>
+    <button type="button" role="tab" id="tab-home" aria-controls="panel-home" aria-selected="false">Rooms</button>
+  </nav>
+
+  <div id="panel-charts" class="tab-panel" role="tabpanel" aria-labelledby="tab-charts">
   <div class="toolbar">
     <div>
       <label for="room">Room</label><br />
@@ -247,11 +404,140 @@
   <p class="hint">
     Outdoor temperature is optional context only — not used by the Wiser hub for control.
   </p>
+  </div>
+
+  <div id="panel-home" class="tab-panel" role="tabpanel" aria-labelledby="tab-home" hidden>
+    <p class="home-intro">
+      Same hub snapshot as the Wiser Control <strong>home</strong> list: current temperature, target, and heat demand per room.
+      <strong>Read-only</strong> here (no setpoint changes, Home/Away, or Undo) — use Wiser Control for that.
+    </p>
+    <div class="home-status-card">
+      <h2>Heating</h2>
+      <div id="home-status-body" class="home-status-lines">Loading…</div>
+      <div style="margin-top:0.6rem;">
+        <button type="button" id="refresh-home">Refresh</button>
+      </div>
+    </div>
+    <div class="home-chips">
+      <span class="label">Show</span>
+      <button type="button" class="chip" id="home-filter-all" aria-pressed="true">All rooms</button>
+      <button type="button" class="chip" id="home-filter-heat" aria-pressed="false">Calling for heat</button>
+    </div>
+    <div id="home-room-cards" class="home-room-list" role="list" aria-label="Rooms"></div>
+  </div>
 
   <script>
     const LS_ROOM = "wiserMonitor.room";
     const LS_HOURS = "wiserMonitor.hours";
     const LS_OUTDOOR = "wiserMonitor.outdoor";
+    const LS_TAB = "wiserMonitor.tab";
+
+    let lastLatestPayload = null;
+    let homeFilter = "all";
+
+    function setTab(which) {
+      const charts = document.getElementById("panel-charts");
+      const home = document.getElementById("panel-home");
+      const tCharts = document.getElementById("tab-charts");
+      const tHome = document.getElementById("tab-home");
+      const isCharts = which === "charts";
+      tCharts.setAttribute("aria-selected", isCharts ? "true" : "false");
+      tHome.setAttribute("aria-selected", isCharts ? "false" : "true");
+      charts.hidden = !isCharts;
+      home.hidden = isCharts;
+      try {
+        localStorage.setItem(LS_TAB, which);
+      } catch (_) {
+        /* private mode */
+      }
+    }
+
+    function applyTabFromStorage() {
+      try {
+        if (localStorage.getItem(LS_TAB) === "home") setTab("home");
+      } catch (_) {
+        /* ignore */
+      }
+    }
+
+    function goToChartsWithRoom(name) {
+      setTab("charts");
+      selectRoomByName(name);
+    }
+
+    function setHomeFilter(f) {
+      homeFilter = f;
+      document.getElementById("home-filter-all").setAttribute("aria-pressed", f === "all" ? "true" : "false");
+      document.getElementById("home-filter-heat").setAttribute("aria-pressed", f === "heat" ? "true" : "false");
+      renderHomePanel();
+    }
+
+    function renderHomePanel() {
+      const statusEl = document.getElementById("home-status-body");
+      const cardsEl = document.getElementById("home-room-cards");
+      const j = lastLatestPayload;
+      if (!j) {
+        statusEl.textContent = "No data yet.";
+        cardsEl.innerHTML = "";
+        return;
+      }
+      const sys = j.system;
+      if (sys) {
+        statusEl.innerHTML =
+          "<div>Boiler relay: <strong>" +
+          (sys.heating_relay_on ? "On" : "Off") +
+          "</strong></div>" +
+          "<div>Heating active: <strong>" +
+          (sys.heating_active ? "Yes" : "No") +
+          '</strong> <span class="muted">(relay on or any room demanding heat)</span></div>' +
+          '<div class="muted" style="margin-top:0.35rem">Sample time: ' +
+          fmtTime(sys.ts) +
+          "</div>";
+      } else {
+        statusEl.innerHTML = '<span class="muted">No system snapshot yet — wait for the next poll.</span>';
+      }
+
+      const map = j.rooms || {};
+      let entries = Object.entries(map).filter(([, row]) => row);
+      if (homeFilter === "heat") {
+        entries = entries.filter(([, row]) => row && Number(row.heat_demand) !== 0);
+      }
+      entries.sort((a, b) => a[0].localeCompare(b[0], undefined, { sensitivity: "base" }));
+
+      if (entries.length === 0) {
+        cardsEl.innerHTML = '<p class="muted">No rooms match this filter.</p>';
+        return;
+      }
+      let html = "";
+      for (const [name, row] of entries) {
+        const heating = Number(row.heat_demand) !== 0;
+        const pct = row.percentage_demand;
+        let line = heating
+          ? '<strong class="heat-on">Calling for heat</strong>'
+          : "Not calling for heat";
+        if (pct != null) line += " · valve " + escapeHtml(String(pct)) + "%";
+        const target = row.setpoint_c != null ? fmt1(row.setpoint_c) + " °C target" : "— target";
+        html +=
+          '<button type="button" class="home-card" role="listitem" data-room="' +
+          escapeAttr(name) +
+          '" title="Open chart for this room">' +
+          '<div class="home-card-top">' +
+          "<div><p class=\"home-card-name\">" +
+          escapeHtml(name) +
+          '</p><p class="home-card-mode">Latest hub poll</p></div>' +
+          '<div class="home-card-temp">' +
+          fmt1(row.temp_c) +
+          "°</div></div>" +
+          '<p class="home-card-detail">' +
+          line +
+          " · " +
+          target +
+          " · " +
+          fmtTime(row.ts) +
+          "</p></button>";
+      }
+      cardsEl.innerHTML = html;
+    }
 
     const fmtTime = (ts) => new Date(ts * 1000).toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
     const fmtTimeShort = (ts) =>
@@ -782,7 +1068,7 @@
       saveUiPrefs();
     }
 
-    document.getElementById("refresh").addEventListener("click", async () => {
+    async function runFullRefresh() {
       try {
         await loadHealth();
         await loadRooms();
@@ -793,12 +1079,25 @@
         document.getElementById("status").className = "status err";
         document.getElementById("status").textContent = String(e);
       }
+    }
+
+    document.getElementById("refresh").addEventListener("click", () => runFullRefresh());
+    document.getElementById("refresh-home").addEventListener("click", () => runFullRefresh());
+    document.getElementById("tab-charts").addEventListener("click", () => setTab("charts"));
+    document.getElementById("tab-home").addEventListener("click", () => setTab("home"));
+    document.getElementById("home-filter-all").addEventListener("click", () => setHomeFilter("all"));
+    document.getElementById("home-filter-heat").addEventListener("click", () => setHomeFilter("heat"));
+    document.getElementById("home-room-cards").addEventListener("click", (ev) => {
+      const btn = ev.target.closest("button.home-card");
+      if (!btn) return;
+      const raw = btn.getAttribute("data-room");
+      if (raw) goToChartsWithRoom(raw);
     });
     document.getElementById("calling-heat").addEventListener("click", (ev) => {
       const btn = ev.target.closest("button.heat-room");
       if (!btn) return;
       const raw = btn.getAttribute("data-room");
-      if (raw) selectRoomByName(raw);
+      if (raw) goToChartsWithRoom(raw);
     });
 
     document.getElementById("rooms-table-wrap").addEventListener("click", (ev) => {
@@ -818,7 +1117,7 @@
       const tr = ev.target.closest("tr.room-row-select");
       if (!tr) return;
       const raw = tr.getAttribute("data-room");
-      if (raw) selectRoomByName(raw);
+      if (raw) goToChartsWithRoom(raw);
     });
     document.getElementById("rooms-table-wrap").addEventListener("keydown", (ev) => {
       if (ev.key !== "Enter" && ev.key !== " ") return;
@@ -827,7 +1126,7 @@
       if (!tr) return;
       ev.preventDefault();
       const raw = tr.getAttribute("data-room");
-      if (raw) selectRoomByName(raw);
+      if (raw) goToChartsWithRoom(raw);
     });
 
     document.getElementById("room").addEventListener("change", () => {
@@ -854,6 +1153,8 @@
     } catch (_) {
       /* no matchMedia */
     }
+
+    applyTabFromStorage();
 
     (async () => {
       try {
