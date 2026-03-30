@@ -403,33 +403,44 @@
     .home-boost-row {
       display: flex;
       flex-wrap: wrap;
-      gap: 0.35rem;
+      gap: 0.45rem;
       padding: 0.55rem 0.75rem 0.75rem;
       border-top: 1px solid var(--border);
       background: rgba(0, 0, 0, 0.15);
       align-items: center;
     }
-    .home-boost-label {
-      font-size: 0.72rem;
-      color: var(--muted);
-      width: 100%;
-      margin-bottom: 0.15rem;
-    }
-    button.preset-btn {
+    .home-action-select {
       font: inherit;
-      font-size: 0.78rem;
-      padding: 0.28rem 0.5rem;
+      font-size: 0.82rem;
+      padding: 0.35rem 0.5rem;
+      border-radius: 6px;
+      border: 1px solid var(--border);
+      background: var(--bg);
+      color: var(--text);
+      flex: 1 1 auto;
+      min-width: 0;
+      max-width: 280px;
+    }
+    .home-action-select:focus {
+      border-color: var(--accent);
+      outline: none;
+    }
+    button.action-apply-btn {
+      font: inherit;
+      font-size: 0.82rem;
+      padding: 0.35rem 0.65rem;
       border-radius: 6px;
       border: 1px solid var(--border);
       background: var(--bg);
       color: var(--text);
       cursor: pointer;
+      white-space: nowrap;
     }
-    button.preset-btn:hover:not(:disabled) {
+    button.action-apply-btn:hover:not(:disabled) {
       border-color: var(--accent);
       color: var(--accent);
     }
-    button.preset-btn:disabled {
+    button.action-apply-btn:disabled {
       opacity: 0.5;
       cursor: not-allowed;
     }
@@ -737,42 +748,21 @@
         }
         const rad = radiatorBadgeHtml(room.radiator_state);
         const modeLabel = room.mode ? escapeHtml(room.mode) : "Live";
-        const modeBtns =
-          '<button type="button" class="preset-btn mode-btn" data-room-id="' +
-          escapeAttr(String(room.id)) +
-          '" data-mode="auto" title="Set room mode Auto">Auto</button>' +
-          '<button type="button" class="preset-btn mode-btn" data-room-id="' +
-          escapeAttr(String(room.id)) +
-          '" data-mode="manual" data-temp="' +
-          escapeAttr(String(room.setpoint_c ?? 20)) +
-          '" title="Set room mode Manual">Manual</button>' +
-          '<button type="button" class="preset-btn mode-btn" data-room-id="' +
-          escapeAttr(String(room.id)) +
-          '" data-mode="off" title="Set room mode Off">Off</button>';
-        const presetBtns = presets
-          .map(
-            (p) =>
-              '<button type="button" class="preset-btn" data-room-id="' +
-              escapeAttr(String(room.id)) +
-              '" data-temp="' +
-              escapeAttr(String(p.temperature_c)) +
-              '" data-mins="' +
-              escapeAttr(String(p.minutes)) +
-              '" title="Apply ' +
-              escapeAttr(p.name) +
-              " boost (" +
-              escapeAttr(String(p.temperature_c)) +
-              " °C, " +
-              escapeAttr(String(p.minutes)) +
-              ' min)">' +
-              escapeHtml(p.name) +
-              " " +
-              fmt1(p.temperature_c) +
-              "°/" +
-              String(p.minutes) +
-              "m</button>",
-          )
-          .join("");
+        const selectId = "action-select-" + escapeAttr(String(room.id));
+        let selectOpts =
+          '<option value="" disabled selected>Choose action…</option>' +
+          '<optgroup label="Mode">' +
+          '<option value="mode:auto" data-room-id="' + escapeAttr(String(room.id)) + '">Auto</option>' +
+          '<option value="mode:manual:' + escapeAttr(String(room.setpoint_c ?? 20)) + '" data-room-id="' + escapeAttr(String(room.id)) + '">Manual (' + fmt1(room.setpoint_c ?? 20) + '°)</option>' +
+          '<option value="mode:off" data-room-id="' + escapeAttr(String(room.id)) + '">Off</option>' +
+          '</optgroup>' +
+          '<optgroup label="Boost presets">';
+        for (const p of presets) {
+          selectOpts +=
+            '<option value="boost:' + escapeAttr(String(p.temperature_c)) + ':' + escapeAttr(String(p.minutes)) + '" data-room-id="' + escapeAttr(String(room.id)) + '">' +
+            escapeHtml(p.name) + ' (' + fmt1(p.temperature_c) + '° / ' + String(p.minutes) + ' min)</option>';
+        }
+        selectOpts += '</optgroup>';
         html +=
           '<div class="home-card-wrap" role="listitem">' +
           '<button type="button" class="home-card-main" data-room="' +
@@ -793,10 +783,10 @@
           line +
           "</p></button>" +
           '<div class="home-boost-row">' +
-          '<span class="home-boost-label">Mode</span>' +
-          modeBtns +
-          '<span class="home-boost-label">Boost presets</span>' +
-          presetBtns +
+          '<select class="home-action-select" id="' + selectId + '" data-room-id="' + escapeAttr(String(room.id)) + '">' +
+          selectOpts +
+          '</select>' +
+          '<button type="button" class="action-apply-btn" data-select-id="' + selectId + '" data-room-id="' + escapeAttr(String(room.id)) + '">Apply</button>' +
           "</div></div>";
       }
       cardsEl.innerHTML = html;
@@ -1436,23 +1426,26 @@
     document.getElementById("home-filter-all").addEventListener("click", () => setHomeFilter("all"));
     document.getElementById("home-filter-heat").addEventListener("click", () => setHomeFilter("heat"));
     document.getElementById("home-room-cards").addEventListener("click", (ev) => {
-      const modeBtn = ev.target.closest("button.mode-btn");
-      if (modeBtn) {
+      const applyBtn = ev.target.closest("button.action-apply-btn");
+      if (applyBtn) {
         ev.preventDefault();
-        const id = Number(modeBtn.getAttribute("data-room-id"));
-        const mode = String(modeBtn.getAttribute("data-mode") || "");
-        const tempRaw = modeBtn.getAttribute("data-temp");
-        const temp = tempRaw == null ? null : Number(tempRaw);
-        if (id && mode) applyRoomMode(id, mode, Number.isFinite(temp) ? temp : null).catch((e) => console.error(e));
-        return;
-      }
-      const preset = ev.target.closest("button.preset-btn");
-      if (preset) {
-        ev.preventDefault();
-        const id = Number(preset.getAttribute("data-room-id"));
-        const temp = Number(preset.getAttribute("data-temp"));
-        const mins = Number(preset.getAttribute("data-mins"));
-        if (id && Number.isFinite(temp) && Number.isFinite(mins)) applyBoost(id, temp, mins).catch((e) => console.error(e));
+        const selectId = applyBtn.getAttribute("data-select-id");
+        const sel = selectId ? document.getElementById(selectId) : null;
+        if (!sel || !sel.value) return;
+        const roomId = Number(applyBtn.getAttribute("data-room-id"));
+        const val = sel.value;
+        if (val.startsWith("mode:")) {
+          const parts = val.split(":");
+          const mode = parts[1];
+          const temp = parts[2] != null ? Number(parts[2]) : null;
+          if (roomId && mode) applyRoomMode(roomId, mode, Number.isFinite(temp) ? temp : null).catch((e) => console.error(e));
+        } else if (val.startsWith("boost:")) {
+          const parts = val.split(":");
+          const temp = Number(parts[1]);
+          const mins = Number(parts[2]);
+          if (roomId && Number.isFinite(temp) && Number.isFinite(mins)) applyBoost(roomId, temp, mins).catch((e) => console.error(e));
+        }
+        sel.value = "";
         return;
       }
       const btn = ev.target.closest("button.home-card-main, button.home-card");
