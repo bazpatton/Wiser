@@ -71,7 +71,7 @@ Per room sample (history + `/api/latest`):
 - **`temp_c`** — measured room temperature  
 - **`setpoint_c`** — heat target (hub `CurrentSetPoint`, else `ScheduledSetPoint`)  
 - **`heat_demand`** — `1` when the hub reports demand (valve % or TRV output on), else `0`  
-- **`calling_for_heat`** — same idea as `heat_demand`, boolean  
+- **`heat_demand`** — in JSON/`/api/latest`; non-zero when the room is calling for heat  
 - **`percentage_demand`** — TRV **PercentageDemand** (0–100) when the hub sends it  
 
 Existing databases pick up **`percentage_demand`** via a one-time `ALTER TABLE` on startup.

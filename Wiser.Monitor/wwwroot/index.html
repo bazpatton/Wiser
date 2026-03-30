@@ -76,6 +76,37 @@
     .summary-table th { color: var(--muted); font-weight: 600; }
     .summary-table tr:last-child td { border-bottom: none; }
     .summary-table td.num { text-align: right; font-variant-numeric: tabular-nums; }
+    .heat-strip {
+      font-size: 0.88rem;
+      color: var(--text);
+      padding: 0.55rem 0.85rem;
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      margin-bottom: 0.85rem;
+      line-height: 1.6;
+    }
+    .heat-strip .muted { color: var(--muted); }
+    .heat-strip button.heat-room {
+      display: inline-block;
+      margin: 0.15rem 0.35rem 0.15rem 0;
+      padding: 0.12rem 0.5rem;
+      background: rgba(229, 115, 115, 0.18);
+      border: 1px solid rgba(229, 115, 115, 0.45);
+      border-radius: 999px;
+      font: inherit;
+      font-size: 0.82rem;
+      color: inherit;
+      cursor: pointer;
+    }
+    .heat-strip button.heat-room:hover {
+      background: rgba(229, 115, 115, 0.32);
+      border-color: rgba(229, 115, 115, 0.65);
+    }
+    .heat-strip button.heat-room:focus-visible {
+      outline: 2px solid var(--accent);
+      outline-offset: 2px;
+    }
   </style>
 </head>
 <body>
@@ -97,12 +128,14 @@
       </select>
     </div>
     <div style="align-self:flex-end;">
-      <label><input type="checkbox" id="outdoor" checked /> Outdoor</label>
+      <label><input type="checkbox" id="outdoor" /> Outdoor</label>
     </div>
     <div style="align-self:flex-end;">
       <button type="button" id="refresh">Refresh</button>
     </div>
   </div>
+
+  <div id="calling-heat" class="heat-strip" aria-live="polite" role="region" aria-label="Rooms calling for heat">Loading heat demand…</div>
 
   <div id="status" class="status">Loading…</div>
   <div id="room-latest" class="room-latest" aria-live="polite"></div>
@@ -122,8 +155,60 @@
   </p>
 
   <script>
+    const LS_ROOM = "wiserMonitor.room";
+    const LS_HOURS = "wiserMonitor.hours";
+    const LS_OUTDOOR = "wiserMonitor.outdoor";
+
     const fmtTime = (ts) => new Date(ts * 1000).toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
     const fmt1 = (x) => (x == null || x === "" ? "—" : Number(x).toFixed(1));
+
+    function saveUiPrefs() {
+      try {
+        const room = document.getElementById("room").value;
+        if (room) localStorage.setItem(LS_ROOM, room);
+        localStorage.setItem(LS_HOURS, document.getElementById("hours").value);
+        localStorage.setItem(LS_OUTDOOR, document.getElementById("outdoor").checked ? "1" : "0");
+      } catch (_) {
+        /* private mode etc. */
+      }
+    }
+
+    function escapeAttr(s) {
+      return String(s)
+        .replace(/&/g, "&amp;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#39;")
+        .replace(/</g, "&lt;");
+    }
+
+    function selectRoomByName(name) {
+      if (!name) return;
+      const sel = document.getElementById("room");
+      const opts = [...sel.options].map((o) => o.value).filter(Boolean);
+      const match = opts.find((v) => v.toLowerCase() === name.toLowerCase());
+      if (!match) return;
+      sel.value = match;
+      saveUiPrefs();
+      loadSeries().catch((e) => console.error(e));
+    }
+
+    function applyUiPrefsAfterRoomsLoad() {
+      const sel = document.getElementById("room");
+      const optionValues = [...sel.options].map((o) => o.value).filter(Boolean);
+      const savedRoom = localStorage.getItem(LS_ROOM);
+      if (savedRoom) {
+        const match = optionValues.find((v) => v.toLowerCase() === savedRoom.toLowerCase());
+        if (match) sel.value = match;
+      }
+      const savedHours = localStorage.getItem(LS_HOURS);
+      if (savedHours && document.querySelector("#hours option[value=\"" + savedHours + "\"]")) {
+        document.getElementById("hours").value = savedHours;
+      }
+      const savedOutdoor = localStorage.getItem(LS_OUTDOOR);
+      if (savedOutdoor !== null) {
+        document.getElementById("outdoor").checked = savedOutdoor === "1";
+      }
+    }
 
     async function loadDailySummary() {
       const wrap = document.getElementById("daily-summary-wrap");
@@ -183,6 +268,44 @@
         o.textContent = "(no data yet)";
         sel.appendChild(o);
       }
+      applyUiPrefsAfterRoomsLoad();
+    }
+
+    async function loadCallingHeatStrip() {
+      const el = document.getElementById("calling-heat");
+      try {
+        const r = await fetch("/api/latest");
+        if (!r.ok) throw new Error("latest " + r.status);
+        const j = await r.json();
+        const roomMap = j.rooms || {};
+        const calling = Object.entries(roomMap)
+          .filter(([, row]) => row && Number(row.heat_demand) !== 0)
+          .map(([name]) => name)
+          .sort((a, b) => a.localeCompare(b, undefined, { sensitivity: "base" }));
+        if (calling.length === 0) {
+          el.innerHTML = "<strong>Calling for heat:</strong> <span class=\"muted\">None right now</span>";
+        } else {
+          el.innerHTML =
+            "<strong>Calling for heat (" +
+            calling.length +
+            "):</strong> " +
+            "<span class=\"muted\">(click a room to show it)</span> " +
+            calling
+              .map(
+                (n) =>
+                  '<button type="button" class="heat-room" data-room="' +
+                  escapeAttr(n) +
+                  '" title="Show chart for ' +
+                  escapeAttr(n) +
+                  '">' +
+                  escapeHtml(n) +
+                  "</button>",
+              )
+              .join(" ");
+        }
+      } catch (e) {
+        el.innerHTML = "<strong>Calling for heat:</strong> <span class=\"muted\">Could not load · " + escapeHtml(String(e)) + "</span>";
+      }
     }
 
     async function loadHealth() {
@@ -228,7 +351,7 @@
           return;
         }
         const target = row.setpoint_c != null ? row.setpoint_c.toFixed(1) + " °C" : "—";
-        const heat = row.calling_for_heat ? "Yes" : "No";
+        const heat = row.heat_demand ? "Yes" : "No";
         const pct = row.percentage_demand != null ? row.percentage_demand + "%" : "—";
         el.innerHTML =
           "<strong>Latest</strong> · <strong>" +
@@ -354,12 +477,14 @@
       });
 
       await loadRoomLatest(room);
+      saveUiPrefs();
     }
 
     document.getElementById("refresh").addEventListener("click", async () => {
       try {
         await loadHealth();
         await loadRooms();
+        await loadCallingHeatStrip();
         await loadSeries();
         await loadDailySummary();
       } catch (e) {
@@ -367,14 +492,31 @@
         document.getElementById("status").textContent = String(e);
       }
     });
-    document.getElementById("room").addEventListener("change", () => loadSeries().catch((e) => console.error(e)));
-    document.getElementById("hours").addEventListener("change", () => loadSeries().catch((e) => console.error(e)));
-    document.getElementById("outdoor").addEventListener("change", () => loadSeries().catch((e) => console.error(e)));
+    document.getElementById("calling-heat").addEventListener("click", (ev) => {
+      const btn = ev.target.closest("button.heat-room");
+      if (!btn) return;
+      const raw = btn.getAttribute("data-room");
+      if (raw) selectRoomByName(raw);
+    });
+
+    document.getElementById("room").addEventListener("change", () => {
+      saveUiPrefs();
+      loadSeries().catch((e) => console.error(e));
+    });
+    document.getElementById("hours").addEventListener("change", () => {
+      saveUiPrefs();
+      loadSeries().catch((e) => console.error(e));
+    });
+    document.getElementById("outdoor").addEventListener("change", () => {
+      saveUiPrefs();
+      loadSeries().catch((e) => console.error(e));
+    });
 
     (async () => {
       try {
         await loadRooms();
         await loadHealth();
+        await loadCallingHeatStrip();
         await loadSeries();
         await loadDailySummary();
       } catch (e) {
