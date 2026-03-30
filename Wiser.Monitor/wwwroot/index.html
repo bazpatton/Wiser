@@ -1436,6 +1436,16 @@
     document.getElementById("home-filter-all").addEventListener("click", () => setHomeFilter("all"));
     document.getElementById("home-filter-heat").addEventListener("click", () => setHomeFilter("heat"));
     document.getElementById("home-room-cards").addEventListener("click", (ev) => {
+      const modeBtn = ev.target.closest("button.mode-btn");
+      if (modeBtn) {
+        ev.preventDefault();
+        const id = Number(modeBtn.getAttribute("data-room-id"));
+        const mode = String(modeBtn.getAttribute("data-mode") || "");
+        const tempRaw = modeBtn.getAttribute("data-temp");
+        const temp = tempRaw == null ? null : Number(tempRaw);
+        if (id && mode) applyRoomMode(id, mode, Number.isFinite(temp) ? temp : null).catch((e) => console.error(e));
+        return;
+      }
       const preset = ev.target.closest("button.preset-btn");
       if (preset) {
         ev.preventDefault();
