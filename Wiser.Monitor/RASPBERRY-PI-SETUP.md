@@ -103,6 +103,8 @@ Replace the URL with **your** fork or private remote if different. For a **priva
 
 If you previously cloned **`Wiser.Control`** by itself, switch to this repo (or copy **`Wiser.Monitor`** via Option B) so paths match `~/Wiser/Wiser.Monitor`.
 
+On your **PC**, publish the monorepo once: create an empty GitHub repository named **`Wiser`**, then `git remote add origin …` and `git push -u origin main` from the repo root. After that, the `git clone` line above works on the Pi.
+
 ### Option B — Copy files
 
 Copy the **`Wiser.Monitor`** directory (Dockerfile, `docker-compose.yml`, `wwwroot`, etc.) to the Pi using **SCP**, **WinSCP**, or a USB drive.
