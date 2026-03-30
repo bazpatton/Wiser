@@ -450,6 +450,7 @@
       } catch (_) {
         /* private mode */
       }
+      if (which === "home" && lastLatestPayload) renderHomePanel();
     }
 
     function applyTabFromStorage() {
@@ -828,13 +829,18 @@
         const r = await fetch("/api/latest");
         if (!r.ok) throw new Error("latest " + r.status);
         const j = await r.json();
+        lastLatestPayload = j;
         renderCallingHeatStripFromLatest(j);
         renderRoomsTableFromLatest(j);
+        renderHomePanel();
       } catch (e) {
         roomsLatestEntries = null;
+        lastLatestPayload = null;
         elStrip.innerHTML =
           "<strong>Calling for heat:</strong> <span class=\"muted\">Could not load · " + escapeHtml(String(e)) + "</span>";
         wrap.textContent = "Could not load room list: " + e;
+        document.getElementById("home-status-body").textContent = "Could not load latest data.";
+        document.getElementById("home-room-cards").innerHTML = "";
       }
     }
 
