@@ -96,6 +96,23 @@ app.MapPost("/api/room/boost", async (BoostRoomRequest body, WiserHubFetch hub, 
     }
 });
 
+app.MapPost("/api/room/mode", async (RoomModeRequest body, WiserHubFetch hub, MonitorOptions o, CancellationToken ct) =>
+{
+    if (body.room_id <= 0)
+        return Results.BadRequest(new { error = "invalid room_id" });
+    if (string.IsNullOrWhiteSpace(body.mode))
+        return Results.BadRequest(new { error = "mode is required" });
+    try
+    {
+        await hub.PatchRoomModeAsync(o, body.room_id, body.mode, body.temperature_c, ct).ConfigureAwait(false);
+        return Results.Json(new { ok = true });
+    }
+    catch (Exception ex)
+    {
+        return Results.Json(new { error = ex.Message }, statusCode: StatusCodes.Status502BadGateway);
+    }
+});
+
 app.MapGet("/api/daily-summary", (int? days, TemperatureStore store, MonitorOptions o) =>
 {
     var d = Math.Clamp(days ?? 14, 1, 90);
@@ -211,3 +228,4 @@ internal static class BoostPresets
 }
 
 internal sealed record BoostRoomRequest(int room_id, double temperature_c, int minutes);
+internal sealed record RoomModeRequest(int room_id, string mode, double? temperature_c);

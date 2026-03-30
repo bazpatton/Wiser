@@ -440,11 +440,32 @@
   <p class="sub">Room temp, <strong>heat target</strong> (setpoint), <strong>calling for heat</strong>, and <strong>valve demand %</strong> from the hub; optional outdoor (Open-Meteo).</p>
 
   <nav class="app-tabs" role="tablist" aria-label="Main views">
-    <button type="button" role="tab" id="tab-charts" aria-controls="panel-charts" aria-selected="true">Charts</button>
-    <button type="button" role="tab" id="tab-home" aria-controls="panel-home" aria-selected="false">Rooms</button>
+    <button type="button" role="tab" id="tab-home" aria-controls="panel-home" aria-selected="true">Rooms</button>
+    <button type="button" role="tab" id="tab-charts" aria-controls="panel-charts" aria-selected="false">Charts</button>
   </nav>
 
-  <div id="panel-charts" class="tab-panel" role="tabpanel" aria-labelledby="tab-charts">
+  <div id="panel-home" class="tab-panel" role="tabpanel" aria-labelledby="tab-home">
+    <p class="home-intro">
+      <strong>Live</strong> data from your Wiser hub (same fields as Wiser Control home). Booster presets apply a timed boost like the app; other changes (mode, Home/Away, Undo) still use Wiser Control.
+    </p>
+    <div id="home-hub-error" class="home-hub-error" hidden></div>
+    <div id="home-boost-msg" class="home-boost-msg"></div>
+    <div class="home-status-card">
+      <h2>Heating</h2>
+      <div id="home-status-body" class="home-status-lines">Loading…</div>
+      <div style="margin-top:0.6rem;">
+        <button type="button" id="refresh-home">Refresh</button>
+      </div>
+    </div>
+    <div class="home-chips">
+      <span class="label">Show</span>
+      <button type="button" class="chip" id="home-filter-all" aria-pressed="true">All rooms</button>
+      <button type="button" class="chip" id="home-filter-heat" aria-pressed="false">Calling for heat</button>
+    </div>
+    <div id="home-room-cards" class="home-room-list" role="list" aria-label="Rooms"></div>
+  </div>
+
+  <div id="panel-charts" class="tab-panel" role="tabpanel" aria-labelledby="tab-charts" hidden>
   <div class="toolbar">
     <div>
       <label for="room">Room</label><br />
@@ -494,27 +515,6 @@
   </p>
   </div>
 
-  <div id="panel-home" class="tab-panel" role="tabpanel" aria-labelledby="tab-home" hidden>
-    <p class="home-intro">
-      <strong>Live</strong> data from your Wiser hub (same fields as Wiser Control home). Booster presets apply a timed boost like the app; other changes (mode, Home/Away, Undo) still use Wiser Control.
-    </p>
-    <div id="home-hub-error" class="home-hub-error" hidden></div>
-    <div id="home-boost-msg" class="home-boost-msg"></div>
-    <div class="home-status-card">
-      <h2>Heating</h2>
-      <div id="home-status-body" class="home-status-lines">Loading…</div>
-      <div style="margin-top:0.6rem;">
-        <button type="button" id="refresh-home">Refresh</button>
-      </div>
-    </div>
-    <div class="home-chips">
-      <span class="label">Show</span>
-      <button type="button" class="chip" id="home-filter-all" aria-pressed="true">All rooms</button>
-      <button type="button" class="chip" id="home-filter-heat" aria-pressed="false">Calling for heat</button>
-    </div>
-    <div id="home-room-cards" class="home-room-list" role="list" aria-label="Rooms"></div>
-  </div>
-
   <script>
     const LS_ROOM = "wiserMonitor.room";
     const LS_HOURS = "wiserMonitor.hours";
@@ -545,9 +545,10 @@
 
     function applyTabFromStorage() {
       try {
-        if (localStorage.getItem(LS_TAB) === "home") setTab("home");
+        if (localStorage.getItem(LS_TAB) === "charts") setTab("charts");
+        else setTab("home");
       } catch (_) {
-        /* ignore */
+        setTab("home");
       }
     }
 
@@ -560,7 +561,8 @@
       homeFilter = f;
       document.getElementById("home-filter-all").setAttribute("aria-pressed", f === "all" ? "true" : "false");
       document.getElementById("home-filter-heat").setAttribute("aria-pressed", f === "heat" ? "true" : "false");
-      renderHomePanel();
+      if (hubLiveLastData) renderHubLiveRooms();
+      else renderHomePanel();
     }
 
     function renderHomePanel() {
@@ -679,6 +681,7 @@
         if (!r.ok) throw new Error("hub-live " + r.status);
         const data = await r.json();
         hubLiveLastData = data;
+        renderCallingHeatStripFromHubRooms(data.rooms || []);
         errEl.hidden = true;
         errEl.textContent = "";
         renderHubLiveRooms();
@@ -734,6 +737,18 @@
         }
         const rad = radiatorBadgeHtml(room.radiator_state);
         const modeLabel = room.mode ? escapeHtml(room.mode) : "Live";
+        const modeBtns =
+          '<button type="button" class="preset-btn mode-btn" data-room-id="' +
+          escapeAttr(String(room.id)) +
+          '" data-mode="auto" title="Set room mode Auto">Auto</button>' +
+          '<button type="button" class="preset-btn mode-btn" data-room-id="' +
+          escapeAttr(String(room.id)) +
+          '" data-mode="manual" data-temp="' +
+          escapeAttr(String(room.setpoint_c ?? 20)) +
+          '" title="Set room mode Manual">Manual</button>' +
+          '<button type="button" class="preset-btn mode-btn" data-room-id="' +
+          escapeAttr(String(room.id)) +
+          '" data-mode="off" title="Set room mode Off">Off</button>';
         const presetBtns = presets
           .map(
             (p) =>
@@ -778,6 +793,8 @@
           line +
           "</p></button>" +
           '<div class="home-boost-row">' +
+          '<span class="home-boost-label">Mode</span>' +
+          modeBtns +
           '<span class="home-boost-label">Boost presets</span>' +
           presetBtns +
           "</div></div>";
@@ -802,6 +819,32 @@
       } catch (e) {
         msgEl.style.color = "#f0a8a8";
         msgEl.textContent = "Boost failed: " + e;
+      }
+      setTimeout(() => {
+        msgEl.textContent = "";
+        msgEl.style.color = "";
+      }, 6000);
+    }
+
+    async function applyRoomMode(roomId, mode, temperatureC) {
+      const msgEl = document.getElementById("home-boost-msg");
+      msgEl.textContent = "";
+      msgEl.style.color = "";
+      try {
+        const body = { room_id: roomId, mode };
+        if (temperatureC != null && Number.isFinite(temperatureC)) body.temperature_c = temperatureC;
+        const r = await fetch("/api/room/mode", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        });
+        const j = await r.json().catch(() => ({}));
+        if (!r.ok) throw new Error(j.error || String(r.status));
+        msgEl.textContent = "Mode updated.";
+        await loadHubLiveRooms();
+      } catch (e) {
+        msgEl.style.color = "#f0a8a8";
+        msgEl.textContent = "Mode update failed: " + e;
       }
       setTimeout(() => {
         msgEl.textContent = "";
@@ -929,6 +972,36 @@
       const calling = Object.entries(roomMap)
         .filter(([, row]) => row && Number(row.heat_demand) !== 0)
         .map(([name]) => name)
+        .sort((a, b) => a.localeCompare(b, undefined, { sensitivity: "base" }));
+      if (calling.length === 0) {
+        el.innerHTML = "<strong>Calling for heat:</strong> <span class=\"muted\">None right now</span>";
+      } else {
+        el.innerHTML =
+          "<strong>Calling for heat (" +
+          calling.length +
+          "):</strong> " +
+          "<span class=\"muted\">(click a room to show it)</span> " +
+          calling
+            .map(
+              (n) =>
+                '<button type="button" class="heat-room" data-room="' +
+                escapeAttr(n) +
+                '" title="Show chart for ' +
+                escapeAttr(n) +
+                '">' +
+                escapeHtml(n) +
+                "</button>",
+            )
+            .join(" ");
+      }
+    }
+
+    function renderCallingHeatStripFromHubRooms(rooms) {
+      const el = document.getElementById("calling-heat");
+      const calling = (rooms || [])
+        .filter((r) => r && Number(r.heat_demand) !== 0)
+        .map((r) => r.name)
+        .filter(Boolean)
         .sort((a, b) => a.localeCompare(b, undefined, { sensitivity: "base" }));
       if (calling.length === 0) {
         el.innerHTML = "<strong>Calling for heat:</strong> <span class=\"muted\">None right now</span>";
