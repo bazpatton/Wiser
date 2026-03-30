@@ -128,6 +128,72 @@
       outline: 2px solid var(--accent);
       outline-offset: 2px;
     }
+    .rooms-overview {
+      margin-top: 1rem;
+      margin-bottom: 1rem;
+      max-width: 1100px;
+    }
+    .rooms-overview h2 {
+      font-size: 1.1rem;
+      margin: 0 0 0.4rem;
+      font-weight: 600;
+    }
+    .rooms-overview .sub-hint {
+      font-size: 0.8rem;
+      color: var(--muted);
+      margin: 0 0 0.5rem;
+    }
+    tr.room-row-select {
+      cursor: pointer;
+    }
+    tr.room-row-select:hover {
+      background: rgba(91, 155, 213, 0.07);
+    }
+    tr.room-row-select:focus-visible {
+      outline: 2px solid var(--accent);
+      outline-offset: -2px;
+    }
+    .summary-table .heat-yes {
+      color: #e8a0a0;
+      font-weight: 600;
+    }
+    .rooms-overview th.sort-th-cell {
+      padding: 0;
+      vertical-align: bottom;
+    }
+    .rooms-overview button.sort-th {
+      width: 100%;
+      margin: 0;
+      font: inherit;
+      color: inherit;
+      background: transparent;
+      border: none;
+      cursor: pointer;
+      padding: 0.45rem 0.6rem;
+      text-align: left;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.35rem;
+    }
+    .rooms-overview th.num button.sort-th {
+      justify-content: flex-end;
+    }
+    .rooms-overview button.sort-th:hover {
+      color: var(--accent);
+    }
+    .rooms-overview button.sort-th:focus-visible {
+      outline: 2px solid var(--accent);
+      outline-offset: -2px;
+    }
+    .rooms-overview .sort-mark {
+      font-size: 0.65rem;
+      line-height: 1;
+      flex-shrink: 0;
+    }
+    .rooms-overview .sort-mark.sort-idle {
+      opacity: 0.35;
+    }
   </style>
 </head>
 <body>
@@ -160,6 +226,13 @@
 
   <div id="status" class="status">Loading…</div>
   <div id="room-latest" class="room-latest" aria-live="polite"></div>
+
+  <section class="rooms-overview" aria-labelledby="rooms-overview-heading">
+    <h2 id="rooms-overview-heading">All rooms</h2>
+    <p class="sub-hint">Latest reading per room from the hub poll. Click a row to show that room on the chart.</p>
+    <div id="rooms-table-wrap" class="summary-table-wrap" role="region" aria-label="Room temperatures">Loading…</div>
+  </section>
+
   <div class="chart-wrap"><canvas id="chart"></canvas></div>
 
   <section class="energy-section" aria-labelledby="energy-heading">
@@ -294,40 +367,188 @@
       applyUiPrefsAfterRoomsLoad();
     }
 
-    async function loadCallingHeatStrip() {
+    function renderCallingHeatStripFromLatest(j) {
       const el = document.getElementById("calling-heat");
+      const roomMap = j.rooms || {};
+      const calling = Object.entries(roomMap)
+        .filter(([, row]) => row && Number(row.heat_demand) !== 0)
+        .map(([name]) => name)
+        .sort((a, b) => a.localeCompare(b, undefined, { sensitivity: "base" }));
+      if (calling.length === 0) {
+        el.innerHTML = "<strong>Calling for heat:</strong> <span class=\"muted\">None right now</span>";
+      } else {
+        el.innerHTML =
+          "<strong>Calling for heat (" +
+          calling.length +
+          "):</strong> " +
+          "<span class=\"muted\">(click a room to show it)</span> " +
+          calling
+            .map(
+              (n) =>
+                '<button type="button" class="heat-room" data-room="' +
+                escapeAttr(n) +
+                '" title="Show chart for ' +
+                escapeAttr(n) +
+                '">' +
+                escapeHtml(n) +
+                "</button>",
+            )
+            .join(" ");
+      }
+    }
+
+    let roomsSortKey = "room";
+    let roomsSortDir = 1;
+    let roomsLatestEntries = null;
+
+    function sortMarkForColumn(colKey) {
+      if (colKey !== roomsSortKey) {
+        return "<span class=\"sort-mark sort-idle\" aria-hidden=\"true\">↕</span>";
+      }
+      return roomsSortDir === 1
+        ? "<span class=\"sort-mark\" aria-hidden=\"true\">▲</span>"
+        : "<span class=\"sort-mark\" aria-hidden=\"true\">▼</span>";
+    }
+
+    function ariaSortForColumn(colKey) {
+      if (colKey !== roomsSortKey) return "none";
+      return roomsSortDir === 1 ? "ascending" : "descending";
+    }
+
+    function compareRoomsRows(entryA, entryB, key, dir) {
+      const mul = dir;
+      const [nameA, ra] = entryA;
+      const [nameB, rb] = entryB;
+      const tie = nameA.localeCompare(nameB, undefined, { sensitivity: "base" });
+
+      const cmpNum = (va, vb) => {
+        const aNull = va == null || va === "";
+        const bNull = vb == null || vb === "";
+        if (aNull && bNull) return tie;
+        if (aNull) return 1;
+        if (bNull) return -1;
+        const na = Number(va);
+        const nb = Number(vb);
+        if (na < nb) return -mul;
+        if (na > nb) return mul;
+        return tie;
+      };
+
+      switch (key) {
+        case "room":
+          return mul * tie;
+        case "temp":
+          return cmpNum(ra.temp_c, rb.temp_c);
+        case "target":
+          return cmpNum(ra.setpoint_c, rb.setpoint_c);
+        case "heat":
+          return cmpNum(ra.heat_demand, rb.heat_demand);
+        case "valve":
+          return cmpNum(ra.percentage_demand, rb.percentage_demand);
+        default:
+          return tie;
+      }
+    }
+
+    function sortedRoomEntries(entries, key, dir) {
+      return [...entries].sort((a, b) => compareRoomsRows(a, b, key, dir));
+    }
+
+    function renderRoomsTableFromLatest(j) {
+      const wrap = document.getElementById("rooms-table-wrap");
+      const map = j.rooms || {};
+      const entries = Object.entries(map).filter(([, row]) => row);
+      if (entries.length === 0) {
+        roomsLatestEntries = null;
+        wrap.textContent = "No room samples yet — wait for the next hub poll.";
+        return;
+      }
+      roomsLatestEntries = entries;
+      redrawRoomsTable();
+    }
+
+    function redrawRoomsTable() {
+      const wrap = document.getElementById("rooms-table-wrap");
+      if (!roomsLatestEntries || roomsLatestEntries.length === 0) {
+        return;
+      }
+      const entries = sortedRoomEntries(roomsLatestEntries, roomsSortKey, roomsSortDir);
+
+      const th = (colKey, label, className) => {
+        const asc = ariaSortForColumn(colKey);
+        const cls = className ? " class=\"" + className + " sort-th-cell\"" : " class=\"sort-th-cell\"";
+        return (
+          "<th scope=\"col\"" +
+          cls +
+          " aria-sort=\"" +
+          asc +
+          "\">" +
+          "<button type=\"button\" class=\"sort-th\" data-sort=\"" +
+          escapeAttr(colKey) +
+          "\" title=\"Sort by " +
+          escapeAttr(label) +
+          "\">" +
+          "<span>" +
+          escapeHtml(label) +
+          "</span>" +
+          sortMarkForColumn(colKey) +
+          "</button></th>"
+        );
+      };
+
+      let html = "<table class=\"summary-table\"><thead><tr>";
+      html += th("room", "Room", "");
+      html += th("temp", "Measured °C", "num");
+      html += th("target", "Target °C", "num");
+      html += th("heat", "Calling heat", "");
+      html += th("valve", "Valve %", "num");
+      html += "</tr></thead><tbody>";
+
+      for (const [name, row] of entries) {
+        const heating = Number(row.heat_demand) !== 0;
+        const heatLabel = heating ? "Yes" : "No";
+        const heatCellClass = heating ? "heat-yes" : "";
+        html +=
+          "<tr class=\"room-row-select\" tabindex=\"0\" role=\"button\" data-room=\"" +
+          escapeAttr(name) +
+          "\" title=\"Show chart for this room\">" +
+          "<th scope=\"row\">" +
+          escapeHtml(name) +
+          "</th>" +
+          "<td class=\"num\">" +
+          fmt1(row.temp_c) +
+          "</td>" +
+          "<td class=\"num\">" +
+          (row.setpoint_c != null ? fmt1(row.setpoint_c) : "—") +
+          "</td>" +
+          "<td class=\"" +
+          heatCellClass +
+          "\">" +
+          heatLabel +
+          "</td>" +
+          "<td class=\"num\">" +
+          (row.percentage_demand != null ? escapeHtml(String(row.percentage_demand)) + "%" : "—") +
+          "</td>" +
+          "</tr>";
+      }
+      html += "</tbody></table>";
+      wrap.innerHTML = html;
+    }
+
+    async function loadLatestOverview() {
+      const elStrip = document.getElementById("calling-heat");
+      const wrap = document.getElementById("rooms-table-wrap");
       try {
         const r = await fetch("/api/latest");
         if (!r.ok) throw new Error("latest " + r.status);
         const j = await r.json();
-        const roomMap = j.rooms || {};
-        const calling = Object.entries(roomMap)
-          .filter(([, row]) => row && Number(row.heat_demand) !== 0)
-          .map(([name]) => name)
-          .sort((a, b) => a.localeCompare(b, undefined, { sensitivity: "base" }));
-        if (calling.length === 0) {
-          el.innerHTML = "<strong>Calling for heat:</strong> <span class=\"muted\">None right now</span>";
-        } else {
-          el.innerHTML =
-            "<strong>Calling for heat (" +
-            calling.length +
-            "):</strong> " +
-            "<span class=\"muted\">(click a room to show it)</span> " +
-            calling
-              .map(
-                (n) =>
-                  '<button type="button" class="heat-room" data-room="' +
-                  escapeAttr(n) +
-                  '" title="Show chart for ' +
-                  escapeAttr(n) +
-                  '">' +
-                  escapeHtml(n) +
-                  "</button>",
-              )
-              .join(" ");
-        }
+        renderCallingHeatStripFromLatest(j);
+        renderRoomsTableFromLatest(j);
       } catch (e) {
-        el.innerHTML = "<strong>Calling for heat:</strong> <span class=\"muted\">Could not load · " + escapeHtml(String(e)) + "</span>";
+        roomsLatestEntries = null;
+        elStrip.innerHTML =
+          "<strong>Calling for heat:</strong> <span class=\"muted\">Could not load · " + escapeHtml(String(e)) + "</span>";
+        wrap.textContent = "Could not load room list: " + e;
       }
     }
 
@@ -565,7 +786,7 @@
       try {
         await loadHealth();
         await loadRooms();
-        await loadCallingHeatStrip();
+        await loadLatestOverview();
         await loadSeries();
         await loadDailySummary();
       } catch (e) {
@@ -577,6 +798,35 @@
       const btn = ev.target.closest("button.heat-room");
       if (!btn) return;
       const raw = btn.getAttribute("data-room");
+      if (raw) selectRoomByName(raw);
+    });
+
+    document.getElementById("rooms-table-wrap").addEventListener("click", (ev) => {
+      const sortBtn = ev.target.closest("button.sort-th");
+      if (sortBtn) {
+        const k = sortBtn.getAttribute("data-sort");
+        if (k) {
+          if (k === roomsSortKey) roomsSortDir *= -1;
+          else {
+            roomsSortKey = k;
+            roomsSortDir = 1;
+          }
+          redrawRoomsTable();
+        }
+        return;
+      }
+      const tr = ev.target.closest("tr.room-row-select");
+      if (!tr) return;
+      const raw = tr.getAttribute("data-room");
+      if (raw) selectRoomByName(raw);
+    });
+    document.getElementById("rooms-table-wrap").addEventListener("keydown", (ev) => {
+      if (ev.key !== "Enter" && ev.key !== " ") return;
+      if (ev.target.closest("button.sort-th")) return;
+      const tr = ev.target.closest("tr.room-row-select");
+      if (!tr) return;
+      ev.preventDefault();
+      const raw = tr.getAttribute("data-room");
       if (raw) selectRoomByName(raw);
     });
 
@@ -609,7 +859,7 @@
       try {
         await loadRooms();
         await loadHealth();
-        await loadCallingHeatStrip();
+        await loadLatestOverview();
         await loadSeries();
         await loadDailySummary();
       } catch (e) {
