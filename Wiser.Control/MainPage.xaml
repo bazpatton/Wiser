@@ -1,0 +1,285 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             xmlns:vm="clr-namespace:Wiser.Control.ViewModels"
+             xmlns:local="clr-namespace:Wiser.Control"
+             x:Class="Wiser.Control.MainPage"
+             Title="Wiser Control">
+
+    <ContentPage.ToolbarItems>
+        <ToolbarItem Order="Primary"
+                     SemanticProperties.Description="Open settings"
+                     Clicked="OnSettingsClicked">
+            <ToolbarItem.IconImageSource>
+                <FontImageSource FontFamily="FluentIconsFilled"
+                                 Glyph="{x:Static local:IconGlyphs.FluentSettings}"
+                                 Color="{AppThemeBinding Light={StaticResource PrimaryMuted}, Dark={StaticResource PrimaryDark}}"
+                                 Size="22" />
+            </ToolbarItem.IconImageSource>
+        </ToolbarItem>
+    </ContentPage.ToolbarItems>
+
+    <RefreshView Refreshing="OnPullToRefresh">
+        <CollectionView x:Name="RoomsCollection"
+                        Margin="16,8,16,16"
+                        SelectionMode="None">
+        <CollectionView.Header>
+            <VerticalStackLayout Spacing="10"
+                                 Margin="0,0,0,10">
+                <Border Padding="12,10"
+                        BackgroundColor="{AppThemeBinding Light={StaticResource Secondary}, Dark={StaticResource CardBackgroundDark}}"
+                        Stroke="{AppThemeBinding Light={StaticResource Primary}, Dark={StaticResource PrimaryDark}}"
+                        StrokeThickness="1">
+                    <Border.StrokeShape>
+                        <RoundRectangle CornerRadius="14" />
+                    </Border.StrokeShape>
+                    <VerticalStackLayout Spacing="8">
+                        <Grid ColumnDefinitions="*,Auto"
+                              ColumnSpacing="8">
+                            <VerticalStackLayout Grid.Column="0"
+                                                 Spacing="2">
+                                <Label x:Name="HeatingLabel"
+                                       FontSize="12"
+                                       FontAttributes="Bold"
+                                       TextColor="{AppThemeBinding Light={StaticResource PrimaryMuted}, Dark={StaticResource PrimaryDark}}" />
+                                <Label x:Name="StatusLabel"
+                                       Text="Loading..."
+                                       FontSize="14"
+                                       FontAttributes="Bold"
+                                       LineBreakMode="WordWrap"
+                                       TextColor="{AppThemeBinding Light={StaticResource MidnightBlue}, Dark={StaticResource White}}" />
+                            </VerticalStackLayout>
+                            <Button x:Name="RefreshButton"
+                                    Grid.Column="1"
+                                    Text="Refresh"
+                                    Style="{StaticResource CompactOutlineButtonStyle}"
+                                    Clicked="OnRefreshClicked"
+                                    SemanticProperties.Hint="Reloads temperatures and room list from the hub">
+                                <Button.ImageSource>
+                                    <FontImageSource FontFamily="FluentIconsFilled"
+                                                     Glyph="{x:Static local:IconGlyphs.FluentRefresh}"
+                                                     Color="{AppThemeBinding Light={StaticResource PrimaryMuted}, Dark={StaticResource PrimaryDark}}"
+                                                     Size="16" />
+                                </Button.ImageSource>
+                            </Button>
+                        </Grid>
+
+                        <Label x:Name="HeatingDemandLabel"
+                               IsVisible="False"
+                               FontSize="12"
+                               LineBreakMode="WordWrap"
+                               TextColor="{AppThemeBinding Light={StaticResource SubtleTextLight}, Dark={StaticResource SubtleTextDark}}" />
+
+                        <HorizontalStackLayout Spacing="6">
+                            <Button Text="Home"
+                                    Style="{StaticResource CompactOutlineButtonStyle}"
+                                    Clicked="OnHomeClicked">
+                                <Button.ImageSource>
+                                    <FontImageSource FontFamily="FluentIconsFilled"
+                                                     Glyph="{x:Static local:IconGlyphs.FluentHome}"
+                                                     Color="{AppThemeBinding Light={StaticResource PrimaryMuted}, Dark={StaticResource PrimaryDark}}"
+                                                     Size="16" />
+                                </Button.ImageSource>
+                            </Button>
+                            <Button Text="Away"
+                                    Style="{StaticResource CompactOutlineButtonStyle}"
+                                    Clicked="OnAwayClicked">
+                                <Button.ImageSource>
+                                    <FontImageSource FontFamily="FontAwesomeSolid"
+                                                     Glyph="{x:Static local:IconGlyphs.FaDoorOpen}"
+                                                     Color="{AppThemeBinding Light={StaticResource PrimaryMuted}, Dark={StaticResource PrimaryDark}}"
+                                                     Size="16" />
+                                </Button.ImageSource>
+                            </Button>
+                            <Button x:Name="UndoLastButton"
+                                    Text="Undo"
+                                    Style="{StaticResource CompactOutlineButtonStyle}"
+                                    IsEnabled="False"
+                                    Clicked="OnUndoLastClicked">
+                                <Button.ImageSource>
+                                    <FontImageSource FontFamily="FontAwesomeSolid"
+                                                     Glyph="{x:Static local:IconGlyphs.FaUndo}"
+                                                     Color="{AppThemeBinding Light={StaticResource PrimaryMuted}, Dark={StaticResource PrimaryDark}}"
+                                                     Size="16" />
+                                </Button.ImageSource>
+                            </Button>
+                        </HorizontalStackLayout>
+
+                        <Label x:Name="NotificationSummaryLabel"
+                               Text="Notifications loading..."
+                               FontSize="12"
+                               FontAttributes="Bold"
+                               LineBreakMode="WordWrap"
+                               TextColor="{AppThemeBinding Light={StaticResource MidnightBlue}, Dark={StaticResource White}}" />
+                        <Label x:Name="NotificationMetaLabel"
+                               FontSize="11"
+                               LineBreakMode="WordWrap"
+                               TextColor="{AppThemeBinding Light={StaticResource SubtleTextLight}, Dark={StaticResource SubtleTextDark}}" />
+                    </VerticalStackLayout>
+                </Border>
+
+                <VerticalStackLayout Spacing="4"
+                                     Margin="2,2,0,4">
+                    <Label Text="Rooms"
+                           FontSize="13"
+                           FontAttributes="Bold"
+                           CharacterSpacing="0.5"
+                           TextColor="{AppThemeBinding Light={StaticResource SubtleTextLight}, Dark={StaticResource SubtleTextDark}}" />
+                    <Label Text="Filter with chips (incl. Calling for heat). Reorder in Settings > Rooms."
+                           FontSize="11"
+                           LineBreakMode="WordWrap"
+                           TextColor="{AppThemeBinding Light={StaticResource SubtleTextLight}, Dark={StaticResource SubtleTextDark}}"
+                           Opacity="0.85" />
+                </VerticalStackLayout>
+
+                <ScrollView Orientation="Horizontal"
+                            HorizontalScrollBarVisibility="Never"
+                            Margin="0,0,0,6">
+                    <HorizontalStackLayout x:Name="FilterChipsHost"
+                                           Spacing="8" />
+                </ScrollView>
+            </VerticalStackLayout>
+        </CollectionView.Header>
+        <CollectionView.ItemTemplate>
+            <DataTemplate x:DataType="vm:RoomRowViewModel">
+                        <Border Margin="0,0,0,8"
+                                Padding="12,10"
+                                BackgroundColor="{AppThemeBinding Light={StaticResource CardBackgroundLight}, Dark={StaticResource CardBackgroundDark}}"
+                                Stroke="{AppThemeBinding Light={StaticResource CardStrokeLight}, Dark={StaticResource CardStrokeDark}}"
+                                StrokeThickness="1">
+                            <Border.StrokeShape>
+                                <RoundRectangle CornerRadius="14" />
+                            </Border.StrokeShape>
+                            <Border.Shadow>
+                                <Shadow Brush="#20000000"
+                                        Offset="0,1"
+                                        Radius="6"
+                                        Opacity="0.18" />
+                            </Border.Shadow>
+                            <VerticalStackLayout Spacing="6">
+                                <Grid ColumnDefinitions="*,Auto"
+                                      ColumnSpacing="8">
+                                    <VerticalStackLayout Grid.Column="0"
+                                                         Spacing="2">
+                                        <Label Text="{Binding Name}"
+                                               FontSize="17"
+                                               FontAttributes="Bold"
+                                               LineBreakMode="TailTruncation"
+                                               MaxLines="2"
+                                               TextColor="{AppThemeBinding Light={StaticResource MidnightBlue}, Dark={StaticResource White}}" />
+                                        <Label Text="{Binding Mode}"
+                                               FontSize="11"
+                                               FontAttributes="Bold"
+                                               TextColor="{AppThemeBinding Light={StaticResource SubtleTextLight}, Dark={StaticResource SubtleTextDark}}" />
+                                    </VerticalStackLayout>
+                                    <Label Grid.Column="1"
+                                           Text="{Binding DisplayTempText}"
+                                           FontSize="21"
+                                           FontAttributes="Bold"
+                                           VerticalOptions="Center"
+                                           TextColor="{AppThemeBinding Light={StaticResource Primary}, Dark={StaticResource PrimaryDark}}" />
+                                </Grid>
+
+                                <HorizontalStackLayout Spacing="6"
+                                                       VerticalOptions="Center">
+                                    <Image WidthRequest="16"
+                                           HeightRequest="16"
+                                           VerticalOptions="Center"
+                                           Aspect="AspectFit"
+                                           SemanticProperties.Description="{Binding RadiatorStatusText}">
+                                        <Image.Source>
+                                            <FontImageSource FontFamily="FontAwesomeSolid"
+                                                             Glyph="{Binding RadiatorStatusGlyph}"
+                                                             Color="{Binding RadiatorStatusColor}"
+                                                             Size="13" />
+                                        </Image.Source>
+                                    </Image>
+                                    <Label FontSize="11"
+                                           FontAttributes="Bold"
+                                           Text="{Binding RadiatorStatusText}"
+                                           TextColor="{Binding RadiatorStatusColor}"
+                                           VerticalOptions="Center"
+                                           SemanticProperties.Description="{Binding RadiatorStatusText}" />
+                                    <Label FontSize="11"
+                                           Text="•"
+                                           TextColor="{AppThemeBinding Light={StaticResource SubtleTextLight}, Dark={StaticResource SubtleTextDark}}" />
+                                    <Label FontSize="11"
+                                           Text="{Binding TargetTempText}"
+                                           FontAttributes="Bold"
+                                           TextColor="{AppThemeBinding Light={StaticResource SubtleTextLight}, Dark={StaticResource SubtleTextDark}}" />
+                                    <Label FontSize="11"
+                                           Text="•"
+                                           IsVisible="{Binding HasHeatTimingSummary}"
+                                           VerticalOptions="Center"
+                                           TextColor="{AppThemeBinding Light={StaticResource SubtleTextLight}, Dark={StaticResource SubtleTextDark}}" />
+                                    <Label FontSize="11"
+                                           LineBreakMode="TailTruncation"
+                                           MaxLines="1"
+                                           IsVisible="{Binding HasHeatTimingSummary}"
+                                           Text="{Binding HeatTimingSummaryText}"
+                                           VerticalOptions="Center"
+                                           TextColor="{AppThemeBinding Light={StaticResource SubtleTextLight}, Dark={StaticResource SubtleTextDark}}"
+                                           SemanticProperties.Description="{Binding HeatTimingSummaryText}" />
+                                </HorizontalStackLayout>
+
+                                <Slider Minimum="5"
+                                        Maximum="30"
+                                        Value="{Binding TargetSlider, Mode=TwoWay}"
+                                        SemanticProperties.Description="Target temperature" />
+
+                                <HorizontalStackLayout Spacing="5">
+                                    <Button Text="18°"
+                                            Style="{StaticResource CompactOutlineButtonStyle}"
+                                            Padding="8,5"
+                                            CommandParameter="18"
+                                            Clicked="OnQuickSetTempClicked" />
+                                    <Button Text="20°"
+                                            Style="{StaticResource CompactOutlineButtonStyle}"
+                                            Padding="8,5"
+                                            CommandParameter="20"
+                                            Clicked="OnQuickSetTempClicked" />
+                                    <Button Text="22°"
+                                            Style="{StaticResource CompactOutlineButtonStyle}"
+                                            Padding="8,5"
+                                            CommandParameter="22"
+                                            Clicked="OnQuickSetTempClicked" />
+                                </HorizontalStackLayout>
+
+                                <Grid ColumnDefinitions="*,Auto,Auto"
+                                      ColumnSpacing="6">
+                                    <Button Grid.Column="0"
+                                            Text="Apply"
+                                            Padding="10,7"
+                                            MinimumHeightRequest="38"
+                                            Clicked="OnApplyTempClicked">
+                                        <Button.ImageSource>
+                                            <FontImageSource FontFamily="FontAwesomeSolid"
+                                                             Glyph="{x:Static local:IconGlyphs.FaCheck}"
+                                                             Color="{AppThemeBinding Light={StaticResource White}, Dark={StaticResource PrimaryDarkText}}"
+                                                             Size="14" />
+                                        </Button.ImageSource>
+                                    </Button>
+                                    <Button Grid.Column="1"
+                                            Text="Mode"
+                                            Style="{StaticResource CompactOutlineButtonStyle}"
+                                            Clicked="OnRoomModeMenuClicked">
+                                        <Button.ImageSource>
+                                            <FontImageSource FontFamily="FontAwesomeSolid"
+                                                             Glyph="{x:Static local:IconGlyphs.FaSliders}"
+                                                             Color="{AppThemeBinding Light={StaticResource Primary}, Dark={StaticResource PrimaryDark}}"
+                                                             Size="14" />
+                                        </Button.ImageSource>
+                                    </Button>
+                                    <ActivityIndicator Grid.Column="2"
+                                                       IsRunning="{Binding IsActionBusy}"
+                                                       IsVisible="{Binding IsActionBusy}"
+                                                       VerticalOptions="Center"
+                                                       Color="{AppThemeBinding Light={StaticResource Primary}, Dark={StaticResource White}}" />
+                                </Grid>
+                            </VerticalStackLayout>
+                        </Border>
+            </DataTemplate>
+        </CollectionView.ItemTemplate>
+        </CollectionView>
+    </RefreshView>
+</ContentPage>

@@ -1,0 +1,9 @@
+Third-party icon fonts in this folder:
+
+1) fa-solid-900.ttf — Font Awesome 6 Free (Solid). License: SIL OFL 1.1.
+   https://fontawesome.com/license/free
+   Retrieved from: https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/webfonts/fa-solid-900.ttf
+
+2) FluentSystemIcons-Filled.ttf — Microsoft Fluent UI System Icons. License: MIT.
+   https://github.com/microsoft/fluentui-system-icons
+   Retrieved from: https://raw.githubusercontent.com/microsoft/fluentui-system-icons/main/fonts/FluentSystemIcons-Filled.ttf

@@ -1,0 +1,34 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 18
+VisualStudioVersion = 18.4.11620.152 stable
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Wiser.Control", "Wiser.Control.csproj", "{74EFC9F1-8405-51B8-3962-1A1C94A739BF}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Solution Items", "Solution Items", "{FC7691BB-CBF9-471A-BA90-29BDCD1C3BF3}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Wiser.Monitor", "..\Wiser.Monitor\Wiser.Monitor.csproj", "{4D5A9CC5-7601-7908-11A6-EEBF59FFA7A5}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{74EFC9F1-8405-51B8-3962-1A1C94A739BF}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{74EFC9F1-8405-51B8-3962-1A1C94A739BF}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{74EFC9F1-8405-51B8-3962-1A1C94A739BF}.Debug|Any CPU.Deploy.0 = Debug|Any CPU
+		{74EFC9F1-8405-51B8-3962-1A1C94A739BF}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{74EFC9F1-8405-51B8-3962-1A1C94A739BF}.Release|Any CPU.Build.0 = Release|Any CPU
+		{4D5A9CC5-7601-7908-11A6-EEBF59FFA7A5}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{4D5A9CC5-7601-7908-11A6-EEBF59FFA7A5}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{4D5A9CC5-7601-7908-11A6-EEBF59FFA7A5}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{4D5A9CC5-7601-7908-11A6-EEBF59FFA7A5}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {3FB9D948-A23D-4922-A251-ED7725930274}
+	EndGlobalSection
+EndGlobal

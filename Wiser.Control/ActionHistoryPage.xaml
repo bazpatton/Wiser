@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             xmlns:local="clr-namespace:Wiser.Control"
+             x:Class="Wiser.Control.ActionHistoryPage"
+             Title="Action history">
+
+    <Grid RowDefinitions="Auto,*"
+          Padding="16,12"
+          RowSpacing="10">
+        <HorizontalStackLayout Grid.Row="0"
+                               Spacing="8">
+            <Button Text="Clear"
+                    Style="{StaticResource OutlineButtonStyle}"
+                    Clicked="OnClearClicked" />
+            <Label x:Name="HistoryHintLabel"
+                   VerticalOptions="Center"
+                   FontSize="13"
+                   TextColor="{AppThemeBinding Light={StaticResource SubtleTextLight}, Dark={StaticResource SubtleTextDark}}" />
+        </HorizontalStackLayout>
+
+        <CollectionView Grid.Row="1"
+                        x:Name="HistoryCollection"
+                        SelectionMode="None">
+            <CollectionView.ItemTemplate>
+                <DataTemplate x:DataType="local:ActionHistoryRow">
+                    <Border Margin="0,0,0,10"
+                            Padding="14,12"
+                            BackgroundColor="{AppThemeBinding Light={StaticResource CardBackgroundLight}, Dark={StaticResource CardBackgroundDark}}"
+                            Stroke="{AppThemeBinding Light={StaticResource CardStrokeLight}, Dark={StaticResource CardStrokeDark}}"
+                            StrokeThickness="1">
+                        <Border.StrokeShape>
+                            <RoundRectangle CornerRadius="14" />
+                        </Border.StrokeShape>
+                        <VerticalStackLayout Spacing="6">
+                            <Grid ColumnDefinitions="*,Auto"
+                                  ColumnSpacing="10">
+                                <Label Grid.Column="0"
+                                       Text="{Binding Entry.Title}"
+                                       FontSize="15"
+                                       FontAttributes="Bold"
+                                       TextColor="{AppThemeBinding Light={StaticResource MidnightBlue}, Dark={StaticResource White}}" />
+                                <Label Grid.Column="1"
+                                       Text="{Binding AtText}"
+                                       FontSize="12"
+                                       TextColor="{AppThemeBinding Light={StaticResource SubtleTextLight}, Dark={StaticResource SubtleTextDark}}" />
+                            </Grid>
+                            <Label Text="{Binding Entry.Details}"
+                                   FontSize="13"
+                                   LineBreakMode="WordWrap"
+                                   TextColor="{AppThemeBinding Light={StaticResource SubtleTextLight}, Dark={StaticResource SubtleTextDark}}" />
+                            <Button Text="Undo"
+                                    Style="{StaticResource CompactOutlineButtonStyle}"
+                                    Clicked="OnUndoClicked"
+                                    IsVisible="{Binding CanUndo}" />
+                        </VerticalStackLayout>
+                    </Border>
+                </DataTemplate>
+            </CollectionView.ItemTemplate>
+        </CollectionView>
+    </Grid>
+</ContentPage>

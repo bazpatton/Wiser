@@ -1,0 +1,418 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             x:Class="Wiser.Control.SettingsPage"
+             Title="Settings">
+
+    <ScrollView Padding="14,12">
+        <VerticalStackLayout Spacing="16">
+
+            <Border Padding="16,14"
+                    BackgroundColor="{AppThemeBinding Light={StaticResource Secondary}, Dark={StaticResource CardBackgroundDark}}"
+                    Stroke="{AppThemeBinding Light={StaticResource Primary}, Dark={StaticResource PrimaryDark}}"
+                    StrokeThickness="1">
+                <Border.StrokeShape>
+                    <RoundRectangle CornerRadius="18" />
+                </Border.StrokeShape>
+                <VerticalStackLayout Spacing="10">
+                    <Label Text="NOTIFICATION DASHBOARD"
+                           FontSize="11"
+                           FontAttributes="Bold"
+                           CharacterSpacing="1.2"
+                           TextColor="{AppThemeBinding Light={StaticResource PrimaryMuted}, Dark={StaticResource PrimaryDark}}" />
+                    <Label Text="Alerts at a glance"
+                           FontSize="20"
+                           FontAttributes="Bold"
+                           TextColor="{AppThemeBinding Light={StaticResource MidnightBlue}, Dark={StaticResource White}}" />
+                    <Label x:Name="NotificationDashboardSummaryLabel"
+                           FontSize="13"
+                           LineBreakMode="WordWrap"
+                           TextColor="{AppThemeBinding Light={StaticResource SubtleTextLight}, Dark={StaticResource SubtleTextDark}}" />
+
+                    <FlexLayout Wrap="Wrap"
+                                AlignItems="Start"
+                                JustifyContent="Start"
+                                AlignContent="Start">
+                        <Border x:Name="AlertsChipBorder"
+                                Padding="10,5"
+                                Margin="0,0,8,8"
+                                BackgroundColor="{AppThemeBinding Light={StaticResource CardBackgroundLight}, Dark={StaticResource CardBackgroundDark}}"
+                                Stroke="{AppThemeBinding Light={StaticResource CardStrokeLight}, Dark={StaticResource CardStrokeDark}}"
+                                StrokeThickness="1">
+                            <Border.StrokeShape>
+                                <RoundRectangle CornerRadius="10" />
+                            </Border.StrokeShape>
+                            <Label x:Name="AlertsChipLabel"
+                                   FontSize="12"
+                                   FontAttributes="Bold" />
+                        </Border>
+                        <Border x:Name="QuietChipBorder"
+                                Padding="10,5"
+                                Margin="0,0,8,8"
+                                BackgroundColor="{AppThemeBinding Light={StaticResource CardBackgroundLight}, Dark={StaticResource CardBackgroundDark}}"
+                                Stroke="{AppThemeBinding Light={StaticResource CardStrokeLight}, Dark={StaticResource CardStrokeDark}}"
+                                StrokeThickness="1">
+                            <Border.StrokeShape>
+                                <RoundRectangle CornerRadius="10" />
+                            </Border.StrokeShape>
+                            <Label x:Name="QuietChipLabel"
+                                   FontSize="12"
+                                   FontAttributes="Bold" />
+                        </Border>
+                        <Border x:Name="TargetChipBorder"
+                                Padding="10,5"
+                                Margin="0,0,8,8"
+                                BackgroundColor="{AppThemeBinding Light={StaticResource CardBackgroundLight}, Dark={StaticResource CardBackgroundDark}}"
+                                Stroke="{AppThemeBinding Light={StaticResource CardStrokeLight}, Dark={StaticResource CardStrokeDark}}"
+                                StrokeThickness="1">
+                            <Border.StrokeShape>
+                                <RoundRectangle CornerRadius="10" />
+                            </Border.StrokeShape>
+                            <Label x:Name="TargetChipLabel"
+                                   FontSize="12"
+                                   FontAttributes="Bold" />
+                        </Border>
+                    </FlexLayout>
+                </VerticalStackLayout>
+            </Border>
+
+            <Border Padding="16,14"
+                    BackgroundColor="{AppThemeBinding Light={StaticResource CardBackgroundLight}, Dark={StaticResource CardBackgroundDark}}"
+                    Stroke="{AppThemeBinding Light={StaticResource CardStrokeLight}, Dark={StaticResource CardStrokeDark}}"
+                    StrokeThickness="1">
+                <Border.StrokeShape>
+                    <RoundRectangle CornerRadius="16" />
+                </Border.StrokeShape>
+                <Border.Shadow>
+                    <Shadow Brush="#25000000"
+                            Offset="0,4"
+                            Radius="12"
+                            Opacity="0.35" />
+                </Border.Shadow>
+                <VerticalStackLayout Spacing="14">
+                    <Label Text="NOTIFICATIONS"
+                           FontSize="11"
+                           FontAttributes="Bold"
+                           CharacterSpacing="1.2"
+                           TextColor="{AppThemeBinding Light={StaticResource Primary}, Dark={StaticResource PrimaryDark}}" />
+                    <Label Text="Room temperature alerts"
+                           FontSize="17"
+                           FontAttributes="Bold"
+                           TextColor="{AppThemeBinding Light={StaticResource MidnightBlue}, Dark={StaticResource White}}" />
+                    <Label Text="When enabled, you get a notification when a room rises above the threshold (edge: must cross from below to above while we refresh). Quiet hours, cooldown, and “notify once” apply. Android: toast + inexact AlarmManager hub poll. Windows: Action Center toast; periodic hub poll while the app stays open (see Background checks)."
+                           FontSize="13"
+                           LineBreakMode="WordWrap"
+                           TextColor="{AppThemeBinding Light={StaticResource SubtleTextLight}, Dark={StaticResource SubtleTextDark}}" />
+
+                    <Grid ColumnDefinitions="*,Auto"
+                          ColumnSpacing="12"
+                          Margin="0,4,0,0">
+                        <Label Grid.Column="0"
+                               Text="Enable alerts"
+                               FontSize="15"
+                               VerticalOptions="Center"
+                               TextColor="{AppThemeBinding Light={StaticResource MidnightBlue}, Dark={StaticResource White}}" />
+                        <Switch x:Name="AlertsSwitch"
+                                Grid.Column="1"
+                                VerticalOptions="Center"
+                                Toggled="OnAlertsToggled" />
+                    </Grid>
+
+                    <Label x:Name="ThresholdCaptionLabel"
+                           Text="Alert temperature"
+                           FontSize="13"
+                           FontAttributes="Bold"
+                           Margin="0,8,0,0"
+                           TextColor="{AppThemeBinding Light={StaticResource SubtleTextLight}, Dark={StaticResource SubtleTextDark}}" />
+                    <Label x:Name="ThresholdValueLabel"
+                           FontSize="22"
+                           FontAttributes="Bold"
+                           TextColor="{AppThemeBinding Light={StaticResource Primary}, Dark={StaticResource PrimaryDark}}" />
+                    <Slider x:Name="ThresholdSlider"
+                            Minimum="10"
+                            Maximum="30"
+                            ValueChanged="OnThresholdChanged"
+                            SemanticProperties.Description="Temperature above which to alert" />
+
+                    <Button Text="Test notification"
+                            Style="{StaticResource OutlineButtonStyle}"
+                            Clicked="OnTestNotificationClicked" />
+                </VerticalStackLayout>
+            </Border>
+
+            <Border Padding="16,14"
+                    BackgroundColor="{AppThemeBinding Light={StaticResource CardBackgroundLight}, Dark={StaticResource CardBackgroundDark}}"
+                    Stroke="{AppThemeBinding Light={StaticResource CardStrokeLight}, Dark={StaticResource CardStrokeDark}}"
+                    StrokeThickness="1">
+                <Border.StrokeShape>
+                    <RoundRectangle CornerRadius="16" />
+                </Border.StrokeShape>
+                <VerticalStackLayout Spacing="10">
+                    <Label Text="SCHEDULES"
+                           FontSize="11"
+                           FontAttributes="Bold"
+                           CharacterSpacing="1.2"
+                           TextColor="{AppThemeBinding Light={StaticResource Primary}, Dark={StaticResource PrimaryDark}}" />
+                    <Label Text="Per-room next change and day timeline."
+                           FontSize="13"
+                           LineBreakMode="WordWrap"
+                           TextColor="{AppThemeBinding Light={StaticResource SubtleTextLight}, Dark={StaticResource SubtleTextDark}}" />
+                    <Button Text="Open schedules"
+                            Clicked="OnOpenSchedulesClicked" />
+                </VerticalStackLayout>
+            </Border>
+
+            <Border Padding="16,14"
+                    BackgroundColor="{AppThemeBinding Light={StaticResource CardBackgroundLight}, Dark={StaticResource CardBackgroundDark}}"
+                    Stroke="{AppThemeBinding Light={StaticResource CardStrokeLight}, Dark={StaticResource CardStrokeDark}}"
+                    StrokeThickness="1">
+                <Border.StrokeShape>
+                    <RoundRectangle CornerRadius="16" />
+                </Border.StrokeShape>
+                <VerticalStackLayout Spacing="10">
+                    <Label Text="TRENDS"
+                           FontSize="11"
+                           FontAttributes="Bold"
+                           CharacterSpacing="1.2"
+                           TextColor="{AppThemeBinding Light={StaticResource Primary}, Dark={StaticResource PrimaryDark}}" />
+                    <Label Text="24 hour room trends"
+                           FontSize="17"
+                           FontAttributes="Bold"
+                           TextColor="{AppThemeBinding Light={StaticResource MidnightBlue}, Dark={StaticResource White}}" />
+                    <Label Text="View measured and target temperature lines for each room from the last 24 hours."
+                           FontSize="13"
+                           LineBreakMode="WordWrap"
+                           TextColor="{AppThemeBinding Light={StaticResource SubtleTextLight}, Dark={StaticResource SubtleTextDark}}" />
+                    <Button Text="Open trend charts"
+                            Clicked="OnOpenTrendChartsClicked" />
+                </VerticalStackLayout>
+            </Border>
+
+            <Border x:Name="BackgroundPollCard"
+                    Padding="16,14"
+                    BackgroundColor="{AppThemeBinding Light={StaticResource CardBackgroundLight}, Dark={StaticResource CardBackgroundDark}}"
+                    Stroke="{AppThemeBinding Light={StaticResource CardStrokeLight}, Dark={StaticResource CardStrokeDark}}"
+                    StrokeThickness="1">
+                <Border.StrokeShape>
+                    <RoundRectangle CornerRadius="16" />
+                </Border.StrokeShape>
+                <VerticalStackLayout Spacing="10">
+                    <Label Text="BACKGROUND CHECKS"
+                           FontSize="11"
+                           FontAttributes="Bold"
+                           CharacterSpacing="1.2"
+                           TextColor="{AppThemeBinding Light={StaticResource Primary}, Dark={StaticResource PrimaryDark}}" />
+                    <Label Text="Hub poll interval"
+                           FontSize="14"
+                           FontAttributes="Bold"
+                           TextColor="{AppThemeBinding Light={StaticResource MidnightBlue}, Dark={StaticResource White}}" />
+                    <Picker x:Name="BackgroundIntervalPicker"
+                            SelectedIndexChanged="OnBackgroundIntervalChanged"
+                            Title="Select interval" />
+                    <Label Text="Android: inexact AlarmManager while the app is installed (not a foreground service; OEMs may defer wakeups). Windows: timer while the app is running, including minimized — closes when you exit the app."
+                           FontSize="12"
+                           LineBreakMode="WordWrap"
+                           TextColor="{AppThemeBinding Light={StaticResource SubtleTextLight}, Dark={StaticResource SubtleTextDark}}" />
+                    <Label x:Name="BackgroundPollStatusLabel"
+                           FontSize="12"
+                           LineBreakMode="WordWrap"
+                           TextColor="{AppThemeBinding Light={StaticResource SubtleTextLight}, Dark={StaticResource SubtleTextDark}}" />
+                </VerticalStackLayout>
+            </Border>
+
+            <Border Padding="16,14"
+                    BackgroundColor="{AppThemeBinding Light={StaticResource CardBackgroundLight}, Dark={StaticResource CardBackgroundDark}}"
+                    Stroke="{AppThemeBinding Light={StaticResource CardStrokeLight}, Dark={StaticResource CardStrokeDark}}"
+                    StrokeThickness="1">
+                <Border.StrokeShape>
+                    <RoundRectangle CornerRadius="16" />
+                </Border.StrokeShape>
+                <VerticalStackLayout Spacing="12">
+                    <Label Text="NOTIFICATION BEHAVIOUR"
+                           FontSize="11"
+                           FontAttributes="Bold"
+                           CharacterSpacing="1.2"
+                           TextColor="{AppThemeBinding Light={StaticResource Primary}, Dark={StaticResource PrimaryDark}}" />
+                    <Label x:Name="QuietPreviewLabel"
+                           FontSize="13"
+                           FontAttributes="Bold"
+                           TextColor="{AppThemeBinding Light={StaticResource PrimaryMuted}, Dark={StaticResource PrimaryDark}}" />
+
+                    <Grid ColumnDefinitions="*,Auto"
+                          ColumnSpacing="12">
+                        <Label Grid.Column="0"
+                               Text="Quiet hours"
+                               FontSize="15"
+                               VerticalOptions="Center"
+                               TextColor="{AppThemeBinding Light={StaticResource MidnightBlue}, Dark={StaticResource White}}" />
+                        <Switch x:Name="QuietHoursSwitch"
+                                Grid.Column="1"
+                                Toggled="OnQuietHoursToggled" />
+                    </Grid>
+
+                    <Grid ColumnDefinitions="*,*"
+                          ColumnSpacing="10"
+                          x:Name="QuietHoursGrid">
+                        <VerticalStackLayout Grid.Column="0"
+                                             Spacing="4">
+                            <Label Text="Start"
+                                   FontSize="12"
+                                   TextColor="{AppThemeBinding Light={StaticResource SubtleTextLight}, Dark={StaticResource SubtleTextDark}}" />
+                            <TimePicker x:Name="QuietStartTime"
+                                        PropertyChanged="OnQuietTimeChanged" />
+                        </VerticalStackLayout>
+                        <VerticalStackLayout Grid.Column="1"
+                                             Spacing="4">
+                            <Label Text="End"
+                                   FontSize="12"
+                                   TextColor="{AppThemeBinding Light={StaticResource SubtleTextLight}, Dark={StaticResource SubtleTextDark}}" />
+                            <TimePicker x:Name="QuietEndTime"
+                                        PropertyChanged="OnQuietTimeChanged" />
+                        </VerticalStackLayout>
+                    </Grid>
+
+                    <VerticalStackLayout Spacing="4">
+                        <Label Text="Cooldown minutes"
+                               FontSize="12"
+                               TextColor="{AppThemeBinding Light={StaticResource SubtleTextLight}, Dark={StaticResource SubtleTextDark}}" />
+                        <Entry x:Name="CooldownEntry"
+                               Keyboard="Numeric"
+                               TextChanged="OnCooldownChanged"
+                               Placeholder="0 for no cooldown" />
+                    </VerticalStackLayout>
+
+                    <Grid ColumnDefinitions="*,Auto"
+                          ColumnSpacing="12">
+                        <Label Grid.Column="0"
+                               Text="Notify once until room cools below threshold"
+                               FontSize="14"
+                               VerticalOptions="Center"
+                               TextColor="{AppThemeBinding Light={StaticResource MidnightBlue}, Dark={StaticResource White}}" />
+                        <Switch x:Name="NotifyOnceSwitch"
+                                Grid.Column="1"
+                                Toggled="OnNotifyOnceToggled" />
+                    </Grid>
+
+                    <VerticalStackLayout Spacing="6"
+                                         Margin="0,4,0,0">
+                        <Label Text="Alert target groups"
+                               FontSize="13"
+                               FontAttributes="Bold"
+                               TextColor="{AppThemeBinding Light={StaticResource MidnightBlue}, Dark={StaticResource White}}" />
+                        <Label Text="Choose groups to monitor. Leave all unchecked to monitor every room."
+                               FontSize="12"
+                               LineBreakMode="WordWrap"
+                               TextColor="{AppThemeBinding Light={StaticResource SubtleTextLight}, Dark={StaticResource SubtleTextDark}}" />
+                        <VerticalStackLayout x:Name="AlertGroupChecksHost"
+                                             Spacing="8" />
+                        <Label x:Name="AlertGroupHintLabel"
+                               FontSize="12"
+                               TextColor="{AppThemeBinding Light={StaticResource SubtleTextLight}, Dark={StaticResource SubtleTextDark}}" />
+                    </VerticalStackLayout>
+                </VerticalStackLayout>
+            </Border>
+
+            <Border Padding="16,14"
+                    BackgroundColor="{AppThemeBinding Light={StaticResource CardBackgroundLight}, Dark={StaticResource CardBackgroundDark}}"
+                    Stroke="{AppThemeBinding Light={StaticResource CardStrokeLight}, Dark={StaticResource CardStrokeDark}}"
+                    StrokeThickness="1">
+                <Border.StrokeShape>
+                    <RoundRectangle CornerRadius="16" />
+                </Border.StrokeShape>
+                <VerticalStackLayout Spacing="10">
+                    <Label Text="HISTORY"
+                           FontSize="11"
+                           FontAttributes="Bold"
+                           CharacterSpacing="1.2"
+                           TextColor="{AppThemeBinding Light={StaticResource Primary}, Dark={StaticResource PrimaryDark}}" />
+                    <Label Text="Action history"
+                           FontSize="17"
+                           FontAttributes="Bold"
+                           TextColor="{AppThemeBinding Light={StaticResource MidnightBlue}, Dark={StaticResource White}}" />
+                    <Label Text="View recent changes and undo room actions where possible."
+                           FontSize="13"
+                           LineBreakMode="WordWrap"
+                           TextColor="{AppThemeBinding Light={StaticResource SubtleTextLight}, Dark={StaticResource SubtleTextDark}}" />
+                    <Button Text="Open history"
+                            Clicked="OnOpenHistoryClicked" />
+                </VerticalStackLayout>
+            </Border>
+
+            <Border Padding="16,14"
+                    BackgroundColor="{AppThemeBinding Light={StaticResource CardBackgroundLight}, Dark={StaticResource CardBackgroundDark}}"
+                    Stroke="{AppThemeBinding Light={StaticResource CardStrokeLight}, Dark={StaticResource CardStrokeDark}}"
+                    StrokeThickness="1">
+                <Border.StrokeShape>
+                    <RoundRectangle CornerRadius="16" />
+                </Border.StrokeShape>
+                <VerticalStackLayout Spacing="10">
+                    <Label Text="BOOST PRESETS"
+                           FontSize="11"
+                           FontAttributes="Bold"
+                           CharacterSpacing="1.2"
+                           TextColor="{AppThemeBinding Light={StaticResource Primary}, Dark={StaticResource PrimaryDark}}" />
+                    <Label Text="Edit quick boost options shown in mode picker."
+                           FontSize="13"
+                           LineBreakMode="WordWrap"
+                           TextColor="{AppThemeBinding Light={StaticResource SubtleTextLight}, Dark={StaticResource SubtleTextDark}}" />
+                    <Button Text="Edit boost presets"
+                            Clicked="OnEditBoostPresetsClicked" />
+                </VerticalStackLayout>
+            </Border>
+
+            <Border Padding="16,14"
+                    BackgroundColor="{AppThemeBinding Light={StaticResource CardBackgroundLight}, Dark={StaticResource CardBackgroundDark}}"
+                    Stroke="{AppThemeBinding Light={StaticResource CardStrokeLight}, Dark={StaticResource CardStrokeDark}}"
+                    StrokeThickness="1">
+                <Border.StrokeShape>
+                    <RoundRectangle CornerRadius="16" />
+                </Border.StrokeShape>
+                <VerticalStackLayout Spacing="10">
+                    <Label Text="DIAGNOSTICS"
+                           FontSize="11"
+                           FontAttributes="Bold"
+                           CharacterSpacing="1.2"
+                           TextColor="{AppThemeBinding Light={StaticResource Primary}, Dark={StaticResource PrimaryDark}}" />
+                    <Button Text="Run diagnostics"
+                            Style="{StaticResource OutlineButtonStyle}"
+                            Clicked="OnRunDiagnosticsClicked" />
+                    <Label x:Name="DiagnosticsLabel"
+                           Text="Not run yet."
+                           FontSize="13"
+                           LineBreakMode="WordWrap"
+                           TextColor="{AppThemeBinding Light={StaticResource SubtleTextLight}, Dark={StaticResource SubtleTextDark}}" />
+                </VerticalStackLayout>
+            </Border>
+
+            <Border Padding="16,14"
+                    BackgroundColor="{AppThemeBinding Light={StaticResource CardBackgroundLight}, Dark={StaticResource CardBackgroundDark}}"
+                    Stroke="{AppThemeBinding Light={StaticResource CardStrokeLight}, Dark={StaticResource CardStrokeDark}}"
+                    StrokeThickness="1">
+                <Border.StrokeShape>
+                    <RoundRectangle CornerRadius="16" />
+                </Border.StrokeShape>
+                <VerticalStackLayout Spacing="10">
+                    <Label Text="ROOMS"
+                           FontSize="11"
+                           FontAttributes="Bold"
+                           CharacterSpacing="1.2"
+                           TextColor="{AppThemeBinding Light={StaticResource Primary}, Dark={StaticResource PrimaryDark}}" />
+                    <Label Text="Room order"
+                           FontSize="17"
+                           FontAttributes="Bold"
+                           TextColor="{AppThemeBinding Light={StaticResource MidnightBlue}, Dark={StaticResource White}}" />
+                    <Label Text="Open the reorder screen to drag room names and save display order."
+                           FontSize="13"
+                           LineBreakMode="WordWrap"
+                           TextColor="{AppThemeBinding Light={StaticResource SubtleTextLight}, Dark={StaticResource SubtleTextDark}}" />
+                    <Button Text="Manage room groups"
+                            Style="{StaticResource OutlineButtonStyle}"
+                            Clicked="OnManageRoomGroupsClicked" />
+                    <Button Text="Reorder rooms"
+                            Clicked="OnReorderRoomsClicked" />
+                </VerticalStackLayout>
+            </Border>
+
+        </VerticalStackLayout>
+    </ScrollView>
+</ContentPage>

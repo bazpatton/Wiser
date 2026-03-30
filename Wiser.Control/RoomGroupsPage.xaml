@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             x:Class="Wiser.Control.RoomGroupsPage"
+             Title="Room groups">
+
+    <Grid RowDefinitions="Auto,*"
+          Padding="16,12"
+          RowSpacing="10">
+        <Label Grid.Row="0"
+               x:Name="HintLabel"
+               Text="Create groups for the home screen filter chips. Rooms can belong to multiple groups."
+               FontSize="13"
+               LineBreakMode="WordWrap"
+               TextColor="{AppThemeBinding Light={StaticResource SubtleTextLight}, Dark={StaticResource SubtleTextDark}}" />
+
+        <ScrollView Grid.Row="1">
+            <VerticalStackLayout x:Name="GroupHost"
+                                 Spacing="12" />
+        </ScrollView>
+    </Grid>
+</ContentPage>

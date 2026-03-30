@@ -1,0 +1,387 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Wiser Monitor</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.6/dist/chart.umd.min.js"></script>
+  <style>
+    :root {
+      --bg: #0f1419;
+      --panel: #1a2332;
+      --text: #e7ecf3;
+      --muted: #8b9bb4;
+      --accent: #5b9bd5;
+      --border: #2c3a4d;
+    }
+    * { box-sizing: border-box; }
+    body {
+      font-family: "Segoe UI", system-ui, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      margin: 0;
+      padding: 1rem 1.25rem 2rem;
+      line-height: 1.45;
+    }
+    h1 { font-size: 1.35rem; font-weight: 600; margin: 0 0 0.25rem; }
+    .sub { color: var(--muted); font-size: 0.9rem; margin-bottom: 1rem; }
+    .toolbar {
+      display: flex; flex-wrap: wrap; gap: 0.75rem; align-items: center;
+      margin-bottom: 1rem;
+    }
+    label { font-size: 0.85rem; color: var(--muted); }
+    select, button {
+      background: var(--panel);
+      color: var(--text);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 0.4rem 0.65rem;
+      font-size: 0.95rem;
+    }
+    button { cursor: pointer; }
+    button:hover { border-color: var(--accent); }
+    .status {
+      font-size: 0.8rem; color: var(--muted);
+      padding: 0.5rem 0.75rem; background: var(--panel);
+      border-radius: 8px; border: 1px solid var(--border);
+      margin-bottom: 1rem;
+    }
+    .status.err { color: #f0a8a8; }
+    .chart-wrap {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 1rem;
+      max-width: 1100px;
+    }
+    .hint { font-size: 0.8rem; color: var(--muted); margin-top: 1rem; max-width: 700px; }
+    .room-latest {
+      font-size: 0.9rem;
+      color: var(--text);
+      padding: 0.65rem 0.85rem;
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      margin-bottom: 1rem;
+      line-height: 1.5;
+    }
+    .energy-section {
+      margin-top: 1.5rem;
+      max-width: 1100px;
+    }
+    .energy-section h2 { font-size: 1.1rem; margin: 0 0 0.35rem; }
+    .summary-table-wrap { overflow-x: auto; border: 1px solid var(--border); border-radius: 10px; background: var(--panel); }
+    .summary-table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+    .summary-table th, .summary-table td { padding: 0.45rem 0.6rem; text-align: left; border-bottom: 1px solid var(--border); }
+    .summary-table th { color: var(--muted); font-weight: 600; }
+    .summary-table tr:last-child td { border-bottom: none; }
+    .summary-table td.num { text-align: right; font-variant-numeric: tabular-nums; }
+  </style>
+</head>
+<body>
+  <h1>Wiser Monitor</h1>
+  <p class="sub">Room temp, <strong>heat target</strong> (setpoint), <strong>calling for heat</strong>, and <strong>valve demand %</strong> from the hub; optional outdoor (Open-Meteo).</p>
+
+  <div class="toolbar">
+    <div>
+      <label for="room">Room</label><br />
+      <select id="room"></select>
+    </div>
+    <div>
+      <label for="hours">Window</label><br />
+      <select id="hours">
+        <option value="12">12 hours</option>
+        <option value="24" selected>24 hours</option>
+        <option value="48">48 hours</option>
+        <option value="168">7 days</option>
+      </select>
+    </div>
+    <div style="align-self:flex-end;">
+      <label><input type="checkbox" id="outdoor" checked /> Outdoor</label>
+    </div>
+    <div style="align-self:flex-end;">
+      <button type="button" id="refresh">Refresh</button>
+    </div>
+  </div>
+
+  <div id="status" class="status">Loading…</div>
+  <div id="room-latest" class="room-latest" aria-live="polite"></div>
+  <div class="chart-wrap"><canvas id="chart"></canvas></div>
+
+  <section class="energy-section" aria-labelledby="energy-heading">
+    <h2 id="energy-heading">Energy proxies (no smart meter)</h2>
+    <p class="sub">
+      <strong>HDD</strong> = heating degree-days (15.5&nbsp;°C base − daily mean outdoor), only when Open-Meteo is configured.
+      <strong>Active / relay minutes</strong> ≈ polls where the hub reports heat demand or boiler relay on, × your poll interval — use to compare weeks after accounting for HDD.
+    </p>
+    <div id="daily-summary-wrap" class="summary-table-wrap">Loading daily summary…</div>
+  </section>
+
+  <p class="hint">
+    Outdoor temperature is optional context only — not used by the Wiser hub for control.
+  </p>
+
+  <script>
+    const fmtTime = (ts) => new Date(ts * 1000).toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+    const fmt1 = (x) => (x == null || x === "" ? "—" : Number(x).toFixed(1));
+
+    async function loadDailySummary() {
+      const wrap = document.getElementById("daily-summary-wrap");
+      try {
+        const r = await fetch("/api/daily-summary?days=14");
+        if (!r.ok) throw new Error("daily-summary " + r.status);
+        const j = await r.json();
+        const rows = j.days || [];
+        if (rows.length === 0) {
+          wrap.textContent = "No data yet.";
+          return;
+        }
+        let html =
+          "<table class=\"summary-table\"><thead><tr>" +
+          "<th>Date (UTC)</th><th class=\"num\">HDD</th><th class=\"num\">Avg outdoor °C</th>" +
+          "<th class=\"num\">Heat demand est. min</th><th class=\"num\">Boiler relay est. min</th><th class=\"num\">Outdoor samples</th>" +
+          "</tr></thead><tbody>";
+        for (const row of rows) {
+          html +=
+            "<tr><td>" +
+            escapeHtml(row.date) +
+            "</td><td class=\"num\">" +
+            fmt1(row.hdd) +
+            "</td><td class=\"num\">" +
+            fmt1(row.avg_outdoor_c) +
+            "</td><td class=\"num\">" +
+            fmt1(row.heating_active_estimate_min) +
+            "</td><td class=\"num\">" +
+            fmt1(row.heating_relay_estimate_min) +
+            "</td><td class=\"num\">" +
+            (row.outdoor_samples ?? "—") +
+            "</td></tr>";
+        }
+        html += "</tbody></table>";
+        wrap.innerHTML = html;
+      } catch (e) {
+        wrap.textContent = "Could not load daily summary: " + e;
+      }
+    }
+
+    async function loadRooms() {
+      const r = await fetch("/api/rooms");
+      if (!r.ok) throw new Error("rooms " + r.status);
+      const j = await r.json();
+      const sel = document.getElementById("room");
+      sel.innerHTML = "";
+      const rooms = j.rooms || [];
+      rooms.forEach((name) => {
+        const o = document.createElement("option");
+        o.value = name;
+        o.textContent = name;
+        sel.appendChild(o);
+      });
+      if (rooms.length === 0) {
+        const o = document.createElement("option");
+        o.value = "";
+        o.textContent = "(no data yet)";
+        sel.appendChild(o);
+      }
+    }
+
+    async function loadHealth() {
+      const el = document.getElementById("status");
+      try {
+        const r = await fetch("/api/health");
+        const j = await r.json();
+        let msg = "Poll interval " + j.interval_sec + "s · alerts " + (j.alerts_enabled ? "on (all rooms)" : "off");
+        if (j.outdoor_enabled) msg += " · outdoor on";
+        if (j.last_error) {
+          el.className = "status err";
+          el.textContent = "Last poll error: " + j.last_error + " — " + msg;
+        } else {
+          el.className = "status";
+          el.textContent = (j.last_ok_ts ? "Last OK " + fmtTime(Math.floor(j.last_ok_ts)) + " · " : "") + msg;
+        }
+      } catch (e) {
+        el.className = "status err";
+        el.textContent = "Health check failed: " + e;
+      }
+    }
+
+    let chart;
+
+    async function loadRoomLatest(room) {
+      const el = document.getElementById("room-latest");
+      if (!room) {
+        el.textContent = "";
+        return;
+      }
+      try {
+        const r = await fetch("/api/latest");
+        if (!r.ok) return;
+        const j = await r.json();
+        const rooms = j.rooms || {};
+        let row = rooms[room];
+        if (!row) {
+          const key = Object.keys(rooms).find((k) => k.toLowerCase() === room.toLowerCase());
+          if (key) row = rooms[key];
+        }
+        if (!row) {
+          el.textContent = "No saved sample for this room yet — wait for the next hub poll.";
+          return;
+        }
+        const target = row.setpoint_c != null ? row.setpoint_c.toFixed(1) + " °C" : "—";
+        const heat = row.calling_for_heat ? "Yes" : "No";
+        const pct = row.percentage_demand != null ? row.percentage_demand + "%" : "—";
+        el.innerHTML =
+          "<strong>Latest</strong> · <strong>" +
+          escapeHtml(room) +
+          "</strong>: measured <strong>" +
+          row.temp_c.toFixed(1) +
+          " °C</strong> · heat target <strong>" +
+          target +
+          "</strong> · calling for heat <strong>" +
+          heat +
+          "</strong> · valve demand <strong>" +
+          pct +
+          "</strong> · " +
+          fmtTime(row.ts);
+      } catch {
+        el.textContent = "";
+      }
+    }
+
+    function escapeHtml(s) {
+      const d = document.createElement("div");
+      d.textContent = s;
+      return d.innerHTML;
+    }
+
+    async function loadSeries() {
+      const room = document.getElementById("room").value;
+      const hours = document.getElementById("hours").value;
+      const outdoor = document.getElementById("outdoor").checked;
+      if (!room) return;
+
+      const url = "/api/series?room=" + encodeURIComponent(room) + "&hours=" + hours + "&include_outdoor=" + outdoor;
+      const r = await fetch(url);
+      if (!r.ok) throw new Error("series " + r.status);
+      const j = await r.json();
+
+      const rs = j.room_series || [];
+      const labels = rs.map((row) => fmtTime(row.ts));
+      const temps = rs.map((row) => row.temp_c);
+      const setpoints = rs.map((row) => (row.setpoint_c != null ? row.setpoint_c : null));
+
+      const datasets = [
+        {
+          label: "Room °C",
+          data: temps,
+          borderColor: "#5b9bd5",
+          backgroundColor: "rgba(91,155,213,0.15)",
+          tension: 0.2,
+          pointRadius: 0,
+          fill: false,
+        },
+        {
+          label: "Heat target °C",
+          data: setpoints,
+          borderColor: "#c9a227",
+          borderDash: [6, 4],
+          tension: 0.2,
+          pointRadius: 0,
+          spanGaps: true,
+        },
+      ];
+
+      const hasOutdoor = outdoor && j.outdoor_configured && rs.some((row) => row.outdoor_c != null);
+      if (hasOutdoor) {
+        const aligned = rs.map((row) => row.outdoor_c ?? null);
+        datasets.push({
+          label: "Outdoor °C",
+          data: aligned,
+          borderColor: "#7cb342",
+          tension: 0.2,
+          pointRadius: 0,
+          yAxisID: "y1",
+          spanGaps: true,
+        });
+      }
+
+      const hasDemand = rs.some((row) => row.percentage_demand != null);
+      const demandAxis = hasOutdoor ? "y2" : "y1";
+      if (hasDemand) {
+        datasets.push({
+          label: "Valve demand %",
+          data: rs.map((row) => (row.percentage_demand != null ? row.percentage_demand : null)),
+          borderColor: "#e57373",
+          tension: 0.2,
+          pointRadius: 0,
+          yAxisID: demandAxis,
+          spanGaps: true,
+        });
+      }
+
+      const scales = {
+        y: { title: { display: true, text: "Temperature °C" }, grid: { color: "#2c3a4d" } },
+        x: { ticks: { maxRotation: 0, autoSkip: true, maxTicksLimit: 10 }, grid: { color: "#2c3a4d" } },
+      };
+      if (hasOutdoor) {
+        scales.y1 = {
+          position: "right",
+          title: { display: true, text: "Outdoor °C" },
+          grid: { drawOnChartArea: false },
+        };
+      }
+      if (hasDemand) {
+        scales[demandAxis] = {
+          position: "right",
+          title: { display: true, text: "Valve demand %" },
+          min: 0,
+          max: 100,
+          grid: { drawOnChartArea: false },
+        };
+      }
+
+      const ctx = document.getElementById("chart").getContext("2d");
+      if (chart) chart.destroy();
+      chart = new Chart(ctx, {
+        type: "line",
+        data: { labels, datasets },
+        options: {
+          responsive: true,
+          interaction: { mode: "index", intersect: false },
+          scales,
+          plugins: { legend: { labels: { color: "#e7ecf3" } } },
+        },
+      });
+
+      await loadRoomLatest(room);
+    }
+
+    document.getElementById("refresh").addEventListener("click", async () => {
+      try {
+        await loadHealth();
+        await loadRooms();
+        await loadSeries();
+        await loadDailySummary();
+      } catch (e) {
+        document.getElementById("status").className = "status err";
+        document.getElementById("status").textContent = String(e);
+      }
+    });
+    document.getElementById("room").addEventListener("change", () => loadSeries().catch((e) => console.error(e)));
+    document.getElementById("hours").addEventListener("change", () => loadSeries().catch((e) => console.error(e)));
+    document.getElementById("outdoor").addEventListener("change", () => loadSeries().catch((e) => console.error(e)));
+
+    (async () => {
+      try {
+        await loadRooms();
+        await loadHealth();
+        await loadSeries();
+        await loadDailySummary();
+      } catch (e) {
+        document.getElementById("status").className = "status err";
+        document.getElementById("status").textContent = String(e);
+      }
+    })();
+  </script>
+</body>
+</html>

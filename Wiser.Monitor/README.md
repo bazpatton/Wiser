@@ -1,0 +1,88 @@
+# Wiser.Monitor
+
+ASP.NET **.NET 9** service: **Minimal API** + **static** Chart.js UI (same REST shape as `wiser-monitor` Python). **BackgroundService** polls the Wiser hub, writes **SQLite** history, optional **Open-Meteo** outdoor series, **ntfy** latched alerts for **every** room (same global thresholds, independent latches per room).
+
+## Run locally
+
+The app **requires** `WISER_IP` and `WISER_SECRET` (same values as Wiser.Control / hub `SECRET` header).
+
+**Option A — environment (PowerShell):**
+
+```powershell
+cd Wiser.Monitor
+$env:WISER_IP="192.168.x.x"
+$env:WISER_SECRET="your-secret"
+$env:DATA_DIR=".\data"
+dotnet run
+```
+
+**Option B — user secrets (good for F5 in Visual Studio):**
+
+```powershell
+cd Wiser.Monitor
+dotnet user-secrets set "WISER_IP" "192.168.1.50"
+dotnet user-secrets set "WISER_SECRET" "your-hub-secret"
+```
+
+Do **not** leave `WISER_IP` / `WISER_SECRET` empty in `launchSettings.json`; empty env vars override secrets.
+
+Open http://localhost:8080 (or the URL in `launchSettings.json`).
+
+### Docker: “Set WISER_IP…” / “Set WISER_SECRET…”
+
+Compose only loads variables from a file named **`.env`** in the **same folder** as `docker-compose.yml` (`Wiser.Monitor/`).
+
+1. `cd` to `Wiser.Monitor`, copy `env.example` → `.env`, edit real IP and secret (no quotes needed).
+2. Run `docker compose config` and confirm the `wiser-monitor` service shows your values (secret may be redacted in some versions).
+3. Rebuild if you changed nothing else: `docker compose up -d --build`.
+
+If you run Compose from the **repo root**, either `cd Wiser.Monitor` first or pass an explicit project:  
+`docker compose -f Wiser.Monitor/docker-compose.yml --project-directory Wiser.Monitor up -d`  
+so the **`Wiser.Monitor/.env`** file is picked up for `env_file` and for `${HOST_PORT}` substitution.
+
+## Docker
+
+Full walkthrough (fresh Pi OS image → Docker): **[RASPBERRY-PI-SETUP.md](RASPBERRY-PI-SETUP.md)**.
+
+```bash
+cp env.example .env
+# edit .env
+docker compose up -d --build
+```
+
+Image: `mcr.microsoft.com/dotnet/aspnet:9.0-bookworm-slim`. Build multi-arch from a PC:
+
+```bash
+docker buildx build --platform linux/arm64 -t wiser-monitor:net --load .
+```
+
+## Why not Blazor here?
+
+The dashboard is static HTML + Chart.js under `wwwroot/` so the container stays simple and the API matches the Python version. You can add **Razor Pages** or **Blazor Server** later and reuse the same minimal endpoints and `TemperatureStore`.
+
+## API
+
+`GET /api/health`, `/api/rooms`, `/api/latest`, `/api/series?room=&hours=&include_outdoor=`
+
+JSON uses **snake_case** property names for compatibility with the existing UI.
+
+Per room sample (history + `/api/latest`):
+
+- **`temp_c`** — measured room temperature  
+- **`setpoint_c`** — heat target (hub `CurrentSetPoint`, else `ScheduledSetPoint`)  
+- **`heat_demand`** — `1` when the hub reports demand (valve % or TRV output on), else `0`  
+- **`calling_for_heat`** — same idea as `heat_demand`, boolean  
+- **`percentage_demand`** — TRV **PercentageDemand** (0–100) when the hub sends it  
+
+Existing databases pick up **`percentage_demand`** via a one-time `ALTER TABLE` on startup.
+
+### Energy proxies (no smart meter)
+
+Each poll stores **boiler relay** and **heating active** (relay on or any room demanding heat), matching the idea behind Wiser.Control’s `IsHeatingActive`.
+
+| Path | Purpose |
+|------|---------|
+| `GET /api/daily-summary?days=14` | Per **UTC** day: **HDD** (15.5 °C base − mean outdoor), estimated **heat demand minutes** and **relay-on minutes** (poll count × interval). Needs Open-Meteo for HDD/outdoor columns. |
+| `GET /api/system-series?hours=48` | Time series of `heating_relay_on` / `heating_active` for custom charts. |
+
+Use **HDD** to compare cold vs mild weeks; use **estimated minutes** as a relative gas/proxy trend, not kWh.

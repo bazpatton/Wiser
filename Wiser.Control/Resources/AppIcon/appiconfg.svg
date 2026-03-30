@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="456" height="456" viewBox="0 0 456 456" xmlns="http://www.w3.org/2000/svg">
+  <!-- Thermostat dial + warmth ticks — reads clearly at launcher sizes -->
+  <g fill="none" stroke="#FFFFFF" stroke-linecap="round" stroke-linejoin="round">
+    <!-- Outer dial -->
+    <circle cx="228" cy="228" r="118" stroke-width="22"/>
+    <!-- Inner ring -->
+    <circle cx="228" cy="228" r="78" stroke-width="6" opacity="0.35"/>
+    <!-- Gauge arc (warm sector) -->
+    <path d="M 128 268 A 110 110 0 0 0 328 268" stroke-width="18" fill="none"/>
+    <!-- Needle toward “warm” -->
+    <line x1="228" y1="228" x2="292" y2="168" stroke-width="20"/>
+    <!-- Hub cap -->
+    <circle cx="228" cy="228" r="26" fill="#FFFFFF" stroke="none"/>
+    <!-- Small flame hint -->
+    <path d="M 228 92 C 238 112 248 118 248 138 C 248 158 232 172 228 178 C 224 172 208 158 208 138 C 208 120 218 108 228 92 Z" fill="#FFFFFF" stroke="none" opacity="0.95"/>
+  </g>
+</svg>

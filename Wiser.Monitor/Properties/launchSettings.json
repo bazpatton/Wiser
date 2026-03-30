@@ -1,0 +1,27 @@
+{
+  "profiles": {
+    "Wiser.Monitor": {
+      "commandName": "Project",
+      "launchBrowser": true,
+      "launchUrl": "http://localhost:8080",
+      "environmentVariables": {
+        "ASPNETCORE_ENVIRONMENT": "Development",
+        "DATA_DIR": "./data"
+      },
+      "dotnetRunMessages": true,
+      "applicationUrl": "http://localhost:8080"
+    },
+    "Container (Dockerfile)": {
+      "commandName": "Docker",
+      "launchBrowser": true,
+      "launchUrl": "http://localhost:8080",
+      "httpPort": 8080,
+      "publishAllPorts": false,
+      "useSSL": false,
+      "environmentVariables": {
+        "ASPNETCORE_HTTP_PORTS": "8080",
+        "ASPNETCORE_URLS": "http://+:8080"
+      }
+    }
+  }
+}

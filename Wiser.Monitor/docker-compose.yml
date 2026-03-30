@@ -1,0 +1,15 @@
+services:
+  wiser-monitor:
+    build: .
+    ports:
+      - "${HOST_PORT:-8080}:8080"
+    env_file:
+      - .env
+    environment:
+      DATA_DIR: /data
+    volumes:
+      - wiser_monitor_data:/data
+    restart: unless-stopped
+
+volumes:
+  wiser_monitor_data:

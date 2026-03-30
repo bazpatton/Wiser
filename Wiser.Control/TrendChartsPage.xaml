@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             x:Class="Wiser.Control.TrendChartsPage"
+             Title="24h trends">
+
+    <Grid RowDefinitions="Auto,*"
+          RowSpacing="10"
+          Padding="16,12">
+        <Label x:Name="HintLabel"
+               Grid.Row="0"
+               FontSize="13"
+               TextColor="{AppThemeBinding Light={StaticResource SubtleTextLight}, Dark={StaticResource SubtleTextDark}}"
+               Text="Collecting temperature samples..." />
+
+        <ScrollView Grid.Row="1">
+            <VerticalStackLayout x:Name="CardsHost"
+                                 Spacing="10" />
+        </ScrollView>
+    </Grid>
+</ContentPage>

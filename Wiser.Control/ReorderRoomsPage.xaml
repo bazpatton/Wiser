@@ -1,0 +1,66 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             xmlns:local="clr-namespace:Wiser.Control"
+             x:Class="Wiser.Control.ReorderRoomsPage"
+             Title="Room order">
+
+    <Grid RowDefinitions="Auto,*"
+          Padding="16,12"
+          RowSpacing="10">
+
+        <Label Grid.Row="0"
+               x:Name="ReorderHintLabel"
+               Text="Long-press and drag to reorder. Use the wide grip on the right."
+               FontSize="13"
+               LineBreakMode="WordWrap"
+               TextColor="{AppThemeBinding Light={StaticResource SubtleTextLight}, Dark={StaticResource SubtleTextDark}}" />
+
+        <CollectionView Grid.Row="1"
+                        x:Name="RoomOrderCollection"
+                        SelectionMode="None"
+                        CanReorderItems="True"
+                        ReorderCompleted="OnReorderCompleted">
+            <CollectionView.ItemTemplate>
+                <DataTemplate x:DataType="local:ReorderRoomItem">
+                    <Border Margin="0,0,0,10"
+                            Padding="14,12"
+                            BackgroundColor="{AppThemeBinding Light={StaticResource CardBackgroundLight}, Dark={StaticResource CardBackgroundDark}}"
+                            Stroke="{AppThemeBinding Light={StaticResource CardStrokeLight}, Dark={StaticResource CardStrokeDark}}"
+                            StrokeThickness="1">
+                        <Border.StrokeShape>
+                            <RoundRectangle CornerRadius="14" />
+                        </Border.StrokeShape>
+                        <Grid ColumnDefinitions="*,120"
+                              ColumnSpacing="12"
+                              VerticalOptions="Fill">
+                            <Label Grid.Column="0"
+                                   Text="{Binding Name}"
+                                   FontSize="16"
+                                   LineBreakMode="TailTruncation"
+                                   VerticalOptions="Center"
+                                   HorizontalOptions="Start"
+                                   TextColor="{AppThemeBinding Light={StaticResource MidnightBlue}, Dark={StaticResource White}}" />
+                            <Border Grid.Column="1"
+                                    Padding="12"
+                                    StrokeThickness="0"
+                                    BackgroundColor="{AppThemeBinding Light={StaticResource Secondary}, Dark={StaticResource CardStrokeDark}}"
+                                    VerticalOptions="Fill"
+                                    HorizontalOptions="Fill">
+                                <Border.StrokeShape>
+                                    <RoundRectangle CornerRadius="10" />
+                                </Border.StrokeShape>
+                                <Label Text="⋮⋮"
+                                       FontSize="24"
+                                       HorizontalOptions="Center"
+                                       VerticalOptions="Center"
+                                       VerticalTextAlignment="Center"
+                                       TextColor="{AppThemeBinding Light={StaticResource SubtleTextLight}, Dark={StaticResource SubtleTextDark}}" />
+                            </Border>
+                        </Grid>
+                    </Border>
+                </DataTemplate>
+            </CollectionView.ItemTemplate>
+        </CollectionView>
+    </Grid>
+</ContentPage>

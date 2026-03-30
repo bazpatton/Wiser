@@ -1,0 +1,27 @@
+# Hub secret — keep local only (copy from wiserkeys.params.example)
+Wiser.Control/Resources/Raw/wiserkeys.params
+
+# Local ntfy launcher may contain WISER_SECRET / topic (copy from launch-wiser-ntfy-monitor.example.bat)
+scripts/launch-wiser-ntfy-monitor.bat
+
+wiser-monitor/.env
+wiser-monitor/data/
+wiser-monitor/.venv/
+
+Wiser.Monitor/.env
+Wiser.Monitor/data/
+
+# Local build / tooling artifacts at repo root
+_bcPlatforms/
+_out_build_checkPlatforms/
+_wbPlatforms/
+_abWiser.Control.xml
+_out_build_checkWiser.Control.xml
+
+# .NET build artifacts (Wiser.Monitor)
+Wiser.Monitor/bin/
+Wiser.Monitor/obj/
+
+# Python
+**/__pycache__/
+*.py[cod]
