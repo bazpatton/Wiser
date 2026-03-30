@@ -21,6 +21,7 @@ _out_build_checkWiser.Control.xml
 # .NET build artifacts (Wiser.Monitor)
 Wiser.Monitor/bin/
 Wiser.Monitor/obj/
+*.csproj.user
 
 # Python
 **/__pycache__/
