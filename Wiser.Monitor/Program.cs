@@ -68,6 +68,34 @@ app.MapGet("/api/rooms", (TemperatureStore store, MonitorState state) =>
 app.MapGet("/api/latest", (TemperatureStore store) =>
     Results.Json(new { rooms = store.LatestByRoom(), system = store.GetLatestSystem() }));
 
+app.MapGet("/api/hub-live-rooms", async (WiserHubFetch hub, MonitorOptions o, CancellationToken ct) =>
+{
+    using var doc = await hub.FetchDomainDocumentAsync(o, ct).ConfigureAwait(false);
+    var overview = HubLiveRoomsParser.ParseOverview(doc, BoostPresets.Default);
+    return Results.Json(new
+    {
+        rooms = overview.Rooms,
+        heating_relay_on = overview.HeatingRelayOn,
+        heating_active = overview.HeatingActive,
+        boost_presets = overview.BoostPresets,
+    });
+});
+
+app.MapPost("/api/room/boost", async (BoostRoomRequest body, WiserHubFetch hub, MonitorOptions o, CancellationToken ct) =>
+{
+    if (body.room_id <= 0)
+        return Results.BadRequest(new { error = "invalid room_id" });
+    try
+    {
+        await hub.PatchRoomBoostAsync(o, body.room_id, body.temperature_c, body.minutes, ct).ConfigureAwait(false);
+        return Results.Json(new { ok = true });
+    }
+    catch (Exception ex)
+    {
+        return Results.Json(new { error = ex.Message }, statusCode: StatusCodes.Status502BadGateway);
+    }
+});
+
 app.MapGet("/api/daily-summary", (int? days, TemperatureStore store, MonitorOptions o) =>
 {
     var d = Math.Clamp(days ?? 14, 1, 90);
@@ -171,3 +199,15 @@ internal sealed record SeriesRoomRowDto(
 {
     public bool CallingForHeat => HeatDemand != 0;
 }
+
+internal static class BoostPresets
+{
+    public static readonly IReadOnlyList<BoostPresetInfo> Default =
+    [
+        new BoostPresetInfo("Quick", 21, 30),
+        new BoostPresetInfo("Comfort", 22, 60),
+        new BoostPresetInfo("Gentle", 20, 45),
+    ];
+}
+
+internal sealed record BoostRoomRequest(int room_id, double temperature_c, int minutes);

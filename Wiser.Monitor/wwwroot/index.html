@@ -323,6 +323,11 @@
       letter-spacing: 0.04em;
       margin: 0.15rem 0 0;
     }
+    .home-card-temp-row {
+      display: flex;
+      align-items: flex-start;
+      gap: 0.45rem;
+    }
     .home-card-temp {
       font-size: 1.65rem;
       font-weight: 700;
@@ -344,6 +349,89 @@
       .home-card-temp {
         font-size: 1.45rem;
       }
+    }
+    .home-hub-error,
+    .home-boost-msg {
+      font-size: 0.85rem;
+      margin: 0 0 0.65rem;
+      max-width: 1100px;
+    }
+    .home-hub-error {
+      color: #f0a8a8;
+    }
+    .home-boost-msg {
+      color: #a8d4a8;
+    }
+    .home-card-wrap {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      overflow: hidden;
+      max-width: 1100px;
+    }
+    .home-card-main {
+      padding: 0.85rem 1rem;
+      cursor: pointer;
+      text-align: left;
+      width: 100%;
+      font: inherit;
+      color: inherit;
+      background: transparent;
+      border: none;
+      display: block;
+    }
+    .home-card-main:hover {
+      background: rgba(91, 155, 213, 0.06);
+    }
+    .home-card-main:focus-visible {
+      outline: 2px solid var(--accent);
+      outline-offset: -2px;
+    }
+    .home-rad-badge {
+      font-size: 1.25rem;
+      line-height: 1;
+      flex-shrink: 0;
+    }
+    .home-rad-badge.rad-off {
+      opacity: 0.85;
+      filter: grayscale(0.15);
+    }
+    .home-rad-badge.rad-unknown {
+      opacity: 0.55;
+      font-size: 1.1rem;
+    }
+    .home-boost-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.35rem;
+      padding: 0.55rem 0.75rem 0.75rem;
+      border-top: 1px solid var(--border);
+      background: rgba(0, 0, 0, 0.15);
+      align-items: center;
+    }
+    .home-boost-label {
+      font-size: 0.72rem;
+      color: var(--muted);
+      width: 100%;
+      margin-bottom: 0.15rem;
+    }
+    button.preset-btn {
+      font: inherit;
+      font-size: 0.78rem;
+      padding: 0.28rem 0.5rem;
+      border-radius: 6px;
+      border: 1px solid var(--border);
+      background: var(--bg);
+      color: var(--text);
+      cursor: pointer;
+    }
+    button.preset-btn:hover:not(:disabled) {
+      border-color: var(--accent);
+      color: var(--accent);
+    }
+    button.preset-btn:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
     }
   </style>
 </head>
@@ -408,9 +496,10 @@
 
   <div id="panel-home" class="tab-panel" role="tabpanel" aria-labelledby="tab-home" hidden>
     <p class="home-intro">
-      Same hub snapshot as the Wiser Control <strong>home</strong> list: current temperature, target, and heat demand per room.
-      <strong>Read-only</strong> here (no setpoint changes, Home/Away, or Undo) — use Wiser Control for that.
+      <strong>Live</strong> data from your Wiser hub (same fields as Wiser Control home). Booster presets apply a timed boost like the app; other changes (mode, Home/Away, Undo) still use Wiser Control.
     </p>
+    <div id="home-hub-error" class="home-hub-error" hidden></div>
+    <div id="home-boost-msg" class="home-boost-msg"></div>
     <div class="home-status-card">
       <h2>Heating</h2>
       <div id="home-status-body" class="home-status-lines">Loading…</div>
@@ -433,6 +522,7 @@
     const LS_TAB = "wiserMonitor.tab";
 
     let lastLatestPayload = null;
+    let hubLiveLastData = null;
     let homeFilter = "all";
 
     function setTab(which) {
@@ -450,7 +540,7 @@
       } catch (_) {
         /* private mode */
       }
-      if (which === "home" && lastLatestPayload) renderHomePanel();
+      if (which === "home") loadHubLiveRooms().catch((e) => console.error(e));
     }
 
     function applyTabFromStorage() {
@@ -538,6 +628,185 @@
           "</p></button>";
       }
       cardsEl.innerHTML = html;
+    }
+
+    function formatBoostUntil(raw, setpointOrigin) {
+      if (raw == null || raw === 0) return "";
+      try {
+        const v = Number(raw);
+        const endMs = v > 10_000_000_000 ? v : v * 1000;
+        const end = new Date(endMs);
+        if (!Number.isFinite(end.getTime()) || end.getTime() <= Date.now()) return "";
+        const localStr = end.toLocaleString(undefined, {
+          month: "numeric",
+          day: "numeric",
+          hour: "2-digit",
+          minute: "2-digit",
+        });
+        const origin = setpointOrigin ? String(setpointOrigin) : "";
+        const prefix = origin.toLowerCase().includes("boost") ? "Boost until " : "Heat until ";
+        return prefix + localStr;
+      } catch (_) {
+        return "";
+      }
+    }
+
+    function radiatorBadgeHtml(state) {
+      const s = String(state || "").toLowerCase();
+      if (s === "on")
+        return '<span class="home-rad-badge rad-on" title="Radiator on / calling for heat" aria-label="Radiator on">🔥</span>';
+      if (s === "off")
+        return '<span class="home-rad-badge rad-off" title="Radiator off" aria-label="Radiator off">❄️</span>';
+      return '<span class="home-rad-badge rad-unknown" title="Radiator state unknown" aria-label="Radiator unknown">—</span>';
+    }
+
+    function renderHubHomeStatus(data) {
+      const statusEl = document.getElementById("home-status-body");
+      statusEl.innerHTML =
+        "<div>Boiler relay: <strong>" +
+        (data.heating_relay_on ? "On" : "Off") +
+        "</strong></div>" +
+        "<div>Heating active: <strong>" +
+        (data.heating_active ? "Yes" : "No") +
+        '</strong> <span class="muted">(relay on or any room demanding heat)</span></div>' +
+        '<div class="muted" style="margin-top:0.35rem">Live hub snapshot</div>';
+    }
+
+    async function loadHubLiveRooms() {
+      const errEl = document.getElementById("home-hub-error");
+      try {
+        const r = await fetch("/api/hub-live-rooms");
+        if (!r.ok) throw new Error("hub-live " + r.status);
+        const data = await r.json();
+        hubLiveLastData = data;
+        errEl.hidden = true;
+        errEl.textContent = "";
+        renderHubLiveRooms();
+      } catch (e) {
+        hubLiveLastData = null;
+        errEl.hidden = false;
+        errEl.textContent =
+          "Live hub unavailable: " + e + ". Showing last saved hub poll for the list below if available.";
+        if (lastLatestPayload) renderHomePanel();
+        else {
+          document.getElementById("home-status-body").textContent = "Could not load live or saved room data.";
+          document.getElementById("home-room-cards").innerHTML = "";
+        }
+      }
+    }
+
+    function renderHubLiveRooms() {
+      const cardsEl = document.getElementById("home-room-cards");
+      const data = hubLiveLastData;
+      if (!data || !data.rooms) {
+        document.getElementById("home-status-body").textContent = "No live hub data.";
+        cardsEl.innerHTML = "";
+        return;
+      }
+      renderHubHomeStatus(data);
+      const presets = data.boost_presets || [];
+      let rooms = data.rooms.filter(Boolean);
+      if (homeFilter === "heat") {
+        rooms = rooms.filter((r) => Number(r.heat_demand) !== 0);
+      }
+      rooms.sort((a, b) => String(a.name).localeCompare(String(b.name), undefined, { sensitivity: "base" }));
+
+      if (rooms.length === 0) {
+        cardsEl.innerHTML = '<p class="muted">No rooms match this filter.</p>';
+        return;
+      }
+
+      let html = "";
+      for (const room of rooms) {
+        const heating = Number(room.heat_demand) !== 0;
+        const pct = room.percentage_demand;
+        let line = heating
+          ? '<strong class="heat-on">Calling for heat</strong>'
+          : "Not calling for heat";
+        if (pct != null) line += " · valve " + escapeHtml(String(pct)) + "%";
+        const target = room.setpoint_c != null ? fmt1(room.setpoint_c) + " °C target" : "— target";
+        const boostLine = formatBoostUntil(room.override_timeout_unix, room.setpoint_origin);
+        if (boostLine) {
+          line += " · " + boostLine;
+          if (room.setpoint_c != null) line += " · target " + fmt1(room.setpoint_c) + " °C";
+        } else {
+          line += " · " + target;
+        }
+        const rad = radiatorBadgeHtml(room.radiator_state);
+        const modeLabel = room.mode ? escapeHtml(room.mode) : "Live";
+        const presetBtns = presets
+          .map(
+            (p) =>
+              '<button type="button" class="preset-btn" data-room-id="' +
+              escapeAttr(String(room.id)) +
+              '" data-temp="' +
+              escapeAttr(String(p.temperature_c)) +
+              '" data-mins="' +
+              escapeAttr(String(p.minutes)) +
+              '" title="Apply ' +
+              escapeAttr(p.name) +
+              " boost (" +
+              escapeAttr(String(p.temperature_c)) +
+              " °C, " +
+              escapeAttr(String(p.minutes)) +
+              ' min)">' +
+              escapeHtml(p.name) +
+              " " +
+              fmt1(p.temperature_c) +
+              "°/" +
+              String(p.minutes) +
+              "m</button>",
+          )
+          .join("");
+        html +=
+          '<div class="home-card-wrap" role="listitem">' +
+          '<button type="button" class="home-card-main" data-room="' +
+          escapeAttr(room.name) +
+          '" title="Open chart for this room">' +
+          '<div class="home-card-top">' +
+          "<div><p class=\"home-card-name\">" +
+          escapeHtml(room.name) +
+          '</p><p class="home-card-mode">' +
+          modeLabel +
+          '</p></div>' +
+          '<div class="home-card-temp-row">' +
+          rad +
+          '<div class="home-card-temp">' +
+          fmt1(room.temp_c) +
+          "°</div></div></div>" +
+          '<p class="home-card-detail">' +
+          line +
+          "</p></button>" +
+          '<div class="home-boost-row">' +
+          '<span class="home-boost-label">Boost presets</span>' +
+          presetBtns +
+          "</div></div>";
+      }
+      cardsEl.innerHTML = html;
+    }
+
+    async function applyBoost(roomId, temperatureC, minutes) {
+      const msgEl = document.getElementById("home-boost-msg");
+      msgEl.textContent = "";
+      msgEl.style.color = "";
+      try {
+        const r = await fetch("/api/room/boost", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ room_id: roomId, temperature_c: temperatureC, minutes }),
+        });
+        const j = await r.json().catch(() => ({}));
+        if (!r.ok) throw new Error(j.error || String(r.status));
+        msgEl.textContent = "Boost applied.";
+        await loadHubLiveRooms();
+      } catch (e) {
+        msgEl.style.color = "#f0a8a8";
+        msgEl.textContent = "Boost failed: " + e;
+      }
+      setTimeout(() => {
+        msgEl.textContent = "";
+        msgEl.style.color = "";
+      }, 6000);
     }
 
     const fmtTime = (ts) => new Date(ts * 1000).toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
@@ -832,7 +1101,6 @@
         lastLatestPayload = j;
         renderCallingHeatStripFromLatest(j);
         renderRoomsTableFromLatest(j);
-        renderHomePanel();
       } catch (e) {
         roomsLatestEntries = null;
         lastLatestPayload = null;
@@ -1079,6 +1347,7 @@
         await loadHealth();
         await loadRooms();
         await loadLatestOverview();
+        await loadHubLiveRooms();
         await loadSeries();
         await loadDailySummary();
       } catch (e) {
@@ -1094,7 +1363,16 @@
     document.getElementById("home-filter-all").addEventListener("click", () => setHomeFilter("all"));
     document.getElementById("home-filter-heat").addEventListener("click", () => setHomeFilter("heat"));
     document.getElementById("home-room-cards").addEventListener("click", (ev) => {
-      const btn = ev.target.closest("button.home-card");
+      const preset = ev.target.closest("button.preset-btn");
+      if (preset) {
+        ev.preventDefault();
+        const id = Number(preset.getAttribute("data-room-id"));
+        const temp = Number(preset.getAttribute("data-temp"));
+        const mins = Number(preset.getAttribute("data-mins"));
+        if (id && Number.isFinite(temp) && Number.isFinite(mins)) applyBoost(id, temp, mins).catch((e) => console.error(e));
+        return;
+      }
+      const btn = ev.target.closest("button.home-card-main, button.home-card");
       if (!btn) return;
       const raw = btn.getAttribute("data-room");
       if (raw) goToChartsWithRoom(raw);
@@ -1167,6 +1445,7 @@
         await loadRooms();
         await loadHealth();
         await loadLatestOverview();
+        await loadHubLiveRooms();
         await loadSeries();
         await loadDailySummary();
       } catch (e) {
