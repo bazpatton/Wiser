@@ -48,11 +48,32 @@
     }
     .status.err { color: #f0a8a8; }
     .chart-wrap {
+      position: relative;
+      width: 100%;
+      max-width: 1100px;
+      /* Explicit height so Chart.js has room on mobile (avoids flat / squashed canvas). */
+      height: min(44vh, 440px);
+      min-height: 260px;
       background: var(--panel);
       border: 1px solid var(--border);
       border-radius: 10px;
-      padding: 1rem;
-      max-width: 1100px;
+      padding: 0.85rem;
+      touch-action: manipulation;
+    }
+    @media (max-width: 600px) {
+      body {
+        padding: 0.75rem 0.65rem 1.5rem;
+      }
+      h1 { font-size: 1.2rem; }
+      .sub { font-size: 0.85rem; }
+      .chart-wrap {
+        height: min(52vh, 400px);
+        min-height: 240px;
+        padding: 0.55rem 0.45rem 0.65rem;
+      }
+      .toolbar select { max-width: 100%; min-width: 0; }
+      .summary-table { font-size: 0.78rem; }
+      .summary-table th, .summary-table td { padding: 0.35rem 0.45rem; }
     }
     .hint { font-size: 0.8rem; color: var(--muted); margin-top: 1rem; max-width: 700px; }
     .room-latest {
@@ -160,6 +181,8 @@
     const LS_OUTDOOR = "wiserMonitor.outdoor";
 
     const fmtTime = (ts) => new Date(ts * 1000).toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+    const fmtTimeShort = (ts) =>
+      new Date(ts * 1000).toLocaleString(undefined, { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" });
     const fmt1 = (x) => (x == null || x === "" ? "—" : Number(x).toFixed(1));
 
     function saveUiPrefs() {
@@ -388,8 +411,10 @@
       if (!r.ok) throw new Error("series " + r.status);
       const j = await r.json();
 
+      const narrow =
+        typeof window.matchMedia === "function" && window.matchMedia("(max-width: 600px)").matches;
       const rs = j.room_series || [];
-      const labels = rs.map((row) => fmtTime(row.ts));
+      const labels = rs.map((row) => (narrow ? fmtTimeShort(row.ts) : fmtTime(row.ts)));
       const temps = rs.map((row) => row.temp_c);
       const setpoints = rs.map((row) => (row.setpoint_c != null ? row.setpoint_c : null));
 
@@ -442,21 +467,55 @@
         });
       }
 
+      const tickFont = narrow ? 9 : 11;
+      const titleFont = narrow ? 10 : 12;
+
       const scales = {
-        y: { title: { display: true, text: "Temperature °C" }, grid: { color: "#2c3a4d" } },
-        x: { ticks: { maxRotation: 0, autoSkip: true, maxTicksLimit: 10 }, grid: { color: "#2c3a4d" } },
+        y: {
+          title: {
+            display: !narrow,
+            text: "Temperature °C",
+            color: "#8b9bb4",
+            font: { size: titleFont },
+          },
+          ticks: { color: "#b8c4d6", font: { size: tickFont }, maxTicksLimit: narrow ? 6 : undefined },
+          grid: { color: "#2c3a4d" },
+        },
+        x: {
+          ticks: {
+            maxRotation: narrow ? 50 : 0,
+            minRotation: narrow ? 35 : 0,
+            autoSkip: true,
+            maxTicksLimit: narrow ? 6 : 10,
+            color: "#b8c4d6",
+            font: { size: tickFont },
+          },
+          grid: { color: "#2c3a4d" },
+        },
       };
       if (hasOutdoor) {
         scales.y1 = {
           position: "right",
-          title: { display: true, text: "Outdoor °C" },
+          title: {
+            display: !narrow,
+            text: "Outdoor °C",
+            color: "#8b9bb4",
+            font: { size: titleFont },
+          },
+          ticks: { color: "#b8c4d6", font: { size: tickFont }, maxTicksLimit: narrow ? 5 : undefined },
           grid: { drawOnChartArea: false },
         };
       }
       if (hasDemand) {
         scales[demandAxis] = {
           position: "right",
-          title: { display: true, text: "Valve demand %" },
+          title: {
+            display: !narrow,
+            text: "Valve demand %",
+            color: "#8b9bb4",
+            font: { size: titleFont },
+          },
+          ticks: { color: "#b8c4d6", font: { size: tickFont }, maxTicksLimit: narrow ? 5 : undefined },
           min: 0,
           max: 100,
           grid: { drawOnChartArea: false },
@@ -470,9 +529,31 @@
         data: { labels, datasets },
         options: {
           responsive: true,
-          interaction: { mode: "index", intersect: false },
+          maintainAspectRatio: false,
+          resizeDelay: narrow ? 120 : 0,
+          interaction: { mode: "index", intersect: false, axis: "x" },
+          layout: {
+            padding: narrow
+              ? { left: 2, right: hasOutdoor || hasDemand ? 8 : 4, top: 2, bottom: 4 }
+              : { left: 4, right: 8, top: 6, bottom: 4 },
+          },
           scales,
-          plugins: { legend: { labels: { color: "#e7ecf3" } } },
+          plugins: {
+            legend: {
+              position: narrow ? "bottom" : "top",
+              align: "start",
+              labels: {
+                color: "#e7ecf3",
+                boxWidth: narrow ? 10 : 40,
+                padding: narrow ? 8 : 16,
+                font: { size: narrow ? 10 : 12 },
+              },
+            },
+            tooltip: {
+              titleFont: { size: narrow ? 11 : 13 },
+              bodyFont: { size: narrow ? 10 : 12 },
+            },
+          },
         },
       });
 
@@ -511,6 +592,18 @@
       saveUiPrefs();
       loadSeries().catch((e) => console.error(e));
     });
+
+    try {
+      const mq = window.matchMedia("(max-width: 600px)");
+      const relayoutChartForBreakpoint = () => {
+        const room = document.getElementById("room").value;
+        if (room) loadSeries().catch(() => {});
+      };
+      if (mq.addEventListener) mq.addEventListener("change", relayoutChartForBreakpoint);
+      else if (mq.addListener) mq.addListener(relayoutChartForBreakpoint);
+    } catch (_) {
+      /* no matchMedia */
+    }
 
     (async () => {
       try {
