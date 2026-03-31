@@ -5,6 +5,100 @@
 }
 
 .mud-main-content {
-    background-color: #f7f9fc;
-    min-height: calc(100vh - 64px);
+    background: linear-gradient(180deg, #eef2ff 0%, #f8fafc 50%, #f8fafc 100%);
+    min-height: 100vh;
+}
+
+.top-appbar {
+    border-bottom: 1px solid rgba(148, 163, 184, 0.25);
+    backdrop-filter: blur(8px);
+}
+
+.app-title {
+    font-weight: 700;
+    letter-spacing: 0.2px;
+}
+
+.main-container {
+    padding-top: 1.2rem;
+    padding-bottom: 2.2rem;
+}
+
+.card-soft,
+.hero-card,
+.status-card,
+.page-header-card,
+.room-card,
+.chart-card,
+.table-card {
+    border-radius: 14px;
+    border: 1px solid #e2e8f0;
+    box-shadow: 0 10px 24px rgba(15, 23, 42, 0.06);
+}
+
+.hero-card {
+    background: linear-gradient(135deg, #ffffff 0%, #f0f7ff 100%);
+}
+
+.desktop-nav .mud-button-root {
+    text-transform: none;
+    font-weight: 600;
+}
+
+.room-card {
+    height: 100%;
+}
+
+.mobile-nav-button {
+    margin-right: 0.25rem;
+}
+
+.mobile-drawer .mud-nav-link {
+    font-weight: 600;
+}
+
+@media (min-width: 960px) {
+    .mobile-nav-button {
+        display: none;
+    }
+}
+
+@media (max-width: 959.98px) {
+    .desktop-tagline {
+        display: none;
+    }
+
+    .main-container {
+        padding-top: 0.85rem;
+        padding-bottom: 1.2rem;
+    }
+
+    .hero-card .mud-typography-h4 {
+        font-size: 1.75rem;
+        line-height: 2rem;
+    }
+
+    .mud-table-root .mud-table-cell {
+        padding: 0.5rem 0.65rem;
+    }
+}
+
+@media (max-width: 599.98px) {
+    .main-container {
+        padding-top: 0.55rem;
+        padding-bottom: 1rem;
+    }
+
+    .page-header-card,
+    .hero-card,
+    .status-card,
+    .chart-card,
+    .table-card,
+    .room-card {
+        border-radius: 12px;
+    }
+
+    .room-card .mud-chip {
+        margin-top: 0.35rem;
+    }
 }

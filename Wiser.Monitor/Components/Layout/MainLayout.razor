@@ -1,26 +1,82 @@
 @inherits LayoutComponentBase
 
-<MudThemeProvider />
+<MudThemeProvider Theme="_theme" />
 <MudPopoverProvider />
 <MudDialogProvider />
 <MudSnackbarProvider />
 
 <MudLayout>
-    <MudAppBar Elevation="1">
-        <MudText Typo="Typo.h6">Wiser Monitor</MudText>
-        <MudButton Href="/" Variant="Variant.Text" Color="Color.Inherit" StartIcon="@Icons.Material.Filled.Home">Home</MudButton>
-        <MudButton Href="/rooms" Variant="Variant.Text" Color="Color.Inherit" StartIcon="@Icons.Material.Filled.MeetingRoom">Rooms</MudButton>
-        <MudButton Href="/charts" Variant="Variant.Text" Color="Color.Inherit" StartIcon="@Icons.Material.Filled.ShowChart">Charts</MudButton>
+    <MudAppBar Elevation="0" Class="top-appbar">
+        <MudIconButton Icon="@Icons.Material.Filled.Menu"
+                       Color="Color.Inherit"
+                       Edge="Edge.Start"
+                       Class="mobile-nav-button"
+                       OnClick="ToggleDrawer" />
+        <MudText Typo="Typo.h6" Class="app-title">Wiser Monitor</MudText>
+        <MudHidden Breakpoint="Breakpoint.MdAndDown">
+            <MudStack Row="true" Spacing="1" Class="desktop-nav">
+                <MudButton Href="/" Variant="Variant.Text" Color="Color.Inherit" StartIcon="@Icons.Material.Filled.Home">Home</MudButton>
+                <MudButton Href="/rooms" Variant="Variant.Text" Color="Color.Inherit" StartIcon="@Icons.Material.Filled.MeetingRoom">Rooms</MudButton>
+                <MudButton Href="/charts" Variant="Variant.Text" Color="Color.Inherit" StartIcon="@Icons.Material.Filled.ShowChart">Charts</MudButton>
+            </MudStack>
+        </MudHidden>
         <MudSpacer />
-        <MudText Typo="Typo.body2" Class="fa-header">
+        <MudText Typo="Typo.body2" Class="fa-header desktop-tagline">
             <i class="fa-solid fa-temperature-half" aria-hidden="true"></i>
-            Blazor + MudBlazor
+            Heat hub dashboard
         </MudText>
     </MudAppBar>
 
+    <MudDrawer @bind-Open="_drawerOpen"
+               Variant="DrawerVariant.Temporary"
+               Anchor="Anchor.Left"
+               OverlayAutoClose="true"
+               Elevation="1"
+               Class="mobile-drawer">
+        <MudDrawerHeader>
+            <MudText Typo="Typo.h6">Navigate</MudText>
+        </MudDrawerHeader>
+        <MudNavMenu>
+            <MudNavLink Href="/" Match="NavLinkMatch.All" Icon="@Icons.Material.Filled.Home" OnClick="@(() => CloseDrawer())">Home</MudNavLink>
+            <MudNavLink Href="/rooms" Icon="@Icons.Material.Filled.MeetingRoom" OnClick="@(() => CloseDrawer())">Rooms</MudNavLink>
+            <MudNavLink Href="/charts" Icon="@Icons.Material.Filled.ShowChart" OnClick="@(() => CloseDrawer())">Charts</MudNavLink>
+        </MudNavMenu>
+    </MudDrawer>
+
     <MudMainContent>
-        <MudContainer MaxWidth="MaxWidth.ExtraLarge" Class="mt-4 mb-8">
+        <MudContainer MaxWidth="MaxWidth.ExtraLarge" Class="main-container">
             @Body
         </MudContainer>
     </MudMainContent>
 </MudLayout>
+
+@code {
+    private bool _drawerOpen;
+
+    private readonly MudTheme _theme = new()
+    {
+        PaletteLight = new PaletteLight
+        {
+            Primary = "#2563eb",
+            Secondary = "#0891b2",
+            Background = "#f1f5f9",
+            AppbarBackground = "#0f172a",
+            AppbarText = "#f8fafc",
+            Surface = "#ffffff",
+        },
+        LayoutProperties = new LayoutProperties
+        {
+            DrawerWidthLeft = "260px",
+        },
+    };
+
+    private void ToggleDrawer()
+    {
+        _drawerOpen = !_drawerOpen;
+    }
+
+    private void CloseDrawer()
+    {
+        _drawerOpen = false;
+    }
+}
