@@ -7,7 +7,16 @@
 <PageTitle>Wiser Monitor - Charts</PageTitle>
 
 <MudStack Spacing="2">
-    <MudPaper Class="pa-4">
+    <MudPaper Class="pa-4 page-header-card">
+        <MudText Typo="Typo.h5">
+            <i class="fa-solid fa-chart-line"></i> Charts
+        </MudText>
+        <MudText Typo="Typo.body2" Class="mt-1">
+            Compare room temperature, target, valve demand, and optional outdoor data.
+        </MudText>
+    </MudPaper>
+
+    <MudPaper Class="pa-4 card-soft">
         <MudGrid>
             <MudItem xs="12" md="4">
                 <MudSelect T="string"
@@ -51,7 +60,7 @@
         </MudGrid>
     </MudPaper>
 
-    <MudPaper Class="pa-4">
+    <MudPaper Class="pa-4 chart-card">
         @if (!string.IsNullOrWhiteSpace(_error))
         {
             <MudAlert Severity="Severity.Error" Dense="true">@_error</MudAlert>
@@ -67,15 +76,15 @@
                       ChartSeries="_series"
                       ChartLabels="_labels"
                       Width="100%"
-                      Height="420px" />
+                      Height="360px" />
         }
     </MudPaper>
 
-    <MudPaper Class="pa-4">
+    <MudPaper Class="pa-4 table-card">
         <MudText Typo="Typo.h6">
             <i class="fa-solid fa-table"></i> Daily summary (energy proxies)
         </MudText>
-        <MudTable T="DailySummaryRow" Dense="true" Hover="true" Items="_dailyRows">
+        <MudTable T="DailySummaryRow" Dense="true" Hover="true" Breakpoint="Breakpoint.Sm" Items="_dailyRows">
             <HeaderContent>
                 <MudTh>Date (UTC)</MudTh>
                 <MudTh class="text-right">HDD</MudTh>

@@ -6,8 +6,8 @@
 
 <PageTitle>Wiser Monitor - Rooms</PageTitle>
 
-<MudStack Spacing="2">
-    <MudPaper Class="pa-4">
+<MudStack Spacing="3">
+    <MudPaper Class="pa-4 page-header-card">
         <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center" Wrap="Wrap.Wrap">
             <MudText Typo="Typo.h5">
                 <i class="fa-solid fa-house-chimney-window"></i> Rooms
@@ -26,7 +26,7 @@
 
     @if (_loading)
     {
-        <MudPaper Class="pa-6">
+        <MudPaper Class="pa-6 card-soft">
             <MudProgressCircular Color="Color.Primary" Indeterminate="true" />
             <MudText Class="mt-2">Loading room data...</MudText>
         </MudPaper>
@@ -39,7 +39,7 @@
         }
         <MudGrid>
             <MudItem xs="12">
-                <MudPaper Class="pa-4">
+                <MudPaper Class="pa-4 status-card">
                     <MudText Typo="Typo.h6">
                         <i class="fa-solid fa-fire-flame-curved"></i>
                         Heating status
@@ -57,9 +57,9 @@
 
             @foreach (var room in _rooms.OrderBy(r => r.Name, StringComparer.OrdinalIgnoreCase))
             {
-                <MudItem xs="12" md="6" xl="4">
-                    <MudPaper Class="pa-4">
-                        <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center">
+                <MudItem xs="12" sm="6" lg="4">
+                    <MudPaper Class="pa-4 room-card">
+                        <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center" Wrap="Wrap.Wrap">
                             <MudText Typo="Typo.h6">@room.Name</MudText>
                             <MudChip T="string" Color="@(room.HeatDemand != 0 ? Color.Error : Color.Info)" Variant="Variant.Outlined">
                                 @(room.HeatDemand != 0 ? "Calling heat" : "Idle")
@@ -82,12 +82,13 @@
                         </MudText>
 
                         <MudDivider Class="my-3" />
-                        <MudMenu Dense="true">
+                        <MudMenu Dense="true" AnchorOrigin="Origin.BottomCenter">
                             <ActivatorContent>
                                 <MudButton Variant="Variant.Outlined"
                                            Color="@(room.HeatDemand != 0 ? Color.Error : Color.Primary)"
                                            StartIcon="@Icons.Material.Filled.Settings"
-                                           EndIcon="@Icons.Material.Filled.ArrowDropDown">
+                                           EndIcon="@Icons.Material.Filled.ArrowDropDown"
+                                           FullWidth="true">
                                     Actions
                                 </MudButton>
                             </ActivatorContent>
