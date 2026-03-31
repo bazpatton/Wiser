@@ -61,8 +61,8 @@
                     <MudPaper Class="pa-4">
                         <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center">
                             <MudText Typo="Typo.h6">@room.Name</MudText>
-                            <MudChip T="string" Color="@(room.CallingForHeat ? Color.Error : Color.Info)" Variant="Variant.Outlined">
-                                @(room.CallingForHeat ? "Calling heat" : "Idle")
+                            <MudChip T="string" Color="@(room.HeatDemand != 0 ? Color.Error : Color.Info)" Variant="Variant.Outlined">
+                                @(room.HeatDemand != 0 ? "Calling heat" : "Idle")
                             </MudChip>
                         </MudStack>
 
@@ -85,45 +85,51 @@
                         <MudMenu Dense="true">
                             <ActivatorContent>
                                 <MudButton Variant="Variant.Outlined"
-                                           Color="@(room.CallingForHeat ? Color.Error : Color.Primary)"
+                                           Color="@(room.HeatDemand != 0 ? Color.Error : Color.Primary)"
                                            StartIcon="@Icons.Material.Filled.Settings"
                                            EndIcon="@Icons.Material.Filled.ArrowDropDown">
                                     Actions
                                 </MudButton>
                             </ActivatorContent>
-                            <MudMenu Label="Mode"
-                                     StartIcon="@Icons.Material.Filled.Tune"
-                                     IconColor="Color.Info"
-                                     Dense="true">
-                                <MudMenuItem Icon="@Icons.Material.Filled.AutoMode"
-                                             IconColor="Color.Info"
-                                             OnClick='@(() => ApplyModeAsync(room, "auto", null))'>
-                                    Set Auto
-                                </MudMenuItem>
-                                <MudMenuItem Icon="@Icons.Material.Filled.Thermostat"
-                                             IconColor="Color.Info"
-                                             OnClick='@(() => ApplyModeAsync(room, "manual", 20.0))'>
-                                    Set Manual (20.0 °C)
-                                </MudMenuItem>
-                                <MudMenuItem Icon="@Icons.Material.Filled.PowerSettingsNew"
-                                             IconColor="Color.Warning"
-                                             OnClick='@(() => ApplyModeAsync(room, "off", null))'>
-                                    Turn Off (manual low)
-                                </MudMenuItem>
-                            </MudMenu>
-                            <MudMenu Label="Boost presets"
-                                     StartIcon="@Icons.Material.Filled.LocalFireDepartment"
-                                     IconColor="Color.Error"
-                                     Dense="true">
-                                @foreach (var preset in _boostPresets)
-                                {
-                                    <MudMenuItem Icon="@Icons.Material.Filled.Bolt"
-                                                 IconColor="Color.Error"
-                                                 OnClick="@(() => ApplyBoostAsync(room, preset))">
-                                        @preset.Name (@($"{preset.TemperatureC:F1} °C / {preset.Minutes}m"))
-                                    </MudMenuItem>
-                                }
-                            </MudMenu>
+                            <ChildContent>
+                                <MudMenu Label="Mode"
+                                         StartIcon="@Icons.Material.Filled.Tune"
+                                         IconColor="Color.Info"
+                                         Dense="true">
+                                    <ChildContent>
+                                        <MudMenuItem Icon="@Icons.Material.Filled.AutoMode"
+                                                     IconColor="Color.Info"
+                                                     OnClick='@(() => ApplyModeAsync(room, "auto", null))'>
+                                            Set Auto
+                                        </MudMenuItem>
+                                        <MudMenuItem Icon="@Icons.Material.Filled.Thermostat"
+                                                     IconColor="Color.Info"
+                                                     OnClick='@(() => ApplyModeAsync(room, "manual", 20.0))'>
+                                            Set Manual (20.0 °C)
+                                        </MudMenuItem>
+                                        <MudMenuItem Icon="@Icons.Material.Filled.PowerSettingsNew"
+                                                     IconColor="Color.Warning"
+                                                     OnClick='@(() => ApplyModeAsync(room, "off", null))'>
+                                            Turn Off (manual low)
+                                        </MudMenuItem>
+                                    </ChildContent>
+                                </MudMenu>
+                                <MudMenu Label="Boost presets"
+                                         StartIcon="@Icons.Material.Filled.LocalFireDepartment"
+                                         IconColor="Color.Error"
+                                         Dense="true">
+                                    <ChildContent>
+                                        @foreach (var preset in _boostPresets)
+                                        {
+                                            <MudMenuItem Icon="@Icons.Material.Filled.Bolt"
+                                                         IconColor="Color.Error"
+                                                         OnClick="@(() => ApplyBoostAsync(room, preset))">
+                                                @preset.Name (@($"{preset.TemperatureC:F1} °C / {preset.Minutes}m"))
+                                            </MudMenuItem>
+                                        }
+                                    </ChildContent>
+                                </MudMenu>
+                            </ChildContent>
                         </MudMenu>
                     </MudPaper>
                 </MudItem>
@@ -180,14 +186,14 @@
                         x.Value.TempC,
                         x.Value.SetpointC,
                         x.Value.HeatDemand,
-                        x.Value.CallingForHeat ? "on" : "off",
+                        x.Value.HeatDemand != 0 ? "on" : "off",
                         x.Value.PercentageDemand,
                         null,
                         null,
                         null)));
             var latestSystem = Store.GetLatestSystem();
             _heatingRelayOn = latestSystem?.HeatingRelayOn ?? false;
-            _heatingActive = latestSystem?.HeatingActive ?? _rooms.Any(r => r.CallingForHeat);
+            _heatingActive = latestSystem?.HeatingActive ?? _rooms.Any(r => r.HeatDemand != 0);
         }
         finally
         {
