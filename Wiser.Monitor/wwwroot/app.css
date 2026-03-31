@@ -1,0 +1,10 @@
+.fa-header {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+}
+
+.mud-main-content {
+    background-color: #f7f9fc;
+    min-height: calc(100vh - 64px);
+}

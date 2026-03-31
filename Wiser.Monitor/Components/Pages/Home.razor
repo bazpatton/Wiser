@@ -1,0 +1,48 @@
+@page "/"
+@inject MonitorState MonitorState
+@inject MonitorOptions Options
+
+<PageTitle>Wiser Monitor</PageTitle>
+
+<MudStack Spacing="2">
+    <MudPaper Class="pa-4">
+        <MudText Typo="Typo.h4">Wiser Monitor</MudText>
+        <MudText Typo="Typo.body1" Class="mt-1">
+            Blazor Server dashboard using <strong>MudBlazor</strong>, <strong>MudChart</strong>, and <strong>Font Awesome</strong>.
+        </MudText>
+        <MudStack Row="true" Spacing="1" Class="mt-2">
+            <MudButton Href="/rooms" Variant="Variant.Filled" StartIcon="@Icons.Material.Filled.Home">
+                Rooms
+            </MudButton>
+            <MudButton Href="/charts" Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.ShowChart">
+                Charts
+            </MudButton>
+        </MudStack>
+    </MudPaper>
+
+    <MudPaper Class="pa-4">
+        <MudText Typo="Typo.h6">
+            <i class="fa-solid fa-heart-pulse"></i> Service status
+        </MudText>
+        <MudText Typo="Typo.body2" Class="mt-2">@_status</MudText>
+        @if (!string.IsNullOrWhiteSpace(_lastError))
+        {
+            <MudAlert Dense="true" Severity="Severity.Warning" Class="mt-2">@_lastError</MudAlert>
+        }
+    </MudPaper>
+</MudStack>
+
+@code {
+    private string _status = "Loading...";
+    private string? _lastError;
+
+    protected override void OnInitialized()
+    {
+        var (err, ok) = MonitorState.Snapshot();
+        _lastError = err;
+        var okText = ok is null
+            ? "No successful poll yet."
+            : $"Last OK: {DateTimeOffset.FromUnixTimeSeconds(ok.Value).ToLocalTime():g}";
+        _status = $"Poll interval: {Options.IntervalSec}s · Alerts: {(Options.AlertsEnabled ? "On" : "Off")} · {okText}";
+    }
+}

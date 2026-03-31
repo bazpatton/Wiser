@@ -1,0 +1,244 @@
+@page "/charts"
+@attribute [StreamRendering]
+@rendermode InteractiveServer
+
+@inject TemperatureStore Store
+@inject MonitorOptions Options
+
+<PageTitle>Wiser Monitor - Charts</PageTitle>
+
+<MudStack Spacing="2">
+    <MudPaper Class="pa-4">
+        <MudGrid>
+            <MudItem xs="12" md="4">
+                <MudSelect T="string"
+                           Label="Room"
+                           Value="_selectedRoom"
+                           ValueChanged="OnRoomChanged"
+                           Variant="Variant.Outlined">
+                    @foreach (var room in _rooms)
+                    {
+                        <MudSelectItem Value="@room">@room</MudSelectItem>
+                    }
+                </MudSelect>
+            </MudItem>
+            <MudItem xs="12" md="3">
+                <MudSelect T="int"
+                           Label="Window"
+                           Value="_hours"
+                           ValueChanged="OnHoursChanged"
+                           Variant="Variant.Outlined">
+                    <MudSelectItem Value="12">12 hours</MudSelectItem>
+                    <MudSelectItem Value="24">24 hours</MudSelectItem>
+                    <MudSelectItem Value="48">48 hours</MudSelectItem>
+                    <MudSelectItem Value="168">7 days</MudSelectItem>
+                </MudSelect>
+            </MudItem>
+            <MudItem xs="12" md="3" Class="d-flex align-center">
+                <MudCheckBox T="bool"
+                             Label="Include outdoor"
+                             Value="_includeOutdoor"
+                             ValueChanged="OnOutdoorChanged" />
+            </MudItem>
+            <MudItem xs="12" md="2">
+                <MudButton Variant="Variant.Filled"
+                           Color="Color.Primary"
+                           StartIcon="@Icons.Material.Filled.Refresh"
+                           FullWidth="true"
+                           OnClick="LoadChartAsync">
+                    Refresh
+                </MudButton>
+            </MudItem>
+        </MudGrid>
+    </MudPaper>
+
+    <MudPaper Class="pa-4">
+        @if (!string.IsNullOrWhiteSpace(_error))
+        {
+            <MudAlert Severity="Severity.Error" Dense="true">@_error</MudAlert>
+        }
+        else if (_series.Count == 0)
+        {
+            <MudAlert Severity="Severity.Info" Dense="true">No chart data yet.</MudAlert>
+        }
+        else
+        {
+            <MudChart T="double"
+                      ChartType="ChartType.Line"
+                      ChartSeries="_series"
+                      ChartLabels="_labels"
+                      Width="100%"
+                      Height="420px" />
+        }
+    </MudPaper>
+
+    <MudPaper Class="pa-4">
+        <MudText Typo="Typo.h6">
+            <i class="fa-solid fa-table"></i> Daily summary (energy proxies)
+        </MudText>
+        <MudTable T="DailySummaryRow" Dense="true" Hover="true" Items="_dailyRows">
+            <HeaderContent>
+                <MudTh>Date (UTC)</MudTh>
+                <MudTh class="text-right">HDD</MudTh>
+                <MudTh class="text-right">Avg outdoor °C</MudTh>
+                <MudTh class="text-right">Heat demand est. min</MudTh>
+                <MudTh class="text-right">Boiler relay est. min</MudTh>
+                <MudTh class="text-right">Outdoor samples</MudTh>
+            </HeaderContent>
+            <RowTemplate>
+                <MudTd DataLabel="Date">@context.Date</MudTd>
+                <MudTd DataLabel="HDD" Class="text-right">@FmtOpt(context.Hdd)</MudTd>
+                <MudTd DataLabel="Avg outdoor °C" Class="text-right">@FmtOpt(context.AvgOutdoorC)</MudTd>
+                <MudTd DataLabel="Heat demand est. min" Class="text-right">@Fmt(context.HeatingActiveEstimateMin)</MudTd>
+                <MudTd DataLabel="Boiler relay est. min" Class="text-right">@Fmt(context.HeatingRelayEstimateMin)</MudTd>
+                <MudTd DataLabel="Outdoor samples" Class="text-right">@context.OutdoorSamples</MudTd>
+            </RowTemplate>
+        </MudTable>
+    </MudPaper>
+</MudStack>
+
+@code {
+    private List<string> _rooms = [];
+    private string _selectedRoom = string.Empty;
+    private int _hours = 24;
+    private bool _includeOutdoor = true;
+    private string? _error;
+
+    private string[] _labels = [];
+    private List<ChartSeries<double>> _series = [];
+    private readonly List<DailySummaryRow> _dailyRows = [];
+
+    protected override async Task OnInitializedAsync()
+    {
+        LoadRooms();
+        LoadDailyRows();
+        await LoadChartAsync();
+    }
+
+    private void LoadRooms()
+    {
+        _rooms = Store.ListRooms().OrderBy(x => x, StringComparer.OrdinalIgnoreCase).ToList();
+        if (_rooms.Count > 0 &&
+            (string.IsNullOrWhiteSpace(_selectedRoom) || !_rooms.Contains(_selectedRoom, StringComparer.OrdinalIgnoreCase)))
+        {
+            _selectedRoom = _rooms[0];
+        }
+    }
+
+    private Task OnRoomChanged(string room)
+    {
+        _selectedRoom = room;
+        return LoadChartAsync();
+    }
+
+    private Task OnHoursChanged(int hours)
+    {
+        _hours = hours;
+        return LoadChartAsync();
+    }
+
+    private Task OnOutdoorChanged(bool include)
+    {
+        _includeOutdoor = include;
+        return LoadChartAsync();
+    }
+
+    private Task LoadChartAsync()
+    {
+        _error = null;
+        _series = [];
+        _labels = [];
+
+        if (string.IsNullOrWhiteSpace(_selectedRoom))
+            return Task.CompletedTask;
+
+        try
+        {
+            var since = DateTimeOffset.UtcNow.ToUnixTimeSeconds() - (_hours * 3600L);
+            var roomRows = Store.SeriesRoom(_selectedRoom, since);
+            if (roomRows.Count == 0)
+                return Task.CompletedTask;
+
+            _labels = roomRows
+                .Select(static r => DateTimeOffset.FromUnixTimeSeconds(r.Ts).ToLocalTime().ToString("M/d HH:mm"))
+                .ToArray();
+
+            _series =
+            [
+                new ChartSeries<double>
+                {
+                    Name = "Room °C",
+                    Data = roomRows.Select(static x => x.TempC).ToArray(),
+                },
+                new ChartSeries<double>
+                {
+                    Name = "Heat target °C",
+                    Data = roomRows.Select(x => x.SetpointC ?? double.NaN).ToArray(),
+                },
+            ];
+
+            if (roomRows.Any(x => x.PercentageDemand.HasValue))
+            {
+                _series.Add(new ChartSeries<double>
+                {
+                    Name = "Valve demand %",
+                    Data = roomRows.Select(x => x.PercentageDemand is null ? double.NaN : x.PercentageDemand.Value).ToArray(),
+                });
+            }
+
+            if (_includeOutdoor && Options.OpenMeteoLat is not null)
+            {
+                var alignedOutdoor = AlignOutdoor(
+                    roomRows.Select(static x => x.Ts).ToArray(),
+                    Store.SeriesOutdoor(since));
+                if (alignedOutdoor.Any(static x => x is not null))
+                {
+                    _series.Add(new ChartSeries<double>
+                    {
+                        Name = "Outdoor °C",
+                        Data = alignedOutdoor.Select(static x => x ?? double.NaN).ToArray(),
+                    });
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            _error = $"Failed loading chart data: {ex.Message}";
+        }
+
+        return Task.CompletedTask;
+    }
+
+    private void LoadDailyRows()
+    {
+        _dailyRows.Clear();
+        _dailyRows.AddRange(Store.GetDailySummaries(14, Math.Max(10, Options.IntervalSec)));
+    }
+
+    private static double?[] AlignOutdoor(long[] timestamps, IReadOnlyList<OutdoorSeriesRow> outdoor)
+    {
+        if (outdoor.Count == 0)
+            return new double?[timestamps.Length];
+
+        var sorted = outdoor.OrderBy(static x => x.Ts).ToList();
+        var result = new double?[timestamps.Length];
+        var j = 0;
+        double? last = null;
+        for (var i = 0; i < timestamps.Length; i++)
+        {
+            var ts = timestamps[i];
+            while (j < sorted.Count && sorted[j].Ts <= ts)
+            {
+                last = sorted[j].TempC;
+                j++;
+            }
+
+            result[i] = last;
+        }
+
+        return result;
+    }
+
+    private static string Fmt(double value) => double.IsNaN(value) ? "—" : value.ToString("0.0");
+    private static string FmtOpt(double? value) => value is null || double.IsNaN(value.Value) ? "—" : value.Value.ToString("0.0");
+}
