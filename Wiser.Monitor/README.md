@@ -1,6 +1,6 @@
 # Wiser.Monitor
 
-ASP.NET **.NET 9** service: **Minimal API** + **static** Chart.js UI (same REST shape as `wiser-monitor` Python). **BackgroundService** polls the Wiser hub, writes **SQLite** history, optional **Open-Meteo** outdoor series, **ntfy** latched alerts for **every** room (same global thresholds, independent latches per room).
+ASP.NET **.NET 9** service: **Minimal API** + **Blazor Server** UI with **MudBlazor** / **MudChart** (same REST shape as `wiser-monitor` Python). **BackgroundService** polls the Wiser hub, writes **SQLite** history, optional **Open-Meteo** outdoor series, **ntfy** latched alerts for **every** room (same global thresholds, independent latches per room).
 
 ## Run locally
 
@@ -56,9 +56,12 @@ Image: `mcr.microsoft.com/dotnet/aspnet:9.0-bookworm-slim`. Build multi-arch fro
 docker buildx build --platform linux/arm64 -t wiser-monitor:net --load .
 ```
 
-## Why not Blazor here?
+## UI stack
 
-The dashboard is static HTML + Chart.js under `wwwroot/` so the container stays simple and the API matches the Python version. You can add **Razor Pages** or **Blazor Server** later and reuse the same minimal endpoints and `TemperatureStore`.
+The dashboard now runs as **Blazor Server** with **MudBlazor** components and **MudChart**-based trend charts.  
+Font Awesome is included for additional iconography in the UI.
+
+Core data paths are unchanged: the app still uses the same minimal API endpoints and `TemperatureStore`, so scripts and integrations that call `/api/*` remain compatible.
 
 ## API
 

@@ -1,6 +1,8 @@
 using System.Text.Json;
 using Microsoft.AspNetCore.Mvc;
+using MudBlazor.Services;
 using Wiser.Monitor;
+using Wiser.Monitor.Components;
 using Wiser.Monitor.Services;
 using Wiser.Monitor.Workers;
 
@@ -10,6 +12,9 @@ builder.Services.ConfigureHttpJsonOptions(o =>
 {
     o.SerializerOptions.PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower;
 });
+builder.Services.AddRazorComponents()
+    .AddInteractiveServerComponents();
+builder.Services.AddMudServices();
 
 MonitorOptions monitorOptions;
 try
@@ -39,8 +44,8 @@ builder.Services.AddHostedService<WiserPollWorker>();
 
 var app = builder.Build();
 
-app.UseDefaultFiles();
 app.UseStaticFiles();
+app.UseAntiforgery();
 
 app.MapGet("/api/health", (MonitorState state, MonitorOptions o) =>
 {
@@ -180,7 +185,8 @@ app.MapGet("/api/series", (
     });
 });
 
-app.MapFallbackToFile("index.html");
+app.MapRazorComponents<App>()
+    .AddInteractiveServerRenderMode();
 
 app.Run();
 return 0;

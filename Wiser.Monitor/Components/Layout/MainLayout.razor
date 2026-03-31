@@ -1,0 +1,26 @@
+@inherits LayoutComponentBase
+
+<MudThemeProvider />
+<MudPopoverProvider />
+<MudDialogProvider />
+<MudSnackbarProvider />
+
+<MudLayout>
+    <MudAppBar Elevation="1">
+        <MudText Typo="Typo.h6">Wiser Monitor</MudText>
+        <MudButton Href="/" Variant="Variant.Text" Color="Color.Inherit" StartIcon="@Icons.Material.Filled.Home">Home</MudButton>
+        <MudButton Href="/rooms" Variant="Variant.Text" Color="Color.Inherit" StartIcon="@Icons.Material.Filled.MeetingRoom">Rooms</MudButton>
+        <MudButton Href="/charts" Variant="Variant.Text" Color="Color.Inherit" StartIcon="@Icons.Material.Filled.ShowChart">Charts</MudButton>
+        <MudSpacer />
+        <MudText Typo="Typo.body2" Class="fa-header">
+            <i class="fa-solid fa-temperature-half" aria-hidden="true"></i>
+            Blazor + MudBlazor
+        </MudText>
+    </MudAppBar>
+
+    <MudMainContent>
+        <MudContainer MaxWidth="MaxWidth.ExtraLarge" Class="mt-4 mb-8">
+            @Body
+        </MudContainer>
+    </MudMainContent>
+</MudLayout>

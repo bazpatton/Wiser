@@ -1,0 +1,252 @@
+@page "/rooms"
+@inject MonitorOptions Options
+@inject WiserHubFetch Hub
+@inject TemperatureStore Store
+@inject ISnackbar Snackbar
+
+<PageTitle>Wiser Monitor - Rooms</PageTitle>
+
+<MudStack Spacing="2">
+    <MudPaper Class="pa-4">
+        <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center" Wrap="Wrap.Wrap">
+            <MudText Typo="Typo.h5">
+                <i class="fa-solid fa-house-chimney-window"></i> Rooms
+            </MudText>
+            <MudButton Variant="Variant.Filled" StartIcon="@Icons.Material.Filled.Refresh" Color="Color.Primary" OnClick="RefreshAsync">
+                Refresh
+            </MudButton>
+        </MudStack>
+        @if (!string.IsNullOrWhiteSpace(_actionMessage))
+        {
+            <MudAlert Severity="@(_actionError ? Severity.Error : Severity.Success)" Dense="true" Class="mt-3">
+                @_actionMessage
+            </MudAlert>
+        }
+    </MudPaper>
+
+    @if (_loading)
+    {
+        <MudPaper Class="pa-6">
+            <MudProgressCircular Color="Color.Primary" Indeterminate="true" />
+            <MudText Class="mt-2">Loading room data...</MudText>
+        </MudPaper>
+    }
+    else
+    {
+        @if (!string.IsNullOrWhiteSpace(_loadError))
+        {
+            <MudAlert Severity="Severity.Warning">@_loadError</MudAlert>
+        }
+        <MudGrid>
+            <MudItem xs="12">
+                <MudPaper Class="pa-4">
+                    <MudText Typo="Typo.h6">
+                        <i class="fa-solid fa-fire-flame-curved"></i>
+                        Heating status
+                    </MudText>
+                    <MudStack Row="true" Spacing="2" Class="mt-2" Wrap="Wrap.Wrap">
+                        <MudChip T="string" Color="@(_heatingRelayOn ? Color.Error : Color.Default)" Variant="Variant.Filled">
+                            Boiler relay: @(_heatingRelayOn ? "On" : "Off")
+                        </MudChip>
+                        <MudChip T="string" Color="@(_heatingActive ? Color.Warning : Color.Success)" Variant="Variant.Filled">
+                            Heating active: @(_heatingActive ? "Yes" : "No")
+                        </MudChip>
+                    </MudStack>
+                </MudPaper>
+            </MudItem>
+
+            @foreach (var room in _rooms.OrderBy(r => r.Name, StringComparer.OrdinalIgnoreCase))
+            {
+                <MudItem xs="12" md="6" xl="4">
+                    <MudPaper Class="pa-4">
+                        <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center">
+                            <MudText Typo="Typo.h6">@room.Name</MudText>
+                            <MudChip T="string" Color="@(room.CallingForHeat ? Color.Error : Color.Info)" Variant="Variant.Outlined">
+                                @(room.CallingForHeat ? "Calling heat" : "Idle")
+                            </MudChip>
+                        </MudStack>
+
+                        <MudText Typo="Typo.body1" Class="mt-2">
+                            <i class="fa-solid fa-temperature-half"></i>
+                            Measured: <strong>@($"{room.TempC:F1} °C")</strong>
+                        </MudText>
+                        <MudText Typo="Typo.body2">
+                            Target:
+                            @(room.SetpointC is null ? "—" : $"{room.SetpointC:F1} °C")
+                            · Valve:
+                            @(room.PercentageDemand is null ? "—" : $"{room.PercentageDemand}%")
+                        </MudText>
+                        <MudText Typo="Typo.caption" Class="mt-1">
+                            Mode: @(room.Mode ?? "Unknown")
+                            · Radiator: @room.RadiatorState
+                        </MudText>
+
+                        <MudDivider Class="my-3" />
+                        <MudStack Row="true" Spacing="2" AlignItems="AlignItems.End">
+                            <MudSelect T="string"
+                                       Label="Action"
+                                       Value="@GetRoomAction(room.Id)"
+                                       ValueChanged="action => SetRoomAction(room.Id, action)"
+                                       Dense="true"
+                                       Variant="Variant.Outlined"
+                                       Class="flex-grow-1">
+                                <MudSelectItem Value="@("mode:auto")">Set Auto</MudSelectItem>
+                                <MudSelectItem Value="@("mode:manual:20.0")">Set Manual (20.0 °C)</MudSelectItem>
+                                <MudSelectItem Value="@("mode:off")">Turn Off (manual low)</MudSelectItem>
+                                @foreach (var preset in _boostPresets)
+                                {
+                                    <MudSelectItem Value="@($"boost:{preset.TemperatureC:F1}:{preset.Minutes}")">
+                                        Boost @preset.Name (@($"{preset.TemperatureC:F1} °C / {preset.Minutes}m"))
+                                    </MudSelectItem>
+                                }
+                            </MudSelect>
+                            <MudButton Variant="Variant.Outlined"
+                                       StartIcon="@Icons.Material.Filled.PlayArrow"
+                                       Disabled="@(!_roomActions.TryGetValue(room.Id, out var action) || string.IsNullOrWhiteSpace(action))"
+                                       OnClick="@(() => ApplyRoomActionAsync(room))">
+                                Apply
+                            </MudButton>
+                        </MudStack>
+                    </MudPaper>
+                </MudItem>
+            }
+        </MudGrid>
+    }
+</MudStack>
+
+@code {
+    private readonly List<HubLiveRoom> _rooms = [];
+    private readonly Dictionary<int, string> _roomActions = new();
+    private readonly IReadOnlyList<BoostPresetInfo> _boostPresets =
+    [
+        new BoostPresetInfo("Quick", 21, 30),
+        new BoostPresetInfo("Comfort", 22, 60),
+        new BoostPresetInfo("Gentle", 20, 45),
+    ];
+
+    private bool _heatingRelayOn;
+    private bool _heatingActive;
+    private bool _loading = true;
+    private string? _loadError;
+    private string? _actionMessage;
+    private bool _actionError;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await RefreshAsync();
+    }
+
+    private async Task RefreshAsync()
+    {
+        _loading = true;
+        _loadError = null;
+        try
+        {
+            using var doc = await Hub.FetchDomainDocumentAsync(Options, CancellationToken.None);
+            var overview = HubLiveRoomsParser.ParseOverview(doc, _boostPresets);
+            _rooms.Clear();
+            _rooms.AddRange(overview.Rooms);
+            _heatingRelayOn = overview.HeatingRelayOn;
+            _heatingActive = overview.HeatingActive;
+        }
+        catch (Exception ex)
+        {
+            _loadError = $"Could not load live data: {ex.Message}. Showing latest stored values.";
+            _rooms.Clear();
+            _rooms.AddRange(
+                Store.LatestByRoom()
+                    .OrderBy(x => x.Key, StringComparer.OrdinalIgnoreCase)
+                    .Select(x => new HubLiveRoom(
+                        0,
+                        x.Key,
+                        "Saved",
+                        x.Value.TempC,
+                        x.Value.SetpointC,
+                        x.Value.HeatDemand,
+                        x.Value.CallingForHeat ? "on" : "off",
+                        x.Value.PercentageDemand,
+                        null,
+                        null,
+                        null)));
+            var latestSystem = Store.GetLatestSystem();
+            _heatingRelayOn = latestSystem?.HeatingRelayOn ?? false;
+            _heatingActive = latestSystem?.HeatingActive ?? _rooms.Any(r => r.CallingForHeat);
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private async Task ApplyRoomActionAsync(HubLiveRoom room)
+    {
+        if (room.Id <= 0)
+        {
+            _actionError = true;
+            _actionMessage = "Live hub data required for control actions.";
+            return;
+        }
+
+        if (!_roomActions.TryGetValue(room.Id, out var action) || string.IsNullOrWhiteSpace(action))
+            return;
+
+        _actionMessage = null;
+        _actionError = false;
+        try
+        {
+            if (action.StartsWith("boost:", StringComparison.Ordinal))
+            {
+                var parts = action.Split(':');
+                if (parts.Length != 3 ||
+                    !double.TryParse(parts[1], NumberStyles.Float, CultureInfo.InvariantCulture, out var tempC) ||
+                    !int.TryParse(parts[2], NumberStyles.Integer, CultureInfo.InvariantCulture, out var minutes))
+                {
+                    throw new InvalidOperationException("Invalid boost action selected.");
+                }
+
+                await Hub.PatchRoomBoostAsync(Options, room.Id, tempC, minutes, CancellationToken.None);
+                _actionMessage = $"Boost applied to {room.Name}.";
+                Snackbar.Add(_actionMessage!, Severity.Success);
+            }
+            else if (action.StartsWith("mode:", StringComparison.Ordinal))
+            {
+                var parts = action.Split(':');
+                var mode = parts.Length > 1 ? parts[1] : string.Empty;
+                double? temp = null;
+                if (parts.Length > 2 &&
+                    double.TryParse(parts[2], NumberStyles.Float, CultureInfo.InvariantCulture, out var parsed))
+                {
+                    temp = parsed;
+                }
+
+                await Hub.PatchRoomModeAsync(Options, room.Id, mode, temp, CancellationToken.None);
+                _actionMessage = $"Mode updated for {room.Name}.";
+                Snackbar.Add(_actionMessage!, Severity.Success);
+            }
+            else
+            {
+                throw new InvalidOperationException("Unknown room action selected.");
+            }
+
+            _roomActions.Remove(room.Id);
+            await RefreshAsync();
+        }
+        catch (Exception ex)
+        {
+            _actionError = true;
+            _actionMessage = $"Action failed: {ex.Message}";
+            Snackbar.Add(_actionMessage!, Severity.Error);
+        }
+    }
+
+    private string GetRoomAction(int roomId) =>
+        _roomActions.TryGetValue(roomId, out var action) ? action : string.Empty;
+
+    private void SetRoomAction(int roomId, string action)
+    {
+        if (string.IsNullOrWhiteSpace(action))
+            _roomActions.Remove(roomId);
+        else
+            _roomActions[roomId] = action;
+    }
+}
