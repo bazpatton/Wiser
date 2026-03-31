@@ -28,10 +28,20 @@ catch (InvalidOperationException ex)
 }
 
 var valErrors = monitorOptions.Validate();
-foreach (var err in valErrors)
-    Console.Error.WriteLine(err);
-if (valErrors.Count > 0)
-    return 1;
+var hubConfigurationErrors = new List<string>();
+if (string.IsNullOrWhiteSpace(monitorOptions.WiserIp) || monitorOptions.WiserIp == "192.168.x.x")
+    hubConfigurationErrors.Add("Set WISER_IP to your hub LAN address.");
+if (string.IsNullOrWhiteSpace(monitorOptions.WiserSecret) || monitorOptions.WiserSecret == "your-secret-here")
+    hubConfigurationErrors.Add("Set WISER_SECRET to your hub SECRET.");
+var hubConfigured = hubConfigurationErrors.Count == 0;
+if (!hubConfigured)
+{
+    foreach (var err in hubConfigurationErrors)
+        Console.Error.WriteLine($"Configuration warning: {err}");
+    Console.Error.WriteLine("Starting in degraded mode: live hub polling and control endpoints are disabled.");
+}
+foreach (var err in valErrors.Except(hubConfigurationErrors))
+    Console.Error.WriteLine($"Configuration warning: {err}");
 
 builder.Services.AddSingleton(monitorOptions);
 builder.Services.AddSingleton<MonitorState>();
@@ -40,7 +50,8 @@ builder.Services.AddHttpClient<WiserHubFetch>(c => c.Timeout = TimeSpan.FromSeco
 builder.Services.AddHttpClient<OutdoorWeatherClient>(c => c.Timeout = TimeSpan.FromSeconds(20));
 builder.Services.AddHttpClient<NtfyClient>(c => c.Timeout = TimeSpan.FromSeconds(15));
 builder.Services.AddSingleton<RoomAlertService>();
-builder.Services.AddHostedService<WiserPollWorker>();
+if (hubConfigured)
+    builder.Services.AddHostedService<WiserPollWorker>();
 
 var app = builder.Build();
 
@@ -50,9 +61,12 @@ app.UseAntiforgery();
 app.MapGet("/api/health", (MonitorState state, MonitorOptions o) =>
 {
     var (err, ok) = state.Snapshot();
+    var serviceOk = hubConfigured && ok is not null && string.IsNullOrWhiteSpace(err);
     return Results.Json(new
     {
-        ok = true,
+        ok = serviceOk,
+        hub_configured = hubConfigured,
+        configuration_errors = hubConfigured ? Array.Empty<string>() : hubConfigurationErrors,
         last_ok_ts = ok,
         last_error = err,
         interval_sec = o.IntervalSec,
@@ -75,6 +89,13 @@ app.MapGet("/api/latest", (TemperatureStore store) =>
 
 app.MapGet("/api/hub-live-rooms", async (WiserHubFetch hub, MonitorOptions o, CancellationToken ct) =>
 {
+    if (!hubConfigured)
+    {
+        return Results.Json(
+            new { error = "Hub is not configured. Set WISER_IP and WISER_SECRET.", configuration_errors = hubConfigurationErrors },
+            statusCode: StatusCodes.Status503ServiceUnavailable);
+    }
+
     using var doc = await hub.FetchDomainDocumentAsync(o, ct).ConfigureAwait(false);
     var overview = HubLiveRoomsParser.ParseOverview(doc, BoostPresets.Default);
     return Results.Json(new
@@ -88,6 +109,13 @@ app.MapGet("/api/hub-live-rooms", async (WiserHubFetch hub, MonitorOptions o, Ca
 
 app.MapPost("/api/room/boost", async (BoostRoomRequest body, WiserHubFetch hub, MonitorOptions o, CancellationToken ct) =>
 {
+    if (!hubConfigured)
+    {
+        return Results.Json(
+            new { error = "Hub is not configured. Set WISER_IP and WISER_SECRET.", configuration_errors = hubConfigurationErrors },
+            statusCode: StatusCodes.Status503ServiceUnavailable);
+    }
+
     if (body.room_id <= 0)
         return Results.BadRequest(new { error = "invalid room_id" });
     try
@@ -103,6 +131,13 @@ app.MapPost("/api/room/boost", async (BoostRoomRequest body, WiserHubFetch hub, 
 
 app.MapPost("/api/room/mode", async (RoomModeRequest body, WiserHubFetch hub, MonitorOptions o, CancellationToken ct) =>
 {
+    if (!hubConfigured)
+    {
+        return Results.Json(
+            new { error = "Hub is not configured. Set WISER_IP and WISER_SECRET.", configuration_errors = hubConfigurationErrors },
+            statusCode: StatusCodes.Status503ServiceUnavailable);
+    }
+
     if (body.room_id <= 0)
         return Results.BadRequest(new { error = "invalid room_id" });
     if (string.IsNullOrWhiteSpace(body.mode))
