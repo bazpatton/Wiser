@@ -66,7 +66,7 @@ app.MapGet("/api/health", (MonitorState state, MonitorOptions o) =>
     {
         ok = serviceOk,
         hub_configured = hubConfigured,
-        configuration_errors = hubConfigured ? Array.Empty<string>() : hubConfigurationErrors,
+        configuration_errors = hubConfigured ? new List<string>() : hubConfigurationErrors,
         last_ok_ts = ok,
         last_error = err,
         interval_sec = o.IntervalSec,

@@ -21,7 +21,7 @@
 
 .main-container {
     padding-top: 1.2rem;
-    padding-bottom: 2.2rem;
+    padding-bottom: calc(2.2rem + env(safe-area-inset-bottom, 0px));
 }
 
 .card-soft,
@@ -47,6 +47,104 @@
 
 .room-card {
     height: 100%;
+}
+
+/* Touch-friendly controls (mobile-first) */
+.touch-target.mud-button-root,
+.touch-target {
+    min-height: 44px;
+}
+
+.touch-target-icon.mud-icon-button {
+    min-width: 44px;
+    min-height: 44px;
+}
+
+.touch-control.mud-select .mud-input-slot,
+.touch-control.mud-input-control {
+    min-height: 44px;
+}
+
+.touch-control.mud-checkbox {
+    padding-top: 0.35rem;
+    padding-bottom: 0.35rem;
+}
+
+.rooms-page .room-name {
+    word-break: break-word;
+    padding-right: 0.25rem;
+}
+
+.rooms-page .rad-icon {
+    margin-right: 0.35rem;
+}
+
+.rooms-page .boost-button-row {
+    gap: 0.35rem !important;
+}
+
+.rooms-page .boost-preset-btn.mud-button-root {
+    flex: 1 1 auto;
+    min-width: min(100%, 9.5rem);
+}
+
+.filter-bar .room-filter-group .mud-button-root {
+    min-height: 44px;
+}
+
+.charts-toolbar {
+    padding: 0.85rem 1rem !important;
+}
+
+@media (min-width: 960px) {
+    .charts-toolbar {
+        padding: 1rem 1.25rem !important;
+    }
+}
+
+.charts-outdoor-wrap {
+    min-height: 44px;
+}
+
+.charts-refresh-btn.mud-button-root {
+    min-height: 44px;
+    align-self: stretch;
+}
+
+/* MudChart: responsive height (replaces fixed px for small screens) */
+.mud-chart-responsive {
+    min-height: 220px;
+    height: min(42vh, 360px);
+}
+
+@media (min-width: 600px) {
+    .mud-chart-responsive {
+        min-height: 280px;
+        height: 360px;
+    }
+}
+
+/* Extra vertical space when x-axis labels are rotated (48h / 7d windows). */
+.mud-chart-responsive.chart-range-medium {
+    min-height: 260px;
+    height: min(48vh, 400px);
+}
+
+.mud-chart-responsive.chart-range-long {
+    min-height: 280px;
+    height: min(52vh, 440px);
+}
+
+@media (min-width: 600px) {
+    .mud-chart-responsive.chart-range-medium {
+        min-height: 320px;
+        height: 400px;
+    }
+
+    .mud-chart-responsive.chart-range-long {
+        min-height: 340px;
+        height: 440px;
+    }
 }
 
 .mobile-nav-button {
@@ -86,7 +184,7 @@
 @media (max-width: 599.98px) {
     .main-container {
         padding-top: 0.55rem;
-        padding-bottom: 1rem;
+        padding-bottom: calc(1rem + env(safe-area-inset-bottom, 0px));
     }
 
     .page-header-card,

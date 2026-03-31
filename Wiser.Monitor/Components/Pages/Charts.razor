@@ -1,5 +1,6 @@
 @page "/charts"
-@attribute [StreamRendering]
+@rendermode InteractiveServer
+@using MudBlazor.Charts
 
 @inject TemperatureStore Store
 @inject MonitorOptions Options
@@ -16,43 +17,51 @@
         </MudText>
     </MudPaper>
 
-    <MudPaper Class="pa-4 card-soft">
-        <MudGrid>
+    <MudPaper Class="pa-3 card-soft charts-toolbar">
+        <MudGrid Spacing="2">
             <MudItem xs="12" md="4">
                 <MudSelect T="string"
                            Label="Room"
                            Value="_selectedRoom"
                            ValueChanged="OnRoomChanged"
-                           Variant="Variant.Outlined">
+                           Variant="Variant.Outlined"
+                           Dense="true"
+                           Margin="Margin.Dense"
+                           Class="touch-control">
                     @foreach (var room in _rooms)
                     {
                         <MudSelectItem Value="@room">@room</MudSelectItem>
                     }
                 </MudSelect>
             </MudItem>
-            <MudItem xs="12" md="3">
+            <MudItem xs="12" sm="6" md="3">
                 <MudSelect T="int"
                            Label="Window"
                            Value="_hours"
                            ValueChanged="OnHoursChanged"
-                           Variant="Variant.Outlined">
+                           Variant="Variant.Outlined"
+                           Dense="true"
+                           Margin="Margin.Dense"
+                           Class="touch-control">
                     <MudSelectItem Value="12">12 hours</MudSelectItem>
                     <MudSelectItem Value="24">24 hours</MudSelectItem>
                     <MudSelectItem Value="48">48 hours</MudSelectItem>
                     <MudSelectItem Value="168">7 days</MudSelectItem>
                 </MudSelect>
             </MudItem>
-            <MudItem xs="12" md="3" Class="d-flex align-center">
+            <MudItem xs="12" sm="6" md="3" Class="d-flex align-center charts-outdoor-wrap">
                 <MudCheckBox T="bool"
                              Label="Include outdoor"
                              Value="_includeOutdoor"
-                             ValueChanged="OnOutdoorChanged" />
+                             ValueChanged="OnOutdoorChanged"
+                             Class="touch-control" />
             </MudItem>
-            <MudItem xs="12" md="2">
+            <MudItem xs="12" md="2" Class="d-flex align-stretch">
                 <MudButton Variant="Variant.Filled"
                            Color="Color.Primary"
                            StartIcon="@Icons.Material.Filled.Refresh"
                            FullWidth="true"
+                           Class="touch-target charts-refresh-btn"
                            OnClick="LoadChartAsync">
                     Refresh
                 </MudButton>
@@ -60,7 +69,7 @@
         </MudGrid>
     </MudPaper>
 
-    <MudPaper Class="pa-4 chart-card">
+    <MudPaper Class="pa-3 chart-card">
         @if (!string.IsNullOrWhiteSpace(_error))
         {
             <MudAlert Severity="Severity.Error" Dense="true">@_error</MudAlert>
@@ -75,8 +84,23 @@
                       ChartType="ChartType.Line"
                       ChartSeries="_series"
                       ChartLabels="_labels"
+                      ChartOptions="_lineOptions"
                       Width="100%"
-                      Height="360px" />
+                      MatchBoundsToSize="true"
+                      Class="@ChartHostClass">
+                <TooltipTemplate>
+                    @{
+                        var path = context.Segment;
+                        var i = path.Index;
+                        var when = i >= 0 && i < _pointTs.Length
+                            ? DateTimeOffset.FromUnixTimeSeconds(_pointTs[i]).ToLocalTime().ToString("g", CultureInfo.CurrentCulture)
+                            : path.LabelXValue;
+                    }
+                    <rect x="-76" y="-30" width="152" height="34" rx="6" ry="6" fill="#0f172ae6" stroke="#334155" stroke-width="1" />
+                    <text x="0" y="-16" text-anchor="middle" fill="#f8fafc" style="font-size:11px;font-weight:600">@when</text>
+                    <text x="0" y="-2" text-anchor="middle" fill="#cbd5e1" style="font-size:10px">@path.LabelYValue</text>
+                </TooltipTemplate>
+            </MudChart>
         }
     </MudPaper>
 
@@ -113,8 +137,20 @@
     private string? _error;
 
     private string[] _labels = [];
+    private long[] _pointTs = [];
     private List<ChartSeries<double>> _series = [];
     private readonly List<DailySummaryRow> _dailyRows = [];
+    private readonly LineChartOptions _lineOptions = new()
+    {
+        InterpolationOption = InterpolationOption.Straight,
+        ShowToolTips = true,
+    };
+
+    private string ChartHostClass => _hours >= 168
+        ? "mud-chart-responsive chart-range-long"
+        : _hours > 24
+            ? "mud-chart-responsive chart-range-medium"
+            : "mud-chart-responsive";
 
     protected override async Task OnInitializedAsync()
     {
@@ -156,6 +192,7 @@
         _error = null;
         _series = [];
         _labels = [];
+        _pointTs = [];
 
         if (string.IsNullOrWhiteSpace(_selectedRoom))
             return Task.CompletedTask;
@@ -167,9 +204,9 @@
             if (roomRows.Count == 0)
                 return Task.CompletedTask;
 
-            _labels = roomRows
-                .Select(static r => DateTimeOffset.FromUnixTimeSeconds(r.Ts).ToLocalTime().ToString("M/d HH:mm"))
-                .ToArray();
+            _pointTs = roomRows.Select(static x => x.Ts).ToArray();
+            _labels = BuildSparseTimeLabels(_pointTs, _hours);
+            ApplyLineChartOptions(roomRows.Count);
 
             _series =
             [
@@ -215,6 +252,69 @@
         }
 
         return Task.CompletedTask;
+    }
+
+    private void ApplyLineChartOptions(int pointCount)
+    {
+        _lineOptions.XAxisLabelRotation = _hours switch
+        {
+            <= 12 => 0,
+            <= 24 => 32,
+            <= 48 => 48,
+            _ => 58,
+        };
+
+        _lineOptions.XAxisTitle = _hours >= 168
+            ? "Time (local, ~7 days)"
+            : _hours > 24
+                ? "Time (local)"
+                : null;
+
+        _lineOptions.TooltipTitleFormat = "{{SERIES_NAME}}";
+        _lineOptions.TooltipSubtitleFormat = "{{Y_VALUE}}";
+
+        var manyPoints = pointCount > 200;
+        _lineOptions.ShowDataMarkers = _hours <= 24 && !manyPoints;
+    }
+
+    /// <summary>
+    /// Fewer x labels for long windows so MudChart does not draw overlapping timestamps. Tooltip still shows exact time.
+    /// </summary>
+    private static string[] BuildSparseTimeLabels(IReadOnlyList<long> timestampsUtc, int hoursWindow)
+    {
+        var n = timestampsUtc.Count;
+        if (n == 0)
+            return [];
+
+        var maxLabels = hoursWindow switch
+        {
+            <= 12 => 18,
+            <= 24 => 15,
+            <= 48 => 12,
+            <= 96 => 11,
+            _ => 10,
+        };
+        maxLabels = Math.Clamp(maxLabels, 8, 20);
+        var step = Math.Max(1, (n + maxLabels - 1) / maxLabels);
+
+        var format = hoursWindow >= 168
+            ? "MMM d"
+            : hoursWindow >= 72
+                ? "ddd d HH:mm"
+                : hoursWindow > 24
+                    ? "M/d HH:mm"
+                    : "HH:mm";
+
+        var labels = new string[n];
+        for (var i = 0; i < n; i++)
+        {
+            var show = i == 0 || i == n - 1 || i % step == 0;
+            labels[i] = show
+                ? DateTimeOffset.FromUnixTimeSeconds(timestampsUtc[i]).ToLocalTime().ToString(format, CultureInfo.CurrentCulture)
+                : string.Empty;
+        }
+
+        return labels;
     }
 
     private void LoadDailyRows()
