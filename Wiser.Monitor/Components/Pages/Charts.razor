@@ -100,8 +100,9 @@
                       ChartSeries="_heatCallingTempTsSeries"
                       ChartOptions="_heatCallingTempTsOptions"
                       Width="100%"
-                      MatchBoundsToSize="true"
-                      Class="mud-chart-responsive mb-4" />
+                      Height="220px"
+                      MatchBoundsToSize="false"
+                      Class="charts-heat-calling-ts mb-4" />
             }
             <MudText Typo="Typo.subtitle2" Class="mb-1">Valve demand (%)</MudText>
             @if (!_heatCallingHasValveSeries)
@@ -117,8 +118,9 @@
                           ChartSeries="_heatCallingValveTsSeries"
                           ChartOptions="_heatCallingValveTsOptions"
                           Width="100%"
-                          MatchBoundsToSize="true"
-                          Class="mud-chart-responsive" />
+                          Height="220px"
+                          MatchBoundsToSize="false"
+                          Class="charts-heat-calling-ts" />
             }
         }
     </MudPaper>

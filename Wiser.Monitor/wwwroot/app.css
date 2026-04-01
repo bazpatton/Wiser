@@ -252,6 +252,21 @@
 }
 
 /*
+ * Time series charts: default MudChart height is 80% + MatchBoundsToSize fills the main content column
+ * (often almost the full viewport). Pin a fixed chart height here.
+ */
+#rooms-calling-heat-trend .charts-heat-calling-ts.mud-chart {
+    height: clamp(160px, 22vh, 240px) !important;
+    max-height: 240px;
+}
+
+@media (min-width: 600px) {
+    #rooms-calling-heat-trend .charts-heat-calling-ts.mud-chart {
+        height: clamp(170px, 20vh, 240px) !important;
+    }
+}
+
+/*
  * MudChart heights: 125% display scaling (e.g. 1920×1200) yields ~960px CSS height — vh is large,
  * so prefer low vh + strict max px. Do not grow charts at wide breakpoints; that only makes stacks taller.
  */
