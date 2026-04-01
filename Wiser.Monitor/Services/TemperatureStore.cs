@@ -52,6 +52,12 @@ public sealed class TemperatureStore
                         heating_active INTEGER NOT NULL
                     );
                     CREATE INDEX IF NOT EXISTS idx_system_readings_ts ON system_readings(ts);
+
+                    CREATE TABLE IF NOT EXISTS room_settings (
+                        room TEXT PRIMARY KEY,
+                        is_active INTEGER NOT NULL DEFAULT 1,
+                        updated_ts INTEGER NOT NULL
+                    );
                     """;
                 cmd.ExecuteNonQuery();
             }
@@ -292,6 +298,50 @@ public sealed class TemperatureStore
             while (r.Read())
                 names.Add(r.GetString(0));
             return names;
+        }
+    }
+
+    public Dictionary<string, bool> GetRoomActivityMap()
+    {
+        lock (_gate)
+        {
+            using var c = Open();
+            using var cmd = c.CreateCommand();
+            cmd.CommandText = "SELECT room, is_active FROM room_settings";
+            using var r = cmd.ExecuteReader();
+            var map = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
+            while (r.Read())
+            {
+                var room = r.GetString(0);
+                var isActive = r.GetInt32(1) != 0;
+                map[room] = isActive;
+            }
+
+            return map;
+        }
+    }
+
+    public void SetRoomActive(string room, bool isActive)
+    {
+        if (string.IsNullOrWhiteSpace(room))
+            return;
+
+        lock (_gate)
+        {
+            using var c = Open();
+            using var cmd = c.CreateCommand();
+            cmd.CommandText =
+                """
+                INSERT INTO room_settings (room, is_active, updated_ts)
+                VALUES ($room, $active, $ts)
+                ON CONFLICT(room) DO UPDATE SET
+                    is_active = excluded.is_active,
+                    updated_ts = excluded.updated_ts
+                """;
+            cmd.Parameters.AddWithValue("$room", room.Trim());
+            cmd.Parameters.AddWithValue("$active", isActive ? 1 : 0);
+            cmd.Parameters.AddWithValue("$ts", DateTimeOffset.UtcNow.ToUnixTimeSeconds());
+            cmd.ExecuteNonQuery();
         }
     }
 

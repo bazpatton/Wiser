@@ -351,22 +351,24 @@
         if (_rooms.Count == 0)
             return;
 
+        var activityMap = Store.GetRoomActivityMap();
         _roomTiles.Clear();
         var tiles = new List<RoomHeatTile>(_rooms.Count);
 
         foreach (var room in _rooms)
         {
+            var isActive = !activityMap.TryGetValue(room, out var activeFlag) || activeFlag;
             var rows = Store.SeriesRoom(room, sinceTs);
             if (rows.Count == 0)
             {
-                var (missingMin, missingMax) = GetRecommendedTempRange(room);
+                var (missingMin, missingMax) = GetRecommendedTempRange(room, isActive);
                 tiles.Add(new RoomHeatTile(
                     room,
                     null,
                     "—",
                     "#334155",
                     $"Recommended {missingMin:0.#} - {missingMax:0.#}C",
-                    "No data in selected period",
+                    $"No data in selected period{(isActive ? string.Empty : ", inactive profile")}",
                     "Trend unavailable"));
                 continue;
             }
@@ -375,7 +377,7 @@
             var average = rows.Average(static x => x.TempC);
             var trendDelta = rows[^1].TempC - rows[0].TempC;
 
-            var (rangeMin, rangeMax) = GetRecommendedTempRange(room);
+            var (rangeMin, rangeMax) = GetRecommendedTempRange(room, isActive);
             var status = average < rangeMin
                 ? "Too cold"
                 : average > rangeMax
@@ -389,7 +391,7 @@
                 $"{current:0.0}C",
                 color,
                 $"Recommended {rangeMin:0.#} - {rangeMax:0.#}C",
-                $"{status} (avg {average:0.0}C over {_hours}h)",
+                $"{status} (avg {average:0.0}C over {_hours}h){(isActive ? string.Empty : ", inactive profile")}",
                 $"Trend {FormatTrend(trendDelta)}"));
         }
 
@@ -430,21 +432,24 @@
 
     private static string Fmt(double value) => double.IsNaN(value) ? "—" : value.ToString("0.0");
     private static string FmtOpt(double? value) => value is null || double.IsNaN(value.Value) ? "—" : value.Value.ToString("0.0");
-    private static (double Min, double Max) GetRecommendedTempRange(string roomName)
+    private static (double Min, double Max) GetRecommendedTempRange(string roomName, bool isActive)
     {
         var r = roomName.ToLowerInvariant();
-        if (r.Contains("bath"))
-            return (21.0, 23.0);
-        if (r.Contains("bed"))
-            return (17.0, 19.0);
-        if (r.Contains("kitchen"))
-            return (18.0, 20.0);
-        if (r.Contains("hall") || r.Contains("landing"))
-            return (16.0, 18.0);
-        if (r.Contains("living") || r.Contains("lounge"))
-            return (20.0, 22.0);
+        var baseRange = r switch
+        {
+            _ when r.Contains("bath") => (21.0, 23.0),
+            _ when r.Contains("bed") => (17.0, 19.0),
+            _ when r.Contains("kitchen") => (18.0, 20.0),
+            _ when r.Contains("hall") || r.Contains("landing") => (16.0, 18.0),
+            _ when r.Contains("living") || r.Contains("lounge") => (20.0, 22.0),
+            _ => (19.0, 21.0),
+        };
 
-        return (19.0, 21.0);
+        if (isActive)
+            return baseRange;
+
+        const double inactiveOffsetC = 2.0;
+        return (baseRange.Item1 - inactiveOffsetC, baseRange.Item2 - inactiveOffsetC);
     }
 
     private static string GetComfortGradientColor(double avgTemp, double targetMin, double targetMax)

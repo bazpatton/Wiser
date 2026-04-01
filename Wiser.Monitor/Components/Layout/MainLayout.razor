@@ -19,6 +19,7 @@
                 <MudButton Href="/" Variant="Variant.Text" Color="Color.Inherit" StartIcon="@Icons.Material.Filled.Home">Home</MudButton>
                 <MudButton Href="/rooms" Variant="Variant.Text" Color="Color.Inherit" StartIcon="@Icons.Material.Filled.MeetingRoom">Rooms</MudButton>
                 <MudButton Href="/charts" Variant="Variant.Text" Color="Color.Inherit" StartIcon="@Icons.Material.Filled.ShowChart">Charts</MudButton>
+                <MudButton Href="/settings" Variant="Variant.Text" Color="Color.Inherit" StartIcon="@Icons.Material.Filled.Settings">Settings</MudButton>
             </MudStack>
         </MudHidden>
         <MudSpacer />
@@ -41,6 +42,7 @@
             <MudNavLink Href="/" Match="NavLinkMatch.All" Icon="@Icons.Material.Filled.Home" OnClick="@(() => CloseDrawer())">Home</MudNavLink>
             <MudNavLink Href="/rooms" Icon="@Icons.Material.Filled.MeetingRoom" OnClick="@(() => CloseDrawer())">Rooms</MudNavLink>
             <MudNavLink Href="/charts" Icon="@Icons.Material.Filled.ShowChart" OnClick="@(() => CloseDrawer())">Charts</MudNavLink>
+            <MudNavLink Href="/settings" Icon="@Icons.Material.Filled.Settings" OnClick="@(() => CloseDrawer())">Settings</MudNavLink>
         </MudNavMenu>
     </MudDrawer>
 
