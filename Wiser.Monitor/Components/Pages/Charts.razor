@@ -112,13 +112,11 @@
                 {
                     <div class="room-heat-tile" style="background-color:@tile.Color;">
                         <div class="room-heat-name">@tile.Room</div>
-                        <div class="room-heat-temp">
-                            <span class="room-heat-state-dot" style="background-color:@tile.CurrentStateColor;" title="@tile.CurrentStateText"></span>
-                            @tile.DisplayTemp
-                        </div>
-                        <div class="room-heat-now-badge" style="--state-color:@tile.CurrentStateColor;">
-                            <span class="room-heat-now-icon" aria-hidden="true">●</span>
-                            @tile.CurrentStateText
+                        <div class="room-heat-temp-row">
+                            <div class="room-heat-temp">@tile.DisplayTemp</div>
+                            <div class="room-heat-now-chip" style="--state-color:@tile.CurrentStateColor;" title="@tile.CurrentStateText">
+                                @tile.CurrentStateText
+                            </div>
                         </div>
                         <div class="room-heat-meta">@tile.RangeText</div>
                         <div class="room-heat-meta">@tile.StatusText</div>
@@ -654,44 +652,30 @@
     }
 
     .room-heat-temp {
-        font-size: 0.86rem;
-        opacity: 0.95;
-        display: inline-flex;
+        font-size: 0.92rem;
+        font-weight: 700;
+        color: #f8fafc;
+    }
+
+    .room-heat-temp-row {
+        display: flex;
         align-items: center;
+        justify-content: space-between;
         gap: 6px;
     }
 
-    .room-heat-state-dot {
-        width: 12px;
-        height: 12px;
-        border-radius: 999px;
-        border: 2px solid rgba(248, 250, 252, 0.95);
-        box-shadow: 0 0 0 1px rgba(15, 23, 42, 0.7);
-        display: inline-block;
-        flex: 0 0 auto;
-    }
-
-    .room-heat-now-badge {
+    .room-heat-now-chip {
         display: inline-flex;
         align-items: center;
-        gap: 6px;
         color: #0f172a;
-        font-size: 0.74rem;
+        font-size: 0.68rem;
         font-weight: 800;
-        line-height: 1.1;
-        padding: 3px 8px;
-        border-radius: 6px;
-        background-color: rgba(248, 250, 252, 0.92);
-        border: 1px solid rgba(15, 23, 42, 0.18);
-        border-left: 4px solid var(--state-color);
-        width: fit-content;
-        box-shadow: 0 1px 1px rgba(15, 23, 42, 0.12);
-    }
-
-    .room-heat-now-icon {
-        color: var(--state-color);
-        font-size: 0.8rem;
         line-height: 1;
+        padding: 2px 6px;
+        border-radius: 999px;
+        background-color: #f8fafc;
+        border: 2px solid var(--state-color);
+        white-space: nowrap;
     }
 
     .room-heat-meta {
