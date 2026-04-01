@@ -108,21 +108,21 @@
         <MudText Typo="Typo.h6" Class="mb-2">
             <i class="fa-solid fa-grip"></i> Current room temperatures
         </MudText>
-        @if (_heatmapSeries.Count == 0 || _heatmapLabels.Length == 0)
+        @if (_roomTiles.Count == 0)
         {
             <MudAlert Severity="Severity.Info" Dense="true">No heatmap data yet.</MudAlert>
         }
         else
         {
-            <MudChart T="double"
-                      ChartType="ChartType.HeatMap"
-                      ChartSeries="_heatmapSeries"
-                      ChartLabels="_heatmapLabels"
-                      ChartOptions="_heatMapOptions"
-                      Width="100%"
-                      Height="@HeatMapHeight"
-                      MatchBoundsToSize="true"
-                      Class="mud-chart-responsive" />
+            <div class="room-heat-grid">
+                @foreach (var tile in _roomTiles)
+                {
+                    <div class="room-heat-tile" style="background-color:@tile.Color;">
+                        <div class="room-heat-name">@tile.Room</div>
+                        <div class="room-heat-temp">@tile.DisplayTemp</div>
+                    </div>
+                }
+            </div>
         }
     </MudPaper>
 
@@ -161,22 +161,12 @@
     private string[] _labels = [];
     private long[] _pointTs = [];
     private List<ChartSeries<double>> _series = [];
-    private string[] _heatmapLabels = [];
-    private List<ChartSeries<double>> _heatmapSeries = [];
+    private readonly List<RoomHeatTile> _roomTiles = [];
     private readonly List<DailySummaryRow> _dailyRows = [];
     private readonly LineChartOptions _lineOptions = new()
     {
         InterpolationOption = InterpolationOption.Straight,
         ShowToolTips = true,
-    };
-    private readonly HeatMapChartOptions _heatMapOptions = new()
-    {
-        EnableSmoothGradient = true,
-        ShowToolTips = true,
-        ShowLabels = true,
-        ShowLegendLabels = true,
-        ValueFormatString = "0.0",
-        TooltipTitleFormat = "{{SERIES_NAME}}",
     };
 
     private string ChartHostClass => _hours >= 168
@@ -184,7 +174,6 @@
         : _hours > 24
             ? "mud-chart-responsive chart-range-medium"
             : "mud-chart-responsive";
-    private string HeatMapHeight => $"{Math.Clamp((_heatmapSeries.Count * 38) + 80, 220, 680)}px";
 
     protected override async Task OnInitializedAsync()
     {
@@ -227,8 +216,7 @@
         _series = [];
         _labels = [];
         _pointTs = [];
-        _heatmapLabels = [];
-        _heatmapSeries = [];
+        _roomTiles.Clear();
 
         if (string.IsNullOrWhiteSpace(_selectedRoom))
             return Task.CompletedTask;
@@ -361,20 +349,26 @@
             return;
 
         var latestByRoom = Store.LatestByRoom();
-        _heatmapLabels = ["Current"];
-        var allSeries = new List<ChartSeries<double>>(_rooms.Count);
+        _roomTiles.Clear();
+
+        var temps = latestByRoom.Values.Select(static x => x.TempC).ToList();
+        var minTemp = temps.Count > 0 ? temps.Min() : 0d;
+        var maxTemp = temps.Count > 0 ? temps.Max() : 30d;
+        var span = Math.Max(0.1d, maxTemp - minTemp);
+
         foreach (var room in _rooms)
         {
-            var temp = latestByRoom.TryGetValue(room, out var latest) ? latest.TempC : double.NaN;
-
-            allSeries.Add(new ChartSeries<double>
+            if (!latestByRoom.TryGetValue(room, out var latest))
             {
-                Name = room,
-                Data = new[] { temp },
-            });
-        }
+                _roomTiles.Add(new RoomHeatTile(room, "—", "#334155"));
+                continue;
+            }
 
-        _heatmapSeries = allSeries;
+            var normalized = Math.Clamp((latest.TempC - minTemp) / span, 0d, 1d);
+            var hue = 220d - (220d * normalized); // blue -> red
+            var color = $"hsl({hue:0}, 78%, 45%)";
+            _roomTiles.Add(new RoomHeatTile(room, $"{latest.TempC:0.0}°C", color));
+        }
     }
 
     private void LoadDailyRows()
@@ -409,4 +403,35 @@
 
     private static string Fmt(double value) => double.IsNaN(value) ? "—" : value.ToString("0.0");
     private static string FmtOpt(double? value) => value is null || double.IsNaN(value.Value) ? "—" : value.Value.ToString("0.0");
+    private sealed record RoomHeatTile(string Room, string DisplayTemp, string Color);
 }
+
+<style>
+    .room-heat-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+        gap: 8px;
+    }
+
+    .room-heat-tile {
+        border-radius: 6px;
+        border: 1px solid rgba(255, 255, 255, 0.18);
+        padding: 8px 10px;
+        color: #f8fafc;
+        min-height: 62px;
+        display: flex;
+        flex-direction: column;
+        justify-content: space-between;
+    }
+
+    .room-heat-name {
+        font-size: 0.9rem;
+        font-weight: 600;
+        line-height: 1.1;
+    }
+
+    .room-heat-temp {
+        font-size: 0.86rem;
+        opacity: 0.95;
+    }
+</style>
