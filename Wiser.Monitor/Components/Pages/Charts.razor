@@ -467,18 +467,30 @@
 
     private static string GetComfortGradientColor(double avgTemp, double targetMin, double targetMax)
     {
-        var targetMid = (targetMin + targetMax) / 2.0;
-        var delta = avgTemp - targetMid;
-        var normalized = Math.Clamp(delta / 4.0, -1.0, 1.0);
-        double hue;
-        if (normalized < 0)
-            hue = 210d + (normalized * 20d); // cooler blues
-        else if (normalized > 0)
-            hue = 120d - (normalized * 120d); // green -> warm reds
-        else
-            hue = 120d;
+        if (avgTemp > targetMax)
+        {
+            // Hot side: light orange-red -> deep red.
+            var tHot = Math.Clamp((avgTemp - targetMax) / 4.0, 0.0, 1.0);
+            if (tHot < 0.33)
+                return "#ff7f50";
+            if (tHot < 0.66)
+                return "#ff4500";
+            return "#b22222";
+        }
 
-        return $"hsl({Math.Clamp(hue, 0d, 240d):0}, 78%, 42%)";
+        if (avgTemp < targetMin)
+        {
+            // Cold side: light ice blue -> deep cold blue.
+            var tCold = Math.Clamp((targetMin - avgTemp) / 4.0, 0.0, 1.0);
+            if (tCold < 0.33)
+                return "#87cefa";
+            if (tCold < 0.66)
+                return "#00bfff";
+            return "#1e3a8a";
+        }
+
+        // In-range: calm green.
+        return "#2e8b57";
     }
 
     private static string FormatTrend(double trendDelta)
