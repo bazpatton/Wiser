@@ -169,20 +169,19 @@
                                 </MudAlert>
                             }
 
-                            <MudSelect T="string"
-                                       Label="Mode"
-                                       Value="@GetModeKey(room)"
-                                       ValueChanged="@(v => OnRoomModeSelectChanged(room, v))"
-                                       Variant="Variant.Outlined"
-                                       Margin="Margin.Dense"
-                                       Dense="true"
-                                       FullWidth="true"
-                                       Class="room-mode-select touch-control"
-                                       Disabled="@(room.Id <= 0 || _busyRoomId == room.Id)">
-                                <MudSelectItem Value="@("auto")">Auto — follow schedule</MudSelectItem>
-                                <MudSelectItem Value="@("manual")">Manual — hold current target</MudSelectItem>
-                                <MudSelectItem Value="@("off")">Off — heating off</MudSelectItem>
-                            </MudSelect>
+                            <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center">
+                                <MudText Typo="Typo.caption" Class="mud-text-secondary">Mode</MudText>
+                                <MudMenu Label="@CurrentModeLabel(room)"
+                                         Variant="Variant.Outlined"
+                                         Size="Size.Small"
+                                         Dense="true"
+                                         Color="Color.Primary"
+                                         Disabled="@(room.Id <= 0 || _busyRoomId == room.Id)">
+                                    <MudMenuItem OnClick="@(() => OnRoomModeSelectChanged(room, "auto"))">Auto — follow schedule</MudMenuItem>
+                                    <MudMenuItem OnClick="@(() => OnRoomModeSelectChanged(room, "manual"))">Manual — hold current target</MudMenuItem>
+                                    <MudMenuItem OnClick="@(() => OnRoomModeSelectChanged(room, "off"))">Off — heating off</MudMenuItem>
+                                </MudMenu>
+                            </MudStack>
 
                             <MudText Typo="Typo.caption" Class="mud-text-secondary">
                                 Hub mode: @(room.Mode ?? "—")
@@ -343,6 +342,14 @@
         var target = room.SetpointC is null ? null : $"{room.SetpointC:F1} °C";
         return target is null ? $"{prefix}{local:t}" : $"{prefix}{local:t} · target {target}";
     }
+
+    private static string CurrentModeLabel(HubLiveRoom room) =>
+        GetModeKey(room) switch
+        {
+            "auto" => "Auto",
+            "off" => "Off",
+            _ => "Manual",
+        };
 
     /// <summary>Dropdown value for current hub state.</summary>
     private static string GetModeKey(HubLiveRoom room)
