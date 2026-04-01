@@ -230,7 +230,7 @@ public sealed class TemperatureStore
     }
 
     /// <summary>
-    /// Per UTC calendar day: simple HDD (15.5 °C base − mean outdoor) and heating-time proxy from poll counts × interval.
+    /// Per local calendar day: simple HDD (15.5 °C base − mean outdoor) and heating-time proxy from poll counts × interval.
     /// </summary>
     public IReadOnlyList<DailySummaryRow> GetDailySummaries(int days, int pollIntervalSec)
     {
@@ -238,7 +238,8 @@ public sealed class TemperatureStore
         var intervalMin = pollIntervalSec / 60.0;
         const double hddBaseC = 15.5;
         var list = new List<DailySummaryRow>();
-        var today = DateTime.UtcNow.Date;
+        var today = DateTime.Now.Date;
+        var localZone = TimeZoneInfo.Local;
 
         lock (_gate)
         {
@@ -246,8 +247,11 @@ public sealed class TemperatureStore
             for (var i = days - 1; i >= 0; i--)
             {
                 var day = today.AddDays(-i);
-                var start = new DateTimeOffset(day, TimeSpan.Zero).ToUnixTimeSeconds();
-                var end = new DateTimeOffset(day.AddDays(1), TimeSpan.Zero).ToUnixTimeSeconds();
+                var startOffset = localZone.GetUtcOffset(day);
+                var nextDay = day.AddDays(1);
+                var endOffset = localZone.GetUtcOffset(nextDay);
+                var start = new DateTimeOffset(day, startOffset).ToUnixTimeSeconds();
+                var end = new DateTimeOffset(nextDay, endOffset).ToUnixTimeSeconds();
 
                 double? avgOutdoor = null;
                 var outdoorSamples = 0;
