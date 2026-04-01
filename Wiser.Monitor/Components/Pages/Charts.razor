@@ -28,7 +28,40 @@
         </MudStack>
     </MudPaper>
 
+    <MudPaper Class="pa-3 chart-card">
+        <MudText Typo="Typo.h6" Class="mb-2">
+            <i class="fa-solid fa-grip"></i> Current room temperatures and trend status
+        </MudText>
+        @if (_roomTiles.Count == 0)
+        {
+            <MudAlert Severity="Severity.Info" Dense="true">No heatmap data yet.</MudAlert>
+        }
+        else
+        {
+            <div class="room-heat-grid">
+                @foreach (var tile in _roomTiles)
+                {
+                    <div class="room-heat-tile" style="background-color:@tile.Color;">
+                        <div class="room-heat-name">
+                            <span class="room-heat-state-square" style="background-color:@tile.CurrentStateColor;" title="@tile.CurrentStateText"></span>
+                            @tile.Room
+                        </div>
+                        <div class="room-heat-temp">
+                            @tile.DisplayTemp
+                        </div>
+                        <div class="room-heat-meta">@tile.RangeText</div>
+                        <div class="room-heat-meta">@tile.StatusText</div>
+                        <div class="room-heat-meta">@tile.TrendText</div>
+                    </div>
+                }
+            </div>
+        }
+    </MudPaper>
+
     <MudPaper Class="pa-3 card-soft charts-toolbar">
+        <MudText Typo="Typo.h6" Class="mb-2">
+            <i class="fa-solid fa-wave-square"></i> Room trend chart
+        </MudText>
         <MudGrid Spacing="2">
             <MudItem xs="12" md="4">
                 <MudSelect T="string"
@@ -98,41 +131,6 @@
     </MudPaper>
 
     <MudPaper Class="pa-3 chart-card">
-        @if (!string.IsNullOrWhiteSpace(_error))
-        {
-            <MudAlert Severity="Severity.Error" Dense="true">@_error</MudAlert>
-        }
-        else if (_series.Count == 0)
-        {
-            <MudAlert Severity="Severity.Info" Dense="true">No chart data yet.</MudAlert>
-        }
-        else
-        {
-            <MudChart T="double"
-                      ChartType="ChartType.Line"
-                      ChartSeries="_series"
-                      ChartLabels="_labels"
-                      ChartOptions="_lineOptions"
-                      Width="100%"
-                      MatchBoundsToSize="true"
-                      Class="@ChartHostClass">
-                <TooltipTemplate>
-                    @{
-                        var path = context.Segment;
-                        var i = path.Index;
-                        var when = i >= 0 && i < _pointTs.Length
-                            ? TimeZoneInfo.ConvertTime(DateTimeOffset.FromUnixTimeSeconds(_pointTs[i]), DisplayZone).ToString("g", CultureInfo.CurrentCulture)
-                            : path.LabelXValue;
-                    }
-                    <rect x="-76" y="-30" width="152" height="34" rx="6" ry="6" fill="#0f172ae6" stroke="#334155" stroke-width="1" />
-                    <text x="0" y="-16" text-anchor="middle" fill="#f8fafc" style="font-size:11px;font-weight:600">@when</text>
-                    <text x="0" y="-2" text-anchor="middle" fill="#cbd5e1" style="font-size:10px">@path.LabelYValue</text>
-                </TooltipTemplate>
-            </MudChart>
-        }
-    </MudPaper>
-
-    <MudPaper Class="pa-3 chart-card">
         <MudText Typo="Typo.h6" Class="mb-2">
             <i class="fa-solid fa-calendar-check"></i> Comfort Compliance Timeline (7 days)
         </MudText>
@@ -193,32 +191,37 @@
     </MudPaper>
 
     <MudPaper Class="pa-3 chart-card">
-        <MudText Typo="Typo.h6" Class="mb-2">
-            <i class="fa-solid fa-grip"></i> Current room temperatures and trend status
-        </MudText>
-        @if (_roomTiles.Count == 0)
+        @if (!string.IsNullOrWhiteSpace(_error))
         {
-            <MudAlert Severity="Severity.Info" Dense="true">No heatmap data yet.</MudAlert>
+            <MudAlert Severity="Severity.Error" Dense="true">@_error</MudAlert>
+        }
+        else if (_series.Count == 0)
+        {
+            <MudAlert Severity="Severity.Info" Dense="true">No chart data yet.</MudAlert>
         }
         else
         {
-            <div class="room-heat-grid">
-                @foreach (var tile in _roomTiles)
-                {
-                    <div class="room-heat-tile" style="background-color:@tile.Color;">
-                        <div class="room-heat-name">
-                            <span class="room-heat-state-square" style="background-color:@tile.CurrentStateColor;" title="@tile.CurrentStateText"></span>
-                            @tile.Room
-                        </div>
-                        <div class="room-heat-temp">
-                            @tile.DisplayTemp
-                        </div>
-                        <div class="room-heat-meta">@tile.RangeText</div>
-                        <div class="room-heat-meta">@tile.StatusText</div>
-                        <div class="room-heat-meta">@tile.TrendText</div>
-                    </div>
-                }
-            </div>
+            <MudChart T="double"
+                      ChartType="ChartType.Line"
+                      ChartSeries="_series"
+                      ChartLabels="_labels"
+                      ChartOptions="_lineOptions"
+                      Width="100%"
+                      MatchBoundsToSize="true"
+                      Class="@ChartHostClass">
+                <TooltipTemplate>
+                    @{
+                        var path = context.Segment;
+                        var i = path.Index;
+                        var when = i >= 0 && i < _pointTs.Length
+                            ? TimeZoneInfo.ConvertTime(DateTimeOffset.FromUnixTimeSeconds(_pointTs[i]), DisplayZone).ToString("g", CultureInfo.CurrentCulture)
+                            : path.LabelXValue;
+                    }
+                    <rect x="-76" y="-30" width="152" height="34" rx="6" ry="6" fill="#0f172ae6" stroke="#334155" stroke-width="1" />
+                    <text x="0" y="-16" text-anchor="middle" fill="#f8fafc" style="font-size:11px;font-weight:600">@when</text>
+                    <text x="0" y="-2" text-anchor="middle" fill="#cbd5e1" style="font-size:10px">@path.LabelYValue</text>
+                </TooltipTemplate>
+            </MudChart>
         }
     </MudPaper>
 
