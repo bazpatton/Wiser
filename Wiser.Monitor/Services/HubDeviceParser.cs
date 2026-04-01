@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.Text.RegularExpressions;
 
 namespace Wiser.Monitor.Services;
 
@@ -14,6 +15,8 @@ public sealed record HubDeviceStatus(
 
 public static class HubDeviceParser
 {
+    private static readonly Regex NumberSuffix = new(@"\d+", RegexOptions.Compiled);
+
     public static IReadOnlyList<HubDeviceStatus> ParseDevices(JsonDocument domain)
     {
         var root = domain.RootElement;
@@ -27,13 +30,68 @@ public static class HubDeviceParser
         AddFromArray(root, "Device", "Device", roomNameById, roomByRoomStatId, roomByTrvId, list);
         AddFromRooms(root, roomNameById, list);
 
-        // Deduplicate by id + name + type.
+        // Merge overlapping entries from different sources (e.g. Device iTRV + SmartValve TRV).
         return list
-            .GroupBy(x => $"{x.Id}|{x.Name}|{x.DeviceType}", StringComparer.OrdinalIgnoreCase)
-            .Select(g => g.First())
+            .Select(Normalize)
+            .GroupBy(BuildMergeKey, StringComparer.OrdinalIgnoreCase)
+            .Select(static g => MergeGroup(g.ToList()))
             .OrderBy(x => x.DeviceType, StringComparer.OrdinalIgnoreCase)
             .ThenBy(x => x.Name, StringComparer.OrdinalIgnoreCase)
             .ToList();
+    }
+
+    private static HubDeviceStatus Normalize(HubDeviceStatus d)
+    {
+        var type = NormalizeTypeByName(d.DeviceType, d.Name);
+        return d with { DeviceType = type };
+    }
+
+    private static string NormalizeTypeByName(string deviceType, string name)
+    {
+        var n = name.ToLowerInvariant();
+        if (n.Contains("itrv") || n.Contains("trv"))
+            return "TRV";
+        if (n.Contains("room sensor") || n.Contains("roomstat"))
+            return "Room sensor";
+        if (n.Contains("smartplug") || n.Contains("smart plug"))
+            return "SmartPlug";
+        if (n.Contains("controller"))
+            return "Controller";
+        return deviceType;
+    }
+
+    private static string BuildMergeKey(HubDeviceStatus d)
+    {
+        var m = NumberSuffix.Match(d.Name);
+        var num = m.Success ? m.Value : string.Empty;
+        if (!string.IsNullOrEmpty(num) && (d.DeviceType.Equals("TRV", StringComparison.OrdinalIgnoreCase)
+            || d.DeviceType.Equals("Room sensor", StringComparison.OrdinalIgnoreCase)))
+        {
+            return $"{d.DeviceType}:{num}";
+        }
+
+        if (d.Id > 0)
+            return $"{d.DeviceType}:id:{d.Id}";
+        return $"{d.DeviceType}:name:{d.Name.Trim().ToLowerInvariant()}";
+    }
+
+    private static HubDeviceStatus MergeGroup(IReadOnlyList<HubDeviceStatus> group)
+    {
+        var first = group[0];
+        var preferredRoom = group.FirstOrDefault(static x => !string.IsNullOrWhiteSpace(x.Room))?.Room;
+        var preferredBattery = group.FirstOrDefault(static x => x.BatteryPercent is not null)?.BatteryPercent;
+        var preferredSignal = group.FirstOrDefault(static x => x.Signal is not null)?.Signal;
+        var preferredSource = string.Join("+", group.Select(static x => x.RawKind).Distinct(StringComparer.OrdinalIgnoreCase));
+        var preferredId = group.FirstOrDefault(static x => x.Id > 0)?.Id ?? first.Id;
+
+        return first with
+        {
+            Id = preferredId,
+            Room = preferredRoom,
+            BatteryPercent = preferredBattery,
+            Signal = preferredSignal,
+            RawKind = preferredSource,
+        };
     }
 
     private static Dictionary<int, string> BuildRoomNameMap(JsonElement root)
