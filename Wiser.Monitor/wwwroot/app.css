@@ -263,3 +263,10 @@
         margin-top: 0.35rem;
     }
 }
+
+.schedules-page .schedule-week-table .schedule-day-cell {
+    vertical-align: top;
+    width: 7rem;
+    padding-right: 1rem;
+    white-space: nowrap;
+}

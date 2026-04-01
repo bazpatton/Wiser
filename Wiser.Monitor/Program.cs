@@ -123,6 +123,98 @@ app.MapGet("/api/hub-devices", async (WiserHubFetch hub, MonitorOptions o, Cance
     return Results.Json(new { devices });
 });
 
+/// <summary>
+/// Fetches <c>/data/domain/</c> once plus each listed sub-resource; compares array lengths to the full document when names match.
+/// Use locally to see whether sub-URLs add fields beyond the aggregated poll (they usually mirror one top-level key).
+/// </summary>
+app.MapGet("/api/hub-domain-slices", async (WiserHubFetch hub, MonitorOptions o, CancellationToken ct) =>
+{
+    if (!hubConfigured)
+    {
+        return Results.Json(
+            new { error = "Hub is not configured. Set WISER_IP and WISER_SECRET.", configuration_errors = hubConfigurationErrors },
+            statusCode: StatusCodes.Status503ServiceUnavailable);
+    }
+
+    using var full = await hub.FetchDomainDocumentAsync(o, ct).ConfigureAwait(false);
+    var fullRoot = full.RootElement;
+    var fullKeys = new List<string>();
+    var fullArrayLens = new Dictionary<string, int>(StringComparer.Ordinal);
+    if (fullRoot.ValueKind == JsonValueKind.Object)
+    {
+        foreach (var p in fullRoot.EnumerateObject())
+        {
+            fullKeys.Add(p.Name);
+            if (p.Value.ValueKind == JsonValueKind.Array)
+                fullArrayLens[p.Name] = p.Value.GetArrayLength();
+        }
+    }
+
+    string[] slicePaths =
+    [
+        "Device/",
+        "HeatingChannel/",
+        "Room/",
+        "RoomStat/",
+        "Schedule/",
+        "System/",
+        "SmartValve/",
+    ];
+
+    var probes = new List<HubDomainSliceProbe>();
+    foreach (var p in slicePaths)
+        probes.Add(await hub.ProbeDomainSliceAsync(o, p, ct).ConfigureAwait(false));
+
+    var comparisons = new List<object>();
+    foreach (var probe in probes)
+    {
+        if (probe.ObjectKeys is null || probe.ArrayElementCounts is null || probe.ObjectKeys.Count != 1)
+        {
+            comparisons.Add(new
+            {
+                path = probe.RequestedPath,
+                matches_full_domain_slice = (bool?)null,
+                note = probe.ObjectKeys is null ? "not an object root or unmapped" : "multi-key root (unexpected for slice)",
+            });
+            continue;
+        }
+
+        var onlyKey = probe.ObjectKeys[0];
+        if (!probe.ArrayElementCounts.TryGetValue(onlyKey, out var sliceLen))
+        {
+            comparisons.Add(new
+            {
+                path = probe.RequestedPath,
+                slice_key = onlyKey,
+                matches_full_domain_slice = (bool?)null,
+                note = "single key but not an array property",
+            });
+            continue;
+        }
+
+        var matches = fullArrayLens.TryGetValue(onlyKey, out var fullLen) && fullLen == sliceLen;
+        comparisons.Add(new
+        {
+            path = probe.RequestedPath,
+            slice_key = onlyKey,
+            slice_array_length = sliceLen,
+            full_domain_array_length = fullArrayLens.TryGetValue(onlyKey, out var fl) ? fl : (int?)null,
+            matches_full_domain_slice = matches,
+        });
+    }
+
+    return Results.Json(new
+    {
+        note =
+            "Sub-paths usually return the same arrays as GET /data/domain/ for that key. Schedules/RoomStat may still be worth "
+            + "pulling separately for bandwidth. Compare matches_full_domain_slice and re-fetch if you add delta logic later.",
+        full_domain_top_level_keys = fullKeys,
+        full_domain_array_lengths = fullArrayLens,
+        slices = probes,
+        slice_vs_full_domain = comparisons,
+    });
+});
+
 app.MapPost("/api/room/boost", async (BoostRoomRequest body, WiserHubFetch hub, MonitorOptions o, CancellationToken ct) =>
 {
     if (!hubConfigured)
@@ -285,6 +377,36 @@ app.MapGet("/api/export/room-trends.csv", (int? hours, TemperatureStore store, M
     }
 
     return Results.File(Encoding.UTF8.GetBytes(csv.ToString()), "text/csv; charset=utf-8", $"room-trends-{h}h.csv");
+});
+
+app.MapGet("/api/export/schedules.json", async (WiserHubFetch hub, MonitorOptions o, CancellationToken ct) =>
+{
+    if (!hubConfigured)
+    {
+        return Results.Json(
+            new { error = "Hub is not configured. Set WISER_IP and WISER_SECRET.", configuration_errors = hubConfigurationErrors },
+            statusCode: StatusCodes.Status503ServiceUnavailable);
+    }
+
+    using var doc = await hub.FetchDomainDocumentAsync(o, ct).ConfigureAwait(false);
+    var bytes = ScheduleExport.BuildSchedulesJsonBytes(doc);
+    var stamp = DateTime.UtcNow.ToString("yyyyMMdd-HHmmss", CultureInfo.InvariantCulture);
+    return Results.File(bytes, "application/json; charset=utf-8", $"wiser-schedules-{stamp}.json");
+});
+
+app.MapGet("/api/export/schedules.csv", async (WiserHubFetch hub, MonitorOptions o, CancellationToken ct) =>
+{
+    if (!hubConfigured)
+    {
+        return Results.Json(
+            new { error = "Hub is not configured. Set WISER_IP and WISER_SECRET.", configuration_errors = hubConfigurationErrors },
+            statusCode: StatusCodes.Status503ServiceUnavailable);
+    }
+
+    using var doc = await hub.FetchDomainDocumentAsync(o, ct).ConfigureAwait(false);
+    var csv = ScheduleExport.BuildSchedulesCsv(doc);
+    var stamp = DateTime.UtcNow.ToString("yyyyMMdd-HHmmss", CultureInfo.InvariantCulture);
+    return Results.File(Encoding.UTF8.GetBytes(csv), "text/csv; charset=utf-8", $"wiser-schedules-{stamp}.csv");
 });
 
 app.MapGet("/api/series", (

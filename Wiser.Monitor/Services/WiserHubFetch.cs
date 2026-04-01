@@ -34,6 +34,45 @@ public sealed class WiserHubFetch(HttpClient http)
         return JsonDocument.Parse(bytes);
     }
 
+    /// <summary>
+    /// GET a sub-path under <c>/data/domain/</c> (e.g. <c>Device/</c>, <c>RoomStat/</c>).
+    /// Tries with and without a trailing slash when the first attempt returns 404.
+    /// </summary>
+    public async Task<HubDomainSliceProbe> ProbeDomainSliceAsync(MonitorOptions options, string relativePath, CancellationToken ct)
+    {
+        var basePart = relativePath.Trim().TrimStart('/');
+        var attempts = new List<string>();
+        if (!string.IsNullOrEmpty(basePart))
+            attempts.Add(basePart);
+        if (!string.IsNullOrEmpty(basePart) && !basePart.EndsWith('/'))
+            attempts.Add(basePart + "/");
+        if (!string.IsNullOrEmpty(basePart) && basePart.EndsWith('/'))
+            attempts.Add(basePart.TrimEnd('/'));
+        attempts = attempts.Distinct(StringComparer.Ordinal).ToList();
+
+        HubDomainSliceProbe? lastProbe = null;
+        foreach (var p in attempts)
+        {
+            var url = $"http://{options.WiserIp}/data/domain/{p}";
+            using var req = new HttpRequestMessage(HttpMethod.Get, url);
+            req.Headers.TryAddWithoutValidation("SECRET", options.WiserSecret);
+
+            using var resp = await http.SendAsync(req, HttpCompletionOption.ResponseHeadersRead, ct).ConfigureAwait(false);
+            var bytes = await resp.Content.ReadAsByteArrayAsync(ct).ConfigureAwait(false);
+            var code = (int)resp.StatusCode;
+            var probe = HubDomainSliceProbeBuilder.FromResponse(relativePath, url, code, bytes);
+            if (code is >= 200 and <= 299)
+                return probe;
+
+            lastProbe = probe;
+            if (code != 404)
+                return probe;
+        }
+
+        return lastProbe
+            ?? new HubDomainSliceProbe(relativePath, $"http://{options.WiserIp}/data/domain/", 0, "no attempt", "None", null, null, 0);
+    }
+
     /// <summary>Wiser boost / timed manual — same JSON as Wiser.Control <c>SetRoomModeAsync(..., "boost", ...)</c>.</summary>
     public async Task PatchRoomBoostAsync(MonitorOptions options, int roomId, double temperatureC, int minutes, CancellationToken ct)
     {

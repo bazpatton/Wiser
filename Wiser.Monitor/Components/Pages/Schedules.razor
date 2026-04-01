@@ -1,0 +1,164 @@
+@page "/schedules"
+@rendermode InteractiveServer
+
+@inject MonitorOptions Options
+@inject WiserHubFetch Hub
+
+<PageTitle>Wiser Monitor - Schedules</PageTitle>
+
+<MudStack Spacing="3" Class="schedules-page">
+    <MudPaper Class="pa-4 page-header-card">
+        <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center" Wrap="Wrap.Wrap">
+            <MudText Typo="Typo.h5">
+                <i class="fa-regular fa-calendar-days"></i> Schedules
+            </MudText>
+            <MudStack Row="true" Spacing="1" Wrap="Wrap.Wrap">
+                <MudButton Variant="Variant.Outlined"
+                           Color="Color.Primary"
+                           Size="Size.Small"
+                           StartIcon="@Icons.Material.Filled.Download"
+                           Href="/api/export/schedules.json"
+                           Class="touch-target">
+                    Export JSON
+                </MudButton>
+                <MudButton Variant="Variant.Outlined"
+                           Color="Color.Primary"
+                           Size="Size.Small"
+                           StartIcon="@Icons.Material.Filled.Download"
+                           Href="/api/export/schedules.csv"
+                           Class="touch-target">
+                    Export CSV
+                </MudButton>
+                <MudButton Variant="Variant.Filled"
+                           StartIcon="@Icons.Material.Filled.Refresh"
+                           Color="Color.Primary"
+                           Class="touch-target"
+                           Disabled="@_loading"
+                           OnClick="RefreshAsync">
+                    Refresh
+                </MudButton>
+            </MudStack>
+        </MudStack>
+        <MudText Typo="Typo.body2" Class="mt-1">
+            Live schedule programs from the hub (same <code>/data/domain/</code> payload as room control). “Next change” uses hub local day/time when present.
+        </MudText>
+        @if (!string.IsNullOrWhiteSpace(_clockHint))
+        {
+            <MudText Typo="Typo.caption" Class="mud-text-secondary mt-1">@_clockHint</MudText>
+        }
+    </MudPaper>
+
+    @if (!string.IsNullOrWhiteSpace(_error))
+    {
+        <MudAlert Severity="Severity.Warning" Dense="true">@_error</MudAlert>
+    }
+
+    @if (_loading && _overview is null)
+    {
+        <MudPaper Class="pa-6 card-soft">
+            <MudProgressCircular Color="Color.Primary" Indeterminate="true" />
+            <MudText Class="mt-2">Loading schedules…</MudText>
+        </MudPaper>
+    }
+    else if (_overview is not null)
+    {
+        <MudPaper Class="pa-3 card-soft">
+            <MudText Typo="Typo.h6" Class="mb-2">By room</MudText>
+            @if (_overview.RoomRows.Count == 0)
+            {
+                <MudAlert Severity="Severity.Info" Dense="true">No rooms in hub payload.</MudAlert>
+            }
+            else
+            {
+                <MudTable T="HubRoomScheduleRow" Dense="true" Hover="true" Breakpoint="Breakpoint.Sm" Items="_overview.RoomRows">
+                    <HeaderContent>
+                        <MudTh>Room</MudTh>
+                        <MudTh>Schedule</MudTh>
+                        <MudTh>Next change</MudTh>
+                        <MudTh>Today</MudTh>
+                    </HeaderContent>
+                    <RowTemplate>
+                        <MudTd DataLabel="Room">@context.RoomName</MudTd>
+                        <MudTd DataLabel="Schedule">@LabelSchedule(context.ScheduleId)</MudTd>
+                        <MudTd DataLabel="Next change">@context.NextChangeText</MudTd>
+                        <MudTd DataLabel="Today">@context.TimelineTodayText</MudTd>
+                    </RowTemplate>
+                </MudTable>
+            }
+        </MudPaper>
+
+        <MudPaper Class="pa-3 card-soft">
+            <MudText Typo="Typo.h6" Class="mb-2">Schedule programs</MudText>
+            <MudText Typo="Typo.body2" Class="mud-text-secondary mb-3">
+                Full week for each program. Rooms sharing the same <strong>Schedule id</strong> use the same timeline.
+            </MudText>
+            @if (_overview.Programs.Count == 0)
+            {
+                <MudAlert Severity="Severity.Info" Dense="true">No schedule definitions in hub payload.</MudAlert>
+            }
+            else
+            {
+                <MudExpansionPanels MultiExpansion="true">
+                    @foreach (var prog in _overview.Programs.OrderBy(p => p.ScheduleId))
+                    {
+                        <MudExpansionPanel Text="@ProgramTitle(prog)">
+                            <MudSimpleTable Dense="true" Class="schedule-week-table" Style="overflow-x: auto;">
+                                <tbody>
+                                @foreach (var day in prog.Days)
+                                {
+                                    <tr>
+                                        <td class="schedule-day-cell"><strong>@day.DayName</strong></td>
+                                        <td>@day.TimelineText</td>
+                                    </tr>
+                                }
+                                </tbody>
+                            </MudSimpleTable>
+                        </MudExpansionPanel>
+                    }
+                </MudExpansionPanels>
+            }
+        </MudPaper>
+    }
+</MudStack>
+
+@code {
+    private HubSchedulesOverview? _overview;
+    private bool _loading = true;
+    private string? _error;
+    private string? _clockHint;
+
+    protected override async Task OnInitializedAsync() => await RefreshAsync();
+
+    private async Task RefreshAsync()
+    {
+        _loading = true;
+        _error = null;
+        try
+        {
+            using var doc = await Hub.FetchDomainDocumentAsync(Options, CancellationToken.None);
+            _overview = HubSchedulesParser.ParseOverview(doc);
+            _clockHint = _overview.ClockHint;
+        }
+        catch (Exception ex)
+        {
+            _error = $"Could not load schedules: {ex.Message}";
+            _overview = null;
+            _clockHint = null;
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private static string LabelSchedule(int scheduleId) =>
+        scheduleId <= 0 ? "—" : $"#{scheduleId}";
+
+    private static string ProgramTitle(HubScheduleProgram prog)
+    {
+        var rooms = prog.RoomNames.Count > 0
+            ? string.Join(", ", prog.RoomNames)
+            : "unused in current room list";
+        return $"Schedule #{prog.ScheduleId} · {rooms}";
+    }
+}
