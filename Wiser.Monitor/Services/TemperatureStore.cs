@@ -609,7 +609,8 @@ public sealed class TemperatureStore
     /// <summary>
     /// Rooms to show on “heating activity” temperature charts: any sample with valve/output demand, or any sample
     /// from a poll where the hub was heating-active (boiler relay or any zone demand — same basis as daily “heat demand est.”).
-    /// Per-room <c>heat_demand</c> can stay 0 while the relay fires, so we also match <c>system_readings.heating_active</c> at the same <c>ts</c>.
+    /// Per-room <c>heat_demand</c> can stay 0 while the relay fires, so we also match <c>system_readings</c> at the same <c>ts</c>
+    /// when <c>heating_active</c> or <c>heating_relay_on</c> is set.
     /// </summary>
     public IReadOnlyList<string> ListRoomsCallingHeatSince(long sinceTs)
     {
@@ -627,7 +628,8 @@ public sealed class TemperatureStore
                     OR (rr.percentage_demand IS NOT NULL AND rr.percentage_demand > 0)
                     OR EXISTS (
                       SELECT 1 FROM system_readings sr
-                      WHERE sr.ts = rr.ts AND sr.heating_active != 0
+                      WHERE sr.ts = rr.ts
+                        AND (sr.heating_active != 0 OR sr.heating_relay_on != 0)
                     )
                   )
                 ORDER BY rr.room COLLATE NOCASE

@@ -494,55 +494,60 @@
         _runtimeDistributionSeries = [];
         _roomIsActiveMap = new(StringComparer.OrdinalIgnoreCase);
 
-        if (string.IsNullOrWhiteSpace(_selectedRoom))
-            return Task.CompletedTask;
-
         try
         {
+            var since24h = DateTimeOffset.UtcNow.ToUnixTimeSeconds() - (HeatCallingTrendHours * 3600L);
+            BuildHeatCallingRoomsTimeseries(since24h);
+            LoadDataQualitySummary();
+
             var since = DateTimeOffset.UtcNow.ToUnixTimeSeconds() - (_hours * 3600L);
-            var roomRows = Store.SeriesRoom(_selectedRoom, since);
-            if (roomRows.Count == 0)
-                return Task.CompletedTask;
 
-            _pointTs = roomRows.Select(static x => x.Ts).ToArray();
-            _labels = BuildSparseTimeLabels(_pointTs, _hours, DisplayZone);
-            ApplyLineChartOptions(roomRows.Count);
-
-            _series =
-            [
-                new ChartSeries<double>
-                {
-                    Name = "Room °C",
-                    Data = roomRows.Select(static x => x.TempC).ToArray(),
-                },
-                new ChartSeries<double>
-                {
-                    Name = "Heat target °C",
-                    Data = roomRows.Select(x => x.SetpointC ?? double.NaN).ToArray(),
-                },
-            ];
-
-            if (roomRows.Any(x => x.PercentageDemand.HasValue))
+            if (!string.IsNullOrWhiteSpace(_selectedRoom))
             {
-                _series.Add(new ChartSeries<double>
+                var roomRows = Store.SeriesRoom(_selectedRoom, since);
+                if (roomRows.Count > 0)
                 {
-                    Name = "Valve demand %",
-                    Data = roomRows.Select(x => x.PercentageDemand is null ? double.NaN : x.PercentageDemand.Value).ToArray(),
-                });
-            }
+                    _pointTs = roomRows.Select(static x => x.Ts).ToArray();
+                    _labels = BuildSparseTimeLabels(_pointTs, _hours, DisplayZone);
+                    ApplyLineChartOptions(roomRows.Count);
 
-            if (_includeOutdoor && Options.OpenMeteoLat is not null)
-            {
-                var alignedOutdoor = AlignOutdoor(
-                    roomRows.Select(static x => x.Ts).ToArray(),
-                    Store.SeriesOutdoor(since));
-                if (alignedOutdoor.Any(static x => x is not null))
-                {
-                    _series.Add(new ChartSeries<double>
+                    _series =
+                    [
+                        new ChartSeries<double>
+                        {
+                            Name = "Room °C",
+                            Data = roomRows.Select(static x => x.TempC).ToArray(),
+                        },
+                        new ChartSeries<double>
+                        {
+                            Name = "Heat target °C",
+                            Data = roomRows.Select(x => x.SetpointC ?? double.NaN).ToArray(),
+                        },
+                    ];
+
+                    if (roomRows.Any(x => x.PercentageDemand.HasValue))
                     {
-                        Name = "Outdoor °C",
-                        Data = alignedOutdoor.Select(static x => x ?? double.NaN).ToArray(),
-                    });
+                        _series.Add(new ChartSeries<double>
+                        {
+                            Name = "Valve demand %",
+                            Data = roomRows.Select(x => x.PercentageDemand is null ? double.NaN : x.PercentageDemand.Value).ToArray(),
+                        });
+                    }
+
+                    if (_includeOutdoor && Options.OpenMeteoLat is not null)
+                    {
+                        var alignedOutdoor = AlignOutdoor(
+                            roomRows.Select(static x => x.Ts).ToArray(),
+                            Store.SeriesOutdoor(since));
+                        if (alignedOutdoor.Any(static x => x is not null))
+                        {
+                            _series.Add(new ChartSeries<double>
+                            {
+                                Name = "Outdoor °C",
+                                Data = alignedOutdoor.Select(static x => x ?? double.NaN).ToArray(),
+                            });
+                        }
+                    }
                 }
             }
 
