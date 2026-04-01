@@ -19,10 +19,12 @@ public static class HubDeviceParser
         var root = domain.RootElement;
         var list = new List<HubDeviceStatus>();
         var roomNameById = BuildRoomNameMap(root);
+        var roomByRoomStatId = BuildRoomStatMap(root);
+        var roomByTrvId = BuildTrvMap(root);
 
-        AddFromArray(root, "RoomStat", "Room sensor", roomNameById, list);
-        AddFromArray(root, "SmartValve", "TRV", roomNameById, list);
-        AddFromArray(root, "Device", "Device", roomNameById, list);
+        AddFromArray(root, "RoomStat", "Room sensor", roomNameById, roomByRoomStatId, roomByTrvId, list);
+        AddFromArray(root, "SmartValve", "TRV", roomNameById, roomByRoomStatId, roomByTrvId, list);
+        AddFromArray(root, "Device", "Device", roomNameById, roomByRoomStatId, roomByTrvId, list);
         AddFromRooms(root, roomNameById, list);
 
         // Deduplicate by id + name + type.
@@ -45,6 +47,48 @@ public static class HubDeviceParser
             var roomId = GetInt(room, "id", "Id");
             var roomName = GetString(room, "Name", "name");
             if (roomId is int id && !string.IsNullOrWhiteSpace(roomName))
+                map[id] = roomName!;
+        }
+
+        return map;
+    }
+
+    private static Dictionary<int, string> BuildRoomStatMap(JsonElement root)
+    {
+        var map = new Dictionary<int, string>();
+        if (!TryGetArray(root, "Room", out var roomArr))
+            return map;
+
+        foreach (var room in roomArr.EnumerateArray())
+        {
+            var roomName = GetString(room, "Name", "name");
+            if (string.IsNullOrWhiteSpace(roomName))
+                continue;
+
+            var roomStatId = GetInt(room, "RoomStatId", "RoomSensorId");
+            if (roomStatId is int rsid)
+                map[rsid] = roomName!;
+
+            foreach (var id in GetIntArray(room, "RoomStatIds", "RoomSensorIds"))
+                map[id] = roomName!;
+        }
+
+        return map;
+    }
+
+    private static Dictionary<int, string> BuildTrvMap(JsonElement root)
+    {
+        var map = new Dictionary<int, string>();
+        if (!TryGetArray(root, "Room", out var roomArr))
+            return map;
+
+        foreach (var room in roomArr.EnumerateArray())
+        {
+            var roomName = GetString(room, "Name", "name");
+            if (string.IsNullOrWhiteSpace(roomName))
+                continue;
+
+            foreach (var id in GetIntArray(room, "SmartValveIds", "ValveIds", "TRVIds", "DeviceIds"))
                 map[id] = roomName!;
         }
 
@@ -81,7 +125,14 @@ public static class HubDeviceParser
         }
     }
 
-    private static void AddFromArray(JsonElement root, string key, string defaultType, IReadOnlyDictionary<int, string> roomNameById, List<HubDeviceStatus> list)
+    private static void AddFromArray(
+        JsonElement root,
+        string key,
+        string defaultType,
+        IReadOnlyDictionary<int, string> roomNameById,
+        IReadOnlyDictionary<int, string> roomByRoomStatId,
+        IReadOnlyDictionary<int, string> roomByTrvId,
+        List<HubDeviceStatus> list)
     {
         if (!TryGetArray(root, key, out var arr))
             return;
@@ -91,7 +142,7 @@ public static class HubDeviceParser
             var id = GetInt(item, "id", "Id", $"{key}Id") ?? -1;
             var deviceType = ResolveDeviceType(item, defaultType);
             var name = GetString(item, "Name", "name", "DisplayName") ?? $"{deviceType} {id}";
-            var room = ResolveRoomName(item, roomNameById);
+            var room = ResolveRoomName(item, key, deviceType, roomNameById, roomByRoomStatId, roomByTrvId);
             var battery = GetBatteryPercent(item);
             var signal = GetSignal(item);
 
@@ -154,7 +205,13 @@ public static class HubDeviceParser
             : explicitType;
     }
 
-    private static string? ResolveRoomName(JsonElement item, IReadOnlyDictionary<int, string> roomNameById)
+    private static string? ResolveRoomName(
+        JsonElement item,
+        string sourceKey,
+        string deviceType,
+        IReadOnlyDictionary<int, string> roomNameById,
+        IReadOnlyDictionary<int, string> roomByRoomStatId,
+        IReadOnlyDictionary<int, string> roomByTrvId)
     {
         var room = GetString(item, "RoomName", "Room", "RoomNameOverride");
         if (!string.IsNullOrWhiteSpace(room))
@@ -164,8 +221,24 @@ public static class HubDeviceParser
         if (roomId is int id && roomNameById.TryGetValue(id, out var name))
             return name;
 
-        // Common Wiser linking convention: device id equals room id.
         var deviceId = GetInt(item, "id", "Id", "DeviceId");
+        if (sourceKey.Equals("RoomStat", StringComparison.OrdinalIgnoreCase)
+            || deviceType.Contains("sensor", StringComparison.OrdinalIgnoreCase)
+            || deviceType.Contains("stat", StringComparison.OrdinalIgnoreCase))
+        {
+            if (deviceId is int rsid && roomByRoomStatId.TryGetValue(rsid, out var roomForStat))
+                return roomForStat;
+        }
+
+        if (sourceKey.Equals("SmartValve", StringComparison.OrdinalIgnoreCase)
+            || deviceType.Equals("TRV", StringComparison.OrdinalIgnoreCase)
+            || deviceType.Contains("valve", StringComparison.OrdinalIgnoreCase))
+        {
+            if (deviceId is int trid && roomByTrvId.TryGetValue(trid, out var roomForTrv))
+                return roomForTrv;
+        }
+
+        // Fallback convention: device id equals room id.
         if (deviceId is int did && roomNameById.TryGetValue(did, out var byDeviceId))
             return byDeviceId;
 
@@ -184,6 +257,28 @@ public static class HubDeviceParser
                 return i;
         }
         return null;
+    }
+
+    private static IReadOnlyList<int> GetIntArray(JsonElement item, params string[] names)
+    {
+        foreach (var n in names)
+        {
+            if (!item.TryGetProperty(n, out var el) || el.ValueKind != JsonValueKind.Array)
+                continue;
+
+            var vals = new List<int>();
+            foreach (var v in el.EnumerateArray())
+            {
+                if (v.ValueKind == JsonValueKind.Number && v.TryGetInt32(out var i))
+                    vals.Add(i);
+                else if (v.ValueKind == JsonValueKind.String && int.TryParse(v.GetString(), out i))
+                    vals.Add(i);
+            }
+            if (vals.Count > 0)
+                return vals;
+        }
+
+        return Array.Empty<int>();
     }
 
     private static string? GetString(JsonElement item, params string[] names)
