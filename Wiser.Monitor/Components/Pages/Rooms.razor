@@ -95,18 +95,36 @@
                         <MudStack Spacing="2">
                             <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Start" Wrap="Wrap.Wrap">
                                 <MudText Typo="Typo.h6" Class="room-name">@room.Name</MudText>
-                                <MudChip T="string"
-                                         Size="Size.Small"
-                                         Color="@(room.HeatDemand != 0 ? Color.Error : Color.Info)"
-                                         Variant="Variant.Outlined">
-                                    @(room.HeatDemand != 0 ? "Calling heat" : "Idle")
-                                </MudChip>
+                                <MudStack Row="true" Spacing="1" Wrap="Wrap.Wrap">
+                                    @if (IsOfflineTemperature(room.TempC))
+                                    {
+                                        <MudChip T="string"
+                                                 Size="Size.Small"
+                                                 Color="Color.Warning"
+                                                 Variant="Variant.Filled">
+                                            Offline
+                                        </MudChip>
+                                    }
+                                    <MudChip T="string"
+                                             Size="Size.Small"
+                                             Color="@(room.HeatDemand != 0 ? Color.Error : Color.Info)"
+                                             Variant="Variant.Outlined">
+                                        @(room.HeatDemand != 0 ? "Calling heat" : "Idle")
+                                    </MudChip>
+                                </MudStack>
                             </MudStack>
 
                             <MudStack Row="true" Spacing="2" AlignItems="AlignItems.Center" Wrap="Wrap.Wrap" Class="room-temp-row">
                                 <MudText Typo="Typo.body1" Class="room-measured">
                                     <span class="rad-icon" aria-hidden="true">@RadiatorGlyph(room.RadiatorState)</span>
-                                    <strong>@($"{room.TempC:F1}")</strong><span class="mud-text-secondary"> °C</span>
+                                    @if (IsOfflineTemperature(room.TempC))
+                                    {
+                                        <strong>Offline</strong><span class="mud-text-secondary"> (sensor value -327.68 °C)</span>
+                                    }
+                                    else
+                                    {
+                                        <strong>@($"{room.TempC:F1}")</strong><span class="mud-text-secondary"> °C</span>
+                                    }
                                 </MudText>
                                 <MudText Typo="Typo.body2" Class="mud-text-secondary">
                                     Target @(room.SetpointC is null ? "—" : $"{room.SetpointC:F1} °C")
@@ -212,6 +230,9 @@
         radiatorState.Equals("on", StringComparison.OrdinalIgnoreCase) ? "🔥"
         : radiatorState.Equals("off", StringComparison.OrdinalIgnoreCase) ? "❄️"
         : "—";
+
+    private static bool IsOfflineTemperature(double tempC) =>
+        Math.Abs(tempC - (-327.68)) < 0.001;
 
     private static string? FormatBoostSummary(HubLiveRoom room)
     {
