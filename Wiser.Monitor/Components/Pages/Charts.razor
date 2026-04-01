@@ -120,6 +120,9 @@
                     <div class="room-heat-tile" style="background-color:@tile.Color;">
                         <div class="room-heat-name">@tile.Room</div>
                         <div class="room-heat-temp">@tile.DisplayTemp</div>
+                        <div class="room-heat-meta">@tile.RangeText</div>
+                        <div class="room-heat-meta">@tile.StatusText</div>
+                        <div class="room-heat-meta">@tile.TrendText</div>
                     </div>
                 }
             </div>
@@ -270,7 +273,7 @@
                 }
             }
 
-            BuildRoomHeatMap();
+            BuildRoomHeatMap(since);
         }
         catch (Exception ex)
         {
@@ -343,26 +346,51 @@
         return labels;
     }
 
-    private void BuildRoomHeatMap()
+    private void BuildRoomHeatMap(long sinceTs)
     {
         if (_rooms.Count == 0)
             return;
 
-        var latestByRoom = Store.LatestByRoom();
         _roomTiles.Clear();
         var tiles = new List<RoomHeatTile>(_rooms.Count);
 
         foreach (var room in _rooms)
         {
-            if (!latestByRoom.TryGetValue(room, out var latest))
+            var rows = Store.SeriesRoom(room, sinceTs);
+            if (rows.Count == 0)
             {
-                tiles.Add(new RoomHeatTile(room, null, "—", "#334155"));
+                var (missingMin, missingMax) = GetRecommendedTempRange(room);
+                tiles.Add(new RoomHeatTile(
+                    room,
+                    null,
+                    "—",
+                    "#334155",
+                    $"Recommended {missingMin:0.#} - {missingMax:0.#}C",
+                    "No data in selected period",
+                    "Trend unavailable"));
                 continue;
             }
 
-            var recommended = GetRecommendedRoomTemp(room);
-            var color = GetComfortGradientColor(latest.TempC, recommended);
-            tiles.Add(new RoomHeatTile(room, latest.TempC, $"{latest.TempC:0.0}°C", color));
+            var current = rows[^1].TempC;
+            var average = rows.Average(static x => x.TempC);
+            var trendDelta = rows[^1].TempC - rows[0].TempC;
+
+            var (rangeMin, rangeMax) = GetRecommendedTempRange(room);
+            var status = average < rangeMin
+                ? "Too cold"
+                : average > rangeMax
+                    ? "Too hot"
+                    : "In range";
+
+            var color = GetComfortGradientColor(average, rangeMin, rangeMax);
+            tiles.Add(new RoomHeatTile(
+                room,
+                current,
+                $"{current:0.0}C",
+                color,
+                $"Recommended {rangeMin:0.#} - {rangeMax:0.#}C",
+                $"{status} (avg {average:0.0}C over {_hours}h)",
+                $"Trend {FormatTrend(trendDelta)}"));
         }
 
         _roomTiles.AddRange(tiles
@@ -402,26 +430,27 @@
 
     private static string Fmt(double value) => double.IsNaN(value) ? "—" : value.ToString("0.0");
     private static string FmtOpt(double? value) => value is null || double.IsNaN(value.Value) ? "—" : value.Value.ToString("0.0");
-    private static double GetRecommendedRoomTemp(string roomName)
+    private static (double Min, double Max) GetRecommendedTempRange(string roomName)
     {
         var r = roomName.ToLowerInvariant();
         if (r.Contains("bath"))
-            return 22.0;
+            return (21.0, 23.0);
         if (r.Contains("bed"))
-            return 18.0;
+            return (17.0, 19.0);
         if (r.Contains("kitchen"))
-            return 19.0;
+            return (18.0, 20.0);
         if (r.Contains("hall") || r.Contains("landing"))
-            return 17.0;
+            return (16.0, 18.0);
         if (r.Contains("living") || r.Contains("lounge"))
-            return 21.0;
+            return (20.0, 22.0);
 
-        return 20.0;
+        return (19.0, 21.0);
     }
 
-    private static string GetComfortGradientColor(double currentTemp, double targetTemp)
+    private static string GetComfortGradientColor(double avgTemp, double targetMin, double targetMax)
     {
-        var delta = currentTemp - targetTemp;
+        var targetMid = (targetMin + targetMax) / 2.0;
+        var delta = avgTemp - targetMid;
         var normalized = Math.Clamp(delta / 4.0, -1.0, 1.0);
         double hue;
         if (normalized < 0)
@@ -434,7 +463,23 @@
         return $"hsl({Math.Clamp(hue, 0d, 240d):0}, 78%, 42%)";
     }
 
-    private sealed record RoomHeatTile(string Room, double? TempC, string DisplayTemp, string Color);
+    private static string FormatTrend(double trendDelta)
+    {
+        if (trendDelta > 0.4)
+            return $"up {trendDelta:+0.0;-0.0;0.0}C";
+        if (trendDelta < -0.4)
+            return $"down {trendDelta:+0.0;-0.0;0.0}C";
+        return $"steady {trendDelta:+0.0;-0.0;0.0}C";
+    }
+
+    private sealed record RoomHeatTile(
+        string Room,
+        double? TempC,
+        string DisplayTemp,
+        string Color,
+        string RangeText,
+        string StatusText,
+        string TrendText);
 }
 
 <style>
@@ -464,5 +509,11 @@
     .room-heat-temp {
         font-size: 0.86rem;
         opacity: 0.95;
+    }
+
+    .room-heat-meta {
+        font-size: 0.76rem;
+        opacity: 0.92;
+        line-height: 1.2;
     }
 </style>
