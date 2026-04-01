@@ -172,7 +172,7 @@
                                 </MudText>
                                 <MudText Typo="Typo.body2" Class="mud-text-secondary room-target-line">
                                     <MudIcon Icon="@Icons.Material.Filled.DeviceThermostat" Class="room-inline-icon mud-text-secondary" Size="Size.Small" aria-hidden="true" />
-                                    Target @(room.SetpointC is null ? "—" : $"{room.SetpointC:F1} °C")
+                                    Target @WiserSetpointDisplay.FormatTargetForUi(room.SetpointC)
                                     <span class="room-meta-sep" aria-hidden="true">·</span>
                                     <MudIcon Icon="@Icons.Material.Filled.Tune" Class="room-inline-icon mud-text-secondary" Size="Size.Small" aria-hidden="true" />
                                     Valve @(room.PercentageDemand is null ? "—" : $"{room.PercentageDemand}%")
@@ -561,7 +561,7 @@
             ? "Boost until "
             : "Heat until ";
 
-        var target = room.SetpointC is null ? null : $"{room.SetpointC:F1} °C";
+        var target = room.SetpointC is null ? null : $"{WiserSetpointDisplay.ToDisplayTargetC(room.SetpointC.Value):F1} °C";
         var timeStr = endDisplay.ToString("t", CultureInfo.CurrentCulture);
         return target is null ? $"{prefix}{timeStr}" : $"{prefix}{timeStr} · target {target}";
     }

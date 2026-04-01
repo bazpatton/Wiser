@@ -560,7 +560,7 @@
                         new ChartSeries<double>
                         {
                             Name = "Heat target °C",
-                            Data = roomRows.Select(x => x.SetpointC ?? double.NaN).ToArray(),
+                            Data = roomRows.Select(static x => x.SetpointC is { } sp ? WiserSetpointDisplay.ToDisplayTargetC(sp) : double.NaN).ToArray(),
                         },
                     ];
 

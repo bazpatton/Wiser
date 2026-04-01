@@ -31,6 +31,8 @@ public sealed class TemperatureStore
                         room TEXT NOT NULL,
                         temp_c REAL NOT NULL,
                         setpoint_c REAL,
+                        current_setpoint_c REAL,
+                        scheduled_setpoint_c REAL,
                         heat_demand INTEGER NOT NULL DEFAULT 0,
                         percentage_demand INTEGER
                     );
@@ -79,6 +81,7 @@ public sealed class TemperatureStore
             }
 
             EnsurePercentageDemandColumn(c);
+            EnsureSetpointDetailColumns(c);
         }
     }
 
@@ -103,6 +106,39 @@ public sealed class TemperatureStore
         alter.ExecuteNonQuery();
     }
 
+    private static void EnsureSetpointDetailColumns(SqliteConnection c)
+    {
+        var hasCurrent = false;
+        var hasScheduled = false;
+        using (var cmd = c.CreateCommand())
+        {
+            cmd.CommandText = "PRAGMA table_info(room_readings);";
+            using var r = cmd.ExecuteReader();
+            while (r.Read())
+            {
+                var col = r.GetString(1);
+                if (col == "current_setpoint_c")
+                    hasCurrent = true;
+                if (col == "scheduled_setpoint_c")
+                    hasScheduled = true;
+            }
+        }
+
+        if (!hasCurrent)
+        {
+            using var alter = c.CreateCommand();
+            alter.CommandText = "ALTER TABLE room_readings ADD COLUMN current_setpoint_c REAL;";
+            alter.ExecuteNonQuery();
+        }
+
+        if (!hasScheduled)
+        {
+            using var alter = c.CreateCommand();
+            alter.CommandText = "ALTER TABLE room_readings ADD COLUMN scheduled_setpoint_c REAL;";
+            alter.ExecuteNonQuery();
+        }
+    }
+
     private SqliteConnection Open()
     {
         var cs = new SqliteConnectionStringBuilder { DataSource = _path, Mode = SqliteOpenMode.ReadWriteCreate, Cache = SqliteCacheMode.Shared }.ToString();
@@ -116,7 +152,15 @@ public sealed class TemperatureStore
         return c;
     }
 
-    public void InsertRoom(long ts, string room, double tempC, double? setpointC, int heatDemand, int? percentageDemand)
+    public void InsertRoom(
+        long ts,
+        string room,
+        double tempC,
+        double? setpointC,
+        int heatDemand,
+        int? percentageDemand,
+        double? currentSetpointC = null,
+        double? scheduledSetpointC = null)
     {
         lock (_gate)
         {
@@ -124,13 +168,15 @@ public sealed class TemperatureStore
             using var cmd = c.CreateCommand();
             cmd.CommandText =
                 """
-                INSERT INTO room_readings (ts, room, temp_c, setpoint_c, heat_demand, percentage_demand)
-                VALUES ($ts, $room, $temp, $sp, $hd, $pct)
+                INSERT INTO room_readings (ts, room, temp_c, setpoint_c, current_setpoint_c, scheduled_setpoint_c, heat_demand, percentage_demand)
+                VALUES ($ts, $room, $temp, $sp, $csp, $ssp, $hd, $pct)
                 """;
             cmd.Parameters.AddWithValue("$ts", ts);
             cmd.Parameters.AddWithValue("$room", room);
             cmd.Parameters.AddWithValue("$temp", tempC);
             cmd.Parameters.AddWithValue("$sp", setpointC ?? (object)DBNull.Value);
+            cmd.Parameters.AddWithValue("$csp", currentSetpointC ?? (object)DBNull.Value);
+            cmd.Parameters.AddWithValue("$ssp", scheduledSetpointC ?? (object)DBNull.Value);
             cmd.Parameters.AddWithValue("$hd", heatDemand);
             cmd.Parameters.AddWithValue("$pct", percentageDemand ?? (object)DBNull.Value);
             cmd.ExecuteNonQuery();
@@ -533,7 +579,7 @@ public sealed class TemperatureStore
             using var cmd = c.CreateCommand();
             cmd.CommandText =
                 """
-                SELECT r.room, r.temp_c, r.setpoint_c, r.heat_demand, r.ts, r.percentage_demand
+                SELECT r.room, r.temp_c, r.setpoint_c, r.current_setpoint_c, r.scheduled_setpoint_c, r.heat_demand, r.ts, r.percentage_demand
                 FROM room_readings r
                 INNER JOIN (
                     SELECT room, MAX(ts) AS max_ts FROM room_readings GROUP BY room
@@ -546,9 +592,11 @@ public sealed class TemperatureStore
                 map[r.GetString(0)] = new LatestDto(
                     r.GetDouble(1),
                     r.IsDBNull(2) ? null : r.GetDouble(2),
-                    r.GetInt32(3),
-                    r.GetInt64(4),
-                    r.IsDBNull(5) ? null : r.GetInt32(5));
+                    r.IsDBNull(3) ? null : r.GetDouble(3),
+                    r.IsDBNull(4) ? null : r.GetDouble(4),
+                    r.GetInt32(5),
+                    r.GetInt64(6),
+                    r.IsDBNull(7) ? null : r.GetInt32(7));
             }
             return map;
         }
@@ -586,7 +634,7 @@ public sealed class TemperatureStore
             using var cmd = c.CreateCommand();
             cmd.CommandText =
                 """
-                SELECT ts, temp_c, setpoint_c, heat_demand, percentage_demand FROM room_readings
+                SELECT ts, temp_c, setpoint_c, current_setpoint_c, scheduled_setpoint_c, heat_demand, percentage_demand FROM room_readings
                 WHERE room = $room AND ts >= $since ORDER BY ts ASC
                 """;
             cmd.Parameters.AddWithValue("$room", room);
@@ -599,8 +647,10 @@ public sealed class TemperatureStore
                     r.GetInt64(0),
                     r.GetDouble(1),
                     r.IsDBNull(2) ? null : r.GetDouble(2),
-                    r.GetInt32(3),
-                    r.IsDBNull(4) ? null : r.GetInt32(4)));
+                    r.IsDBNull(3) ? null : r.GetDouble(3),
+                    r.IsDBNull(4) ? null : r.GetDouble(4),
+                    r.GetInt32(5),
+                    r.IsDBNull(6) ? null : r.GetInt32(6)));
             }
             return list;
         }
@@ -661,7 +711,14 @@ public sealed class TemperatureStore
     }
 }
 
-public sealed record LatestDto(double TempC, double? SetpointC, int HeatDemand, long Ts, int? PercentageDemand)
+public sealed record LatestDto(
+    double TempC,
+    double? SetpointC,
+    double? CurrentSetpointC,
+    double? ScheduledSetpointC,
+    int HeatDemand,
+    long Ts,
+    int? PercentageDemand)
 {
     /// <summary>Hub reports demand via valve % and/or TRV output (see <see cref="HeatDemand"/>).</summary>
     public bool CallingForHeat => HeatDemand != 0;
@@ -669,7 +726,14 @@ public sealed record LatestDto(double TempC, double? SetpointC, int HeatDemand, 
 
 public sealed record LatestSystemSnapshot(long Ts, bool HeatingRelayOn, bool HeatingActive);
 
-public sealed record RoomSeriesRow(long Ts, double TempC, double? SetpointC, int HeatDemand, int? PercentageDemand)
+public sealed record RoomSeriesRow(
+    long Ts,
+    double TempC,
+    double? SetpointC,
+    double? CurrentSetpointC,
+    double? ScheduledSetpointC,
+    int HeatDemand,
+    int? PercentageDemand)
 {
     public bool CallingForHeat => HeatDemand != 0;
 }

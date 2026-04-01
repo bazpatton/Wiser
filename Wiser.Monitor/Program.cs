@@ -503,6 +503,8 @@ app.MapGet("/api/series", (
             r.Ts,
             r.TempC,
             r.SetpointC,
+            r.CurrentSetpointC,
+            r.ScheduledSetpointC,
             r.HeatDemand,
             r.PercentageDemand,
             aligned[i])).ToList();
@@ -510,7 +512,7 @@ app.MapGet("/api/series", (
     else
     {
         roomSeries = rowsRaw
-            .Select(r => new SeriesRoomRowDto(r.Ts, r.TempC, r.SetpointC, r.HeatDemand, r.PercentageDemand, null))
+            .Select(r => new SeriesRoomRowDto(r.Ts, r.TempC, r.SetpointC, r.CurrentSetpointC, r.ScheduledSetpointC, r.HeatDemand, r.PercentageDemand, null))
             .ToList();
     }
 
@@ -597,6 +599,8 @@ internal sealed record SeriesRoomRowDto(
     long Ts,
     double TempC,
     double? SetpointC,
+    double? CurrentSetpointC,
+    double? ScheduledSetpointC,
     int HeatDemand,
     int? PercentageDemand,
     double? OutdoorC)

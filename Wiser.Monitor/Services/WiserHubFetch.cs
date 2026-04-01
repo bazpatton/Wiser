@@ -10,7 +10,7 @@ public sealed class WiserHubFetch(HttpClient http)
     private static readonly UTF8Encoding Utf8NoBom = new(false);
     private const int TempMinimumC = 5;
     private const int TempMaximumC = 30;
-    private const int TempOffC = -20;
+    private const int TempOffC = (int)WiserSetpointDisplay.HubOffSentinelC;
 
     private static readonly JsonSerializerOptions PatchJson = new()
     {

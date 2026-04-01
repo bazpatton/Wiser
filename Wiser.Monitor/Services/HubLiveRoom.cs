@@ -171,13 +171,14 @@ public static class HubLiveRoomsParser
 
     private static double? RoomSetpointC(JsonElement room)
     {
-        if (room.TryGetProperty("CurrentSetPoint", out var t))
+        if (WiserHubRoomJson.TryGetPropertyIgnoreCase(room, ["CurrentSetPoint", "CurrentSetpoint"], out var t))
         {
             var c = TenthsToC(t);
             if (c is not null)
                 return c;
         }
-        if (room.TryGetProperty("ScheduledSetPoint", out t))
+
+        if (WiserHubRoomJson.TryGetPropertyIgnoreCase(room, ["ScheduledSetPoint", "ScheduledSetpoint"], out t))
             return TenthsToC(t);
         return null;
     }

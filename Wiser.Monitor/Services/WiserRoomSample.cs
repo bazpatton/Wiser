@@ -7,7 +7,9 @@ public sealed record WiserRoomSample(
     double TempC,
     double? SetpointC,
     int HeatDemand,
-    int? PercentageDemand);
+    int? PercentageDemand,
+    double? CurrentSetpointC,
+    double? ScheduledSetpointC);
 
 /// <summary>One hub poll: rooms plus heating/boiler proxy flags (matches Wiser.Control <c>IsHeatingActive</c> idea).</summary>
 public sealed record DomainPollResult(
@@ -59,12 +61,17 @@ public static class WiserDomainParser
                     excluded.Add(new ExcludedRoomReading(name, "hub_domain_parser", reason!, rawValue));
                 continue;
             }
+            var currentSp = RoomCurrentSetpointC(room);
+            var scheduledSp = RoomScheduledSetpointC(room);
+            var effectiveSp = currentSp ?? scheduledSp;
             list.Add(new WiserRoomSample(
                 name,
                 temp.Value,
-                RoomSetpointC(room),
+                effectiveSp,
                 HeatDemand(room),
-                RoomPercentageDemand(room)));
+                RoomPercentageDemand(room),
+                currentSp,
+                scheduledSp));
         }
 
         return (list, excluded);
@@ -133,15 +140,21 @@ public static class WiserDomainParser
         return null;
     }
 
-    private static double? RoomSetpointC(JsonElement room)
+    private static double? RoomCurrentSetpointC(JsonElement room)
     {
-        if (room.TryGetProperty("CurrentSetPoint", out var t))
+        if (WiserHubRoomJson.TryGetPropertyIgnoreCase(room, ["CurrentSetPoint", "CurrentSetpoint"], out var t))
         {
             var c = TenthsToC(t, out _, out _);
             if (c is not null)
                 return c;
         }
-        if (room.TryGetProperty("ScheduledSetPoint", out t))
+
+        return null;
+    }
+
+    private static double? RoomScheduledSetpointC(JsonElement room)
+    {
+        if (WiserHubRoomJson.TryGetPropertyIgnoreCase(room, ["ScheduledSetPoint", "ScheduledSetpoint"], out var t))
             return TenthsToC(t, out _, out _);
         return null;
     }
