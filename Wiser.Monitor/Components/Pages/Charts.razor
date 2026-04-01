@@ -450,8 +450,6 @@
         if (n == 0)
             return [];
 
-        var tz = DisplayClock.ResolveTimeZone(options);
-
         var maxLabels = hoursWindow switch
         {
             <= 12 => 18,

@@ -327,11 +327,11 @@
         if (raw is null or 0)
             return null;
 
-        DateTimeOffset endUtc;
+        DateTimeOffset end;
         try
         {
             var v = raw.Value;
-            endUtc = v > 10_000_000_000L
+            end = v > 10_000_000_000L
                 ? DateTimeOffset.FromUnixTimeMilliseconds(v)
                 : DateTimeOffset.FromUnixTimeSeconds(v);
         }
@@ -340,18 +340,16 @@
             return null;
         }
 
-        if (endUtc <= DateTimeOffset.UtcNow)
+        var local = end.ToLocalTime();
+        if (local <= DateTimeOffset.Now)
             return null;
-
-        var wall = DisplayClock.ToDisplayTime(endUtc, Options);
-        var timeLabel = wall.ToString("t", CultureInfo.CurrentCulture);
 
         var prefix = room.SetpointOrigin?.Contains("Boost", StringComparison.OrdinalIgnoreCase) == true
             ? "Boost until "
             : "Heat until ";
 
         var target = room.SetpointC is null ? null : $"{room.SetpointC:F1} °C";
-        return target is null ? $"{prefix}{timeLabel}" : $"{prefix}{timeLabel} · target {target}";
+        return target is null ? $"{prefix}{local:t}" : $"{prefix}{local:t} · target {target}";
     }
 
     private static string CurrentModeLabel(HubLiveRoom room) =>
