@@ -49,6 +49,14 @@
     height: 100%;
 }
 
+.charts-page-tabs {
+    margin-top: 0.35rem;
+}
+
+.charts-page-tabs .daily-summary-grid {
+    width: 100%;
+}
+
 /* Touch-friendly controls (mobile-first) */
 .touch-target.mud-button-root,
 .touch-target {

@@ -606,6 +606,41 @@ public sealed class TemperatureStore
         }
     }
 
+    /// <summary>
+    /// Rooms to show on “heating activity” temperature charts: any sample with valve/output demand, or any sample
+    /// from a poll where the hub was heating-active (boiler relay or any zone demand — same basis as daily “heat demand est.”).
+    /// Per-room <c>heat_demand</c> can stay 0 while the relay fires, so we also match <c>system_readings.heating_active</c> at the same <c>ts</c>.
+    /// </summary>
+    public IReadOnlyList<string> ListRoomsCallingHeatSince(long sinceTs)
+    {
+        lock (_gate)
+        {
+            using var c = Open();
+            using var cmd = c.CreateCommand();
+            cmd.CommandText =
+                """
+                SELECT DISTINCT rr.room
+                FROM room_readings rr
+                WHERE rr.ts >= $since
+                  AND (
+                    rr.heat_demand != 0
+                    OR (rr.percentage_demand IS NOT NULL AND rr.percentage_demand > 0)
+                    OR EXISTS (
+                      SELECT 1 FROM system_readings sr
+                      WHERE sr.ts = rr.ts AND sr.heating_active != 0
+                    )
+                  )
+                ORDER BY rr.room COLLATE NOCASE
+                """;
+            cmd.Parameters.AddWithValue("$since", sinceTs);
+            using var r = cmd.ExecuteReader();
+            var list = new List<string>();
+            while (r.Read())
+                list.Add(r.GetString(0));
+            return list;
+        }
+    }
+
     public IReadOnlyList<OutdoorSeriesRow> SeriesOutdoor(long sinceTs)
     {
         lock (_gate)

@@ -10,7 +10,9 @@
 
 <MudStack Spacing="3">
     <MudPaper Class="pa-5 hero-card">
-        <MudChip T="string" Variant="Variant.Outlined" Color="Color.Primary" Size="Size.Small">Live monitoring</MudChip>
+        <MudTooltip Text="Polls your Wiser hub on the configured interval and records room data locally.">
+            <MudChip T="string" Variant="Variant.Outlined" Color="Color.Primary" Size="Size.Small">Live monitoring</MudChip>
+        </MudTooltip>
         <MudText Typo="Typo.h4" Class="mt-2">Wiser Heat Hub Monitor</MudText>
         <MudText Typo="Typo.body1" Class="mt-1">
             Track room temperatures, heating demand, and trend charts from one dashboard designed for desktop and mobile.
@@ -37,12 +39,16 @@
         </MudText>
         <MudText Typo="Typo.body2" Class="mt-2">@_status</MudText>
         <MudStack Row="true" Wrap="Wrap.Wrap" Spacing="1" Class="mt-2">
-            <MudChip T="string" Color="@(Options.AlertsEnabled ? Color.Success : Color.Default)" Variant="Variant.Outlined">
-                Alerts: @(Options.AlertsEnabled ? "Enabled" : "Disabled")
-            </MudChip>
-            <MudChip T="string" Color="@(Options.OpenMeteoLat is null ? Color.Default : Color.Info)" Variant="Variant.Outlined">
-                Outdoor data: @(Options.OpenMeteoLat is null ? "Off" : "On")
-            </MudChip>
+            <MudTooltip Text="Temperature alert rules via ntfy (when configured).">
+                <MudChip T="string" Color="@(Options.AlertsEnabled ? Color.Success : Color.Default)" Variant="Variant.Outlined">
+                    Alerts: @(Options.AlertsEnabled ? "Enabled" : "Disabled")
+                </MudChip>
+            </MudTooltip>
+            <MudTooltip Text="Open-Meteo outdoor temperature pull for chart overlays.">
+                <MudChip T="string" Color="@(Options.OpenMeteoLat is null ? Color.Default : Color.Info)" Variant="Variant.Outlined">
+                    Outdoor data: @(Options.OpenMeteoLat is null ? "Off" : "On")
+                </MudChip>
+            </MudTooltip>
         </MudStack>
         @if (!string.IsNullOrWhiteSpace(_lastError))
         {
@@ -55,14 +61,18 @@
             <i class="fa-solid fa-filter-circle-xmark"></i> Data quality (last 24h)
         </MudText>
         <MudStack Row="true" Wrap="Wrap.Wrap" Spacing="1" Class="mt-2">
-            <MudChip T="string" Variant="Variant.Outlined" Color="Color.Warning">
-                Dropped invalid readings: @_qualityTotal24h
-            </MudChip>
+            <MudTooltip Text="Invalid hub readings not stored in history (last 24h).">
+                <MudChip T="string" Variant="Variant.Outlined" Color="Color.Warning">
+                    Dropped invalid readings: @_qualityTotal24h
+                </MudChip>
+            </MudTooltip>
             @foreach (var item in _qualityReasons24h)
             {
-                <MudChip T="string" Variant="Variant.Outlined" Color="Color.Info">
-                    @($"{item.Reason}: {item.Count}")
-                </MudChip>
+                <MudTooltip Text="Why samples were dropped.">
+                    <MudChip T="string" Variant="Variant.Outlined" Color="Color.Info">
+                        @($"{item.Reason}: {item.Count}")
+                    </MudChip>
+                </MudTooltip>
             }
         </MudStack>
         <MudButton Href="/charts#data-quality"

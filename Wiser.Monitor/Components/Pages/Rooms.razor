@@ -62,9 +62,17 @@
 
     @if (_loading && !_hasLoadedOnce)
     {
-        <MudPaper Class="pa-6 card-soft">
-            <MudProgressCircular Color="Color.Primary" Indeterminate="true" />
-            <MudText Class="mt-2">Loading room data…</MudText>
+        <MudPaper Class="pa-4 card-soft">
+            <MudSkeleton Height="44px" Width="72%" Animation="Animation.Wave" Class="mb-3" />
+            <MudSkeleton Height="120px" Animation="Animation.Wave" Class="mb-3 rounded-lg" />
+            <MudGrid Class="room-grid">
+                @for (var i = 0; i < 6; i++)
+                {
+                    <MudItem xs="12" sm="6" lg="4">
+                        <MudSkeleton Height="232px" Animation="Animation.Wave" Class="rounded-lg" />
+                    </MudItem>
+                }
+            </MudGrid>
         </MudPaper>
     }
     else
@@ -105,12 +113,16 @@
                         Heating status
                     </MudText>
                     <MudStack Row="true" Spacing="2" Class="mt-2" Wrap="Wrap.Wrap">
-                        <MudChip T="string" Color="@(_heatingRelayOn ? Color.Error : Color.Default)" Variant="Variant.Filled">
-                            Boiler relay: @(_heatingRelayOn ? "On" : "Off")
-                        </MudChip>
-                        <MudChip T="string" Color="@(_heatingActive ? Color.Warning : Color.Success)" Variant="Variant.Filled">
-                            Heating active: @(_heatingActive ? "Yes" : "No")
-                        </MudChip>
+                        <MudTooltip Text="Heating channel relay state from the hub (boiler demand).">
+                            <MudChip T="string" Color="@(_heatingRelayOn ? Color.Error : Color.Default)" Variant="Variant.Filled">
+                                Boiler relay: @(_heatingRelayOn ? "On" : "Off")
+                            </MudChip>
+                        </MudTooltip>
+                        <MudTooltip Text="Whether any zone is currently calling for heat (aggregate).">
+                            <MudChip T="string" Color="@(_heatingActive ? Color.Warning : Color.Success)" Variant="Variant.Filled">
+                                Heating active: @(_heatingActive ? "Yes" : "No")
+                            </MudChip>
+                        </MudTooltip>
                     </MudStack>
                 </MudPaper>
             </MudItem>
@@ -196,14 +208,16 @@
                             <MudStack Row="true" Spacing="1" Wrap="Wrap.Wrap" Class="boost-button-row">
                                 @foreach (var preset in _boostPresets)
                                 {
-                                    <MudButton Variant="Variant.Outlined"
-                                               Color="Color.Error"
-                                               Size="Size.Small"
-                                               Class="boost-preset-btn touch-target"
-                                               Disabled="@(room.Id <= 0 || _busyRoomId == room.Id)"
-                                               OnClick="@(() => ApplyBoostAsync(room, preset))">
-                                        @preset.Name · @($"{preset.TemperatureC:F0}°") / @preset.Minutes m
-                                    </MudButton>
+                                    <MudTooltip Text="@($"Timed boost to {preset.TemperatureC:F0} °C for {preset.Minutes} minutes")">
+                                        <MudButton Variant="Variant.Outlined"
+                                                   Color="Color.Error"
+                                                   Size="Size.Small"
+                                                   Class="boost-preset-btn touch-target"
+                                                   Disabled="@(room.Id <= 0 || _busyRoomId == room.Id)"
+                                                   OnClick="@(() => ApplyBoostAsync(room, preset))">
+                                            @preset.Name · @($"{preset.TemperatureC:F0}°") / @preset.Minutes m
+                                        </MudButton>
+                                    </MudTooltip>
                                 }
                             </MudStack>
                         </MudStack>

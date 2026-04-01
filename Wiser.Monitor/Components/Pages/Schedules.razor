@@ -7,6 +7,7 @@
 @inject MonitorOptions Options
 @inject WiserHubFetch Hub
 @inject ISnackbar Snackbar
+@inject IDialogService DialogService
 
 <PageTitle>Wiser Monitor - Schedules</PageTitle>
 
@@ -109,9 +110,11 @@
 
     @if (_loading && _overview is null)
     {
-        <MudPaper Class="pa-6 card-soft">
-            <MudProgressCircular Color="Color.Primary" Indeterminate="true" />
-            <MudText Class="mt-2">Loading schedules…</MudText>
+        <MudPaper Class="pa-4 card-soft">
+            <MudSkeleton Height="42px" Width="55%" Animation="Animation.Wave" Class="mb-4" />
+            <MudSkeleton Height="28px" Width="90%" Animation="Animation.Wave" Class="mb-2" />
+            <MudSkeleton Height="28px" Width="80%" Animation="Animation.Wave" Class="mb-2" />
+            <MudSkeleton Height="240px" Animation="Animation.Wave" />
         </MudPaper>
     }
     else if (_overview is not null)
@@ -239,6 +242,18 @@
         _applyBusy = true;
         try
         {
+            if (!_dryRun)
+            {
+                var confirm = await DialogService.ShowMessageBoxAsync(
+                    "Apply schedules to hub?",
+                    "This will PATCH each schedule on the Wiser hub. Export a JSON backup first.",
+                    yesText: "Apply",
+                    noText: null,
+                    cancelText: "Cancel");
+                if (confirm is not true)
+                    return;
+            }
+
             using var doc = JsonDocument.Parse(_importJson);
             var result = await Hub.ApplySchedulesFromImportAsync(Options, doc, _dryRun, CancellationToken.None);
             if (result.Succeeded)

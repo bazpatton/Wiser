@@ -17,18 +17,25 @@
             Compare room temperature, target, valve demand, and optional outdoor data.
         </MudText>
         <MudStack Row="true" Spacing="1" Wrap="Wrap.Wrap" Class="mt-2">
-            <MudChip T="string" Variant="Variant.Outlined" Color="Color.Warning">
-                Dropped invalid readings (24h): @_qualityTotal24h
-            </MudChip>
+            <MudTooltip Text="Sensor readings rejected in the last 24h (invalid scale, missing temp, etc.). Open Charts → Data quality for detail.">
+                <MudChip T="string" Variant="Variant.Outlined" Color="Color.Warning">
+                    Dropped invalid readings (24h): @_qualityTotal24h
+                </MudChip>
+            </MudTooltip>
             @foreach (var rc in _qualityReasons24h)
             {
-                <MudChip T="string" Variant="Variant.Outlined" Color="Color.Info">
-                    @($"{rc.Reason}: {rc.Count}")
-                </MudChip>
+                <MudTooltip Text="Breakdown of why samples were dropped.">
+                    <MudChip T="string" Variant="Variant.Outlined" Color="Color.Info">
+                        @($"{rc.Reason}: {rc.Count}")
+                    </MudChip>
+                </MudTooltip>
             }
         </MudStack>
     </MudPaper>
 
+    <MudTabs Rounded="true" Border="true" ApplyEffectsToContainer="true" Class="charts-page-tabs">
+    <MudTabPanel Text="Overview" Icon="@Icons.Material.Filled.Dashboard">
+    <MudStack Spacing="2">
     <MudPaper Class="pa-3 chart-card">
         <MudText Typo="Typo.h6" Class="mb-2">
             <i class="fa-solid fa-grip"></i> Current room temperatures and trend status
@@ -62,25 +69,73 @@
         }
     </MudPaper>
 
+    <MudPaper Class="pa-3 chart-card" id="rooms-calling-heat-trend">
+        <MudText Typo="Typo.h6" Class="mb-2">
+            <i class="fa-solid fa-fire-flame-curved"></i> 24-hour temperature — rooms calling for heat
+        </MudText>
+        <MudText Typo="Typo.caption" Class="mud-text-secondary mb-2 d-block">
+            Rooms are included if they have valve/output demand, or any sample from a poll where the hub reported heating active
+            (same idea as <strong>Heat demand est. min</strong> on the daily table — boiler relay can be on even when every TRV shows 0%).
+            Lines are always measured temperature.
+        </MudText>
+        @if (_heatCallingTrendSeries.Count == 0)
+        {
+            <MudAlert Severity="Severity.Info" Dense="true">
+                No qualifying rooms in the last 24 hours (no heating-active polls and no per-room demand), or no samples yet.
+            </MudAlert>
+        }
+        else
+        {
+            <MudChart T="double"
+                      ChartType="ChartType.Line"
+                      ChartSeries="_heatCallingTrendSeries"
+                      ChartLabels="_heatCallingTrendLabels"
+                      ChartOptions="_heatCallingTrendLineOptions"
+                      Width="100%"
+                      MatchBoundsToSize="true"
+                      Class="mud-chart-responsive">
+                <TooltipTemplate>
+                    @{
+                        var path = context.Segment;
+                        var i = path.Index;
+                        var when = i >= 0 && i < _heatCallingTrendPointTs.Length
+                            ? TimeZoneInfo.ConvertTime(DateTimeOffset.FromUnixTimeSeconds(_heatCallingTrendPointTs[i]), DisplayZone).ToString("g", CultureInfo.CurrentCulture)
+                            : path.LabelXValue;
+                    }
+                    <rect x="-76" y="-30" width="152" height="34" rx="6" ry="6" fill="#0f172ae6" stroke="#334155" stroke-width="1" />
+                    <text x="0" y="-16" text-anchor="middle" fill="#f8fafc" style="font-size:11px;font-weight:600">@when</text>
+                    <text x="0" y="-2" text-anchor="middle" fill="#cbd5e1" style="font-size:10px">@path.LabelYValue</text>
+                </TooltipTemplate>
+            </MudChart>
+        }
+    </MudPaper>
+    </MudStack>
+    </MudTabPanel>
+
+    <MudTabPanel Text="Room trends" Icon="@Icons.Material.Filled.ShowChart">
+    <MudStack Spacing="2">
     <MudPaper Class="pa-3 card-soft charts-toolbar">
         <MudText Typo="Typo.h6" Class="mb-2">
             <i class="fa-solid fa-wave-square"></i> Room trend chart
         </MudText>
         <MudGrid Spacing="2">
             <MudItem xs="12" md="4">
-                <MudSelect T="string"
-                           Label="Room"
-                           Value="_selectedRoom"
-                           ValueChanged="OnRoomChanged"
-                           Variant="Variant.Outlined"
-                           Dense="true"
-                           Margin="Margin.Dense"
-                           Class="touch-control">
-                    @foreach (var room in _rooms)
-                    {
-                        <MudSelectItem Value="@room">@room</MudSelectItem>
-                    }
-                </MudSelect>
+                <MudTooltip Text="Type to filter when you have many rooms.">
+                    <MudAutocomplete T="string"
+                                     Label="Room"
+                                     Value="_selectedRoom"
+                                     ValueChanged="OnRoomChanged"
+                                     SearchFunc="SearchRoomsAsync"
+                                     CoerceText="true"
+                                     ResetValueOnEmptyText="true"
+                                     Variant="Variant.Outlined"
+                                     Dense="true"
+                                     Margin="Margin.Dense"
+                                     Class="touch-control"
+                                     Immediate="true"
+                                     AdornmentIcon="@Icons.Material.Filled.Search"
+                                     AdornmentColor="Color.Default" />
+                </MudTooltip>
             </MudItem>
             <MudItem xs="12" sm="6" md="3">
                 <MudSelect T="int"
@@ -105,14 +160,16 @@
                              Class="touch-control" />
             </MudItem>
             <MudItem xs="12" md="2" Class="d-flex align-stretch">
-                <MudButton Variant="Variant.Filled"
-                           Color="Color.Primary"
-                           StartIcon="@Icons.Material.Filled.Refresh"
-                           FullWidth="true"
-                           Class="touch-target charts-refresh-btn"
-                           OnClick="LoadChartAsync">
-                    Refresh
-                </MudButton>
+                <MudTooltip Text="Reload all chart data from the database for the selected window.">
+                    <MudButton Variant="Variant.Filled"
+                               Color="Color.Primary"
+                               StartIcon="@Icons.Material.Filled.Refresh"
+                               FullWidth="true"
+                               Class="touch-target charts-refresh-btn"
+                               OnClick="LoadChartAsync">
+                        Refresh
+                    </MudButton>
+                </MudTooltip>
             </MudItem>
         </MudGrid>
         <MudStack Row="true" Spacing="1" Wrap="Wrap.Wrap" Class="mt-2">
@@ -243,30 +300,55 @@
             </MudPaper>
         </MudItem>
     </MudGrid>
+    </MudStack>
+    </MudTabPanel>
 
+    <MudTabPanel Text="Daily summary" Icon="@Icons.Material.Filled.TableChart">
     <MudPaper Class="pa-4 table-card">
-        <MudText Typo="Typo.h6">
+        <MudText Typo="Typo.h6" Class="mb-2">
             <i class="fa-solid fa-table"></i> Daily summary (energy proxies)
         </MudText>
-        <MudTable T="DailySummaryRow" Dense="true" Hover="true" Breakpoint="Breakpoint.Sm" Items="_dailyRows">
-            <HeaderContent>
-                <MudTh>Date (Local)</MudTh>
-                <MudTh class="text-right">HDD</MudTh>
-                <MudTh class="text-right">Avg outdoor °C</MudTh>
-                <MudTh class="text-right">Heat demand est. min</MudTh>
-                <MudTh class="text-right">Boiler relay est. min</MudTh>
-                <MudTh class="text-right">Outdoor samples</MudTh>
-            </HeaderContent>
-            <RowTemplate>
-                <MudTd DataLabel="Date">@context.Date</MudTd>
-                <MudTd DataLabel="HDD" Class="text-right">@FmtOpt(context.Hdd)</MudTd>
-                <MudTd DataLabel="Avg outdoor °C" Class="text-right">@FmtOpt(context.AvgOutdoorC)</MudTd>
-                <MudTd DataLabel="Heat demand est. min" Class="text-right">@Fmt(context.HeatingActiveEstimateMin)</MudTd>
-                <MudTd DataLabel="Boiler relay est. min" Class="text-right">@Fmt(context.HeatingRelayEstimateMin)</MudTd>
-                <MudTd DataLabel="Outdoor samples" Class="text-right">@context.OutdoorSamples</MudTd>
-            </RowTemplate>
-        </MudTable>
+        <MudText Typo="Typo.caption" Class="mud-text-secondary mb-2 d-block">
+            Sort and filter columns. Values are estimates from hub poll activity and outdoor samples.
+        </MudText>
+        <MudDataGrid T="DailySummaryRow"
+                     Items="@_dailyRows"
+                     Dense="true"
+                     Hover="true"
+                     Filterable="true"
+                     FilterMode="DataGridFilterMode.ColumnFilterRow"
+                     SortMode="SortMode.Multiple"
+                     Breakpoint="Breakpoint.Sm"
+                     RowsPerPage="20"
+                     Class="daily-summary-grid">
+            <Columns>
+                <PropertyColumn Property="x => x.Date" Title="Date (Local)" Sortable="true" />
+                <TemplateColumn Title="HDD" Sortable="true" SortBy="@(x => x.Hdd)">
+                    <CellTemplate>
+                        <MudText Typo="Typo.body2" Class="text-right">@FmtOpt(context.Item.Hdd)</MudText>
+                    </CellTemplate>
+                </TemplateColumn>
+                <TemplateColumn Title="Avg outdoor °C" Sortable="true" SortBy="@(x => x.AvgOutdoorC)">
+                    <CellTemplate>
+                        <MudText Typo="Typo.body2" Class="text-right">@FmtOpt(context.Item.AvgOutdoorC)</MudText>
+                    </CellTemplate>
+                </TemplateColumn>
+                <TemplateColumn Title="Heat demand est. min" Sortable="true" SortBy="@(x => x.HeatingActiveEstimateMin)">
+                    <CellTemplate>
+                        <MudText Typo="Typo.body2" Class="text-right">@Fmt(context.Item.HeatingActiveEstimateMin)</MudText>
+                    </CellTemplate>
+                </TemplateColumn>
+                <TemplateColumn Title="Boiler relay est. min" Sortable="true" SortBy="@(x => x.HeatingRelayEstimateMin)">
+                    <CellTemplate>
+                        <MudText Typo="Typo.body2" Class="text-right">@Fmt(context.Item.HeatingRelayEstimateMin)</MudText>
+                    </CellTemplate>
+                </TemplateColumn>
+                <PropertyColumn Property="x => x.OutdoorSamples" Title="Outdoor samples" Sortable="true" />
+            </Columns>
+        </MudDataGrid>
     </MudPaper>
+    </MudTabPanel>
+    </MudTabs>
 </MudStack>
 
 @code {
@@ -282,6 +364,14 @@
     private string[] _labels = [];
     private long[] _pointTs = [];
     private List<ChartSeries<double>> _series = [];
+    private string[] _heatCallingTrendLabels = [];
+    private long[] _heatCallingTrendPointTs = [];
+    private List<ChartSeries<double>> _heatCallingTrendSeries = [];
+    private readonly LineChartOptions _heatCallingTrendLineOptions = new()
+    {
+        InterpolationOption = InterpolationOption.Straight,
+        ShowToolTips = true,
+    };
     private readonly List<RoomHeatTile> _roomTiles = [];
     private readonly List<DailySummaryRow> _dailyRows = [];
     private string[] _comfortComplianceLabels = [];
@@ -326,10 +416,19 @@
         }
     }
 
-    private Task OnRoomChanged(string room)
+    private Task OnRoomChanged(string? room)
     {
-        _selectedRoom = room;
+        _selectedRoom = room ?? string.Empty;
         return LoadChartAsync();
+    }
+
+    private Task<IEnumerable<string>> SearchRoomsAsync(string value, CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        if (string.IsNullOrWhiteSpace(value))
+            return Task.FromResult<IEnumerable<string>>(_rooms);
+        return Task.FromResult<IEnumerable<string>>(
+            _rooms.Where(r => r.Contains(value.Trim(), StringComparison.OrdinalIgnoreCase)));
     }
 
     private Task OnHoursChanged(int hours)
@@ -350,6 +449,9 @@
         _series = [];
         _labels = [];
         _pointTs = [];
+        _heatCallingTrendLabels = [];
+        _heatCallingTrendPointTs = [];
+        _heatCallingTrendSeries = [];
         _roomTiles.Clear();
         _comfortComplianceLabels = [];
         _comfortComplianceSeries = [];
@@ -494,6 +596,61 @@
         }
 
         return labels;
+    }
+
+    private const int HeatCallingTrendHours = 24;
+
+    private void BuildHeatCallingRoomsTrend(long sinceTsUtc)
+    {
+        var qualifying = Store.ListRoomsCallingHeatSince(sinceTsUtc);
+        if (qualifying.Count == 0)
+            return;
+
+        var perRoom = new List<(string Room, IReadOnlyList<RoomSeriesRow> Rows)>(qualifying.Count);
+        foreach (var room in qualifying)
+        {
+            var rows = Store.SeriesRoom(room, sinceTsUtc);
+            if (rows.Count == 0)
+                continue;
+            perRoom.Add((room, rows));
+        }
+
+        if (perRoom.Count == 0)
+            return;
+
+        var tsSet = new SortedSet<long>();
+        foreach (var (_, rows) in perRoom)
+        {
+            foreach (var r in rows)
+                tsSet.Add(r.Ts);
+        }
+
+        var masterTs = tsSet.ToArray();
+        if (masterTs.Length == 0)
+            return;
+
+        _heatCallingTrendPointTs = masterTs;
+        _heatCallingTrendLabels = BuildSparseTimeLabels(masterTs, HeatCallingTrendHours, DisplayZone);
+        ApplyHeatCallingTrendChartOptions(masterTs.Length);
+
+        var series = new List<ChartSeries<double>>(perRoom.Count);
+        foreach (var (room, rows) in perRoom.OrderBy(x => x.Room, StringComparer.OrdinalIgnoreCase))
+        {
+            var byTs = rows.GroupBy(static r => r.Ts).ToDictionary(static g => g.Key, static g => g.Last().TempC);
+            var data = masterTs.Select(t => byTs.TryGetValue(t, out var v) ? v : double.NaN).ToArray();
+            series.Add(new ChartSeries<double> { Name = $"{room} °C", Data = data });
+        }
+
+        _heatCallingTrendSeries = series;
+    }
+
+    private void ApplyHeatCallingTrendChartOptions(int pointCount)
+    {
+        _heatCallingTrendLineOptions.XAxisLabelRotation = 32;
+        _heatCallingTrendLineOptions.XAxisTitle = "Time (local, last 24h)";
+        _heatCallingTrendLineOptions.TooltipTitleFormat = "{{SERIES_NAME}}";
+        _heatCallingTrendLineOptions.TooltipSubtitleFormat = "{{Y_VALUE}}";
+        _heatCallingTrendLineOptions.ShowDataMarkers = pointCount <= 200;
     }
 
     private void BuildRoomHeatMap(long sinceTs)
