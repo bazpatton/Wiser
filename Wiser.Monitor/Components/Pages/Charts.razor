@@ -1,5 +1,6 @@
 @page "/charts"
 @rendermode InteractiveServer
+@using System.Globalization
 @using MudBlazor.Charts
 
 @inject TemperatureStore Store
@@ -93,7 +94,7 @@
                         var path = context.Segment;
                         var i = path.Index;
                         var when = i >= 0 && i < _pointTs.Length
-                            ? DateTimeOffset.FromUnixTimeSeconds(_pointTs[i]).ToLocalTime().ToString("g", CultureInfo.CurrentCulture)
+                            ? DisplayClock.FormatGeneral(DateTimeOffset.FromUnixTimeSeconds(_pointTs[i]), Options)
                             : path.LabelXValue;
                     }
                     <rect x="-76" y="-30" width="152" height="34" rx="6" ry="6" fill="#0f172ae6" stroke="#334155" stroke-width="1" />
@@ -205,7 +206,7 @@
                 return Task.CompletedTask;
 
             _pointTs = roomRows.Select(static x => x.Ts).ToArray();
-            _labels = BuildSparseTimeLabels(_pointTs, _hours);
+            _labels = BuildSparseTimeLabels(_pointTs, _hours, Options);
             ApplyLineChartOptions(roomRows.Count);
 
             _series =
@@ -280,11 +281,13 @@
     /// <summary>
     /// Fewer x labels for long windows so MudChart does not draw overlapping timestamps. Tooltip still shows exact time.
     /// </summary>
-    private static string[] BuildSparseTimeLabels(IReadOnlyList<long> timestampsUtc, int hoursWindow)
+    private static string[] BuildSparseTimeLabels(IReadOnlyList<long> timestampsUtc, int hoursWindow, MonitorOptions options)
     {
         var n = timestampsUtc.Count;
         if (n == 0)
             return [];
+
+        var tz = DisplayClock.ResolveTimeZone(options);
 
         var maxLabels = hoursWindow switch
         {
@@ -310,7 +313,8 @@
         {
             var show = i == 0 || i == n - 1 || i % step == 0;
             labels[i] = show
-                ? DateTimeOffset.FromUnixTimeSeconds(timestampsUtc[i]).ToLocalTime().ToString(format, CultureInfo.CurrentCulture)
+                ? TimeZoneInfo.ConvertTime(DateTimeOffset.FromUnixTimeSeconds(timestampsUtc[i]), tz)
+                    .ToString(format, CultureInfo.CurrentCulture)
                 : string.Empty;
         }
 

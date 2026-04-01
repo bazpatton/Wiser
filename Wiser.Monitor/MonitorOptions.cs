@@ -15,6 +15,12 @@ public sealed class MonitorOptions
     public double? OpenMeteoLon { get; set; }
     public string DataDir { get; set; } = "./data";
 
+    /// <summary>
+    /// IANA timezone for UI times (e.g. <c>Europe/London</c>). When unset, uses <see cref="TimeZoneInfo.Local"/>.
+    /// Set when the app runs in UTC (Docker) but users expect home-local wall times.
+    /// </summary>
+    public string? DisplayTimeZoneId { get; set; }
+
     public bool UseHighAlert => TempAlertAboveC > 0;
     public bool UseLowAlert => TempAlertBelowC.HasValue;
     public bool AlertsEnabled => !string.IsNullOrEmpty(NtfyTopic) && (UseHighAlert || UseLowAlert);
@@ -55,6 +61,17 @@ public sealed class MonitorOptions
         if (lat is null ^ lon is null)
             throw new InvalidOperationException("Set both OPEN_METEO_LAT and OPEN_METEO_LON, or neither.");
 
+        static string? ResolveDisplayTimeZoneId(IConfiguration cfg)
+        {
+            var explicitTz = cfg["DISPLAY_TIMEZONE"]?.Trim();
+            if (!string.IsNullOrWhiteSpace(explicitTz))
+                return explicitTz;
+            var tzEnv = cfg["TZ"]?.Trim() ?? Environment.GetEnvironmentVariable("TZ")?.Trim();
+            return string.IsNullOrWhiteSpace(tzEnv) || string.Equals(tzEnv, "UTC", StringComparison.OrdinalIgnoreCase)
+                ? null
+                : tzEnv;
+        }
+
         return new MonitorOptions
         {
             WiserIp = cfg["WISER_IP"]?.Trim() ?? "",
@@ -76,6 +93,7 @@ public sealed class MonitorOptions
             OpenMeteoLat = lat,
             OpenMeteoLon = lon,
             DataDir = string.IsNullOrWhiteSpace(cfg["DATA_DIR"]) ? "./data" : cfg["DATA_DIR"]!.Trim(),
+            DisplayTimeZoneId = ResolveDisplayTimeZoneId(cfg),
         };
     }
 
@@ -88,6 +106,24 @@ public sealed class MonitorOptions
             e.Add("Set WISER_SECRET to your hub SECRET.");
         if (!string.IsNullOrEmpty(NtfyTopic) && !AlertsEnabled)
             e.Add("NTFY_TOPIC is set but no alert thresholds: use TEMP_ALERT_ABOVE_C>0 and/or TEMP_ALERT_BELOW_C.");
+        if (!string.IsNullOrWhiteSpace(DisplayTimeZoneId))
+        {
+            try
+            {
+                _ = TimeZoneInfo.FindSystemTimeZoneById(DisplayTimeZoneId.Trim());
+            }
+            catch (TimeZoneNotFoundException)
+            {
+                e.Add(
+                    $"Invalid DISPLAY_TIMEZONE / TZ id '{DisplayTimeZoneId}'. Use an IANA id (e.g. Europe/London) so boost and chart times match your home.");
+            }
+            catch (InvalidTimeZoneException)
+            {
+                e.Add(
+                    $"Invalid DISPLAY_TIMEZONE / TZ id '{DisplayTimeZoneId}'. Use an IANA id (e.g. Europe/London) so boost and chart times match your home.");
+            }
+        }
+
         return e;
     }
 }

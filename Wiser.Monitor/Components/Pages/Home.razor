@@ -1,5 +1,6 @@
 @page "/"
 @rendermode InteractiveServer
+@using System.Globalization
 
 @inject MonitorState MonitorState
 @inject MonitorOptions Options
@@ -53,7 +54,7 @@
         _lastError = err;
         var okText = ok is null
             ? "No successful poll yet."
-            : $"Last OK: {DateTimeOffset.FromUnixTimeSeconds(ok.Value).ToLocalTime():g}";
+            : $"Last OK: {DisplayClock.FormatGeneral(DateTimeOffset.FromUnixTimeSeconds(ok.Value), Options)}";
         _status = $"Poll interval: {Options.IntervalSec}s · Alerts: {(Options.AlertsEnabled ? "On" : "Off")} · {okText}";
     }
 }

@@ -28,6 +28,17 @@ Do **not** leave `WISER_IP` / `WISER_SECRET` empty in `launchSettings.json`; emp
 
 Open http://localhost:8080 (or the URL in `launchSettings.json`).
 
+### UI times (boost / charts / “last OK”)
+
+Blazor renders on the **server**. If the host uses **UTC** (typical in Docker), `ToLocalTime()` would stay on UTC and look **one hour wrong** during BST compared to your wall clock.
+
+Set an **IANA** timezone so UTC instants are shown in your home’s local time:
+
+- **`DISPLAY_TIMEZONE`** (preferred), e.g. `Europe/London`, or  
+- **`TZ`** (POSIX), e.g. `Europe/London` — ignored when it is `UTC`.
+
+Add to `.env`, user-secrets, or the environment. Invalid ids are reported at startup.
+
 ### Docker: “Set WISER_IP…” / “Set WISER_SECRET…”
 
 Compose only loads variables from a file named **`.env`** in the **same folder** as `docker-compose.yml` (`Wiser.Monitor/`).

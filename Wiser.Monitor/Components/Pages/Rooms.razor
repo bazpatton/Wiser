@@ -213,17 +213,17 @@
         : radiatorState.Equals("off", StringComparison.OrdinalIgnoreCase) ? "❄️"
         : "—";
 
-    private static string? FormatBoostSummary(HubLiveRoom room)
+    private string? FormatBoostSummary(HubLiveRoom room)
     {
         var raw = room.OverrideTimeoutUnix;
         if (raw is null or 0)
             return null;
 
-        DateTimeOffset end;
+        DateTimeOffset endUtc;
         try
         {
             var v = raw.Value;
-            end = v > 10_000_000_000L
+            endUtc = v > 10_000_000_000L
                 ? DateTimeOffset.FromUnixTimeMilliseconds(v)
                 : DateTimeOffset.FromUnixTimeSeconds(v);
         }
@@ -232,16 +232,18 @@
             return null;
         }
 
-        var local = end.ToLocalTime();
-        if (local <= DateTimeOffset.Now)
+        if (endUtc <= DateTimeOffset.UtcNow)
             return null;
+
+        var wall = DisplayClock.ToDisplayTime(endUtc, Options);
+        var timeLabel = wall.ToString("t", CultureInfo.CurrentCulture);
 
         var prefix = room.SetpointOrigin?.Contains("Boost", StringComparison.OrdinalIgnoreCase) == true
             ? "Boost until "
             : "Heat until ";
 
         var target = room.SetpointC is null ? null : $"{room.SetpointC:F1} °C";
-        return target is null ? $"{prefix}{local:t}" : $"{prefix}{local:t} · target {target}";
+        return target is null ? $"{prefix}{timeLabel}" : $"{prefix}{timeLabel} · target {target}";
     }
 
     /// <summary>Dropdown value for current hub state.</summary>
