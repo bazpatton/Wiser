@@ -266,6 +266,19 @@
     }
 }
 
+/* Selected room trend: stacked temp + valve line charts; cap each so the column stays near the paired compliance card. */
+#selected-room-trend .selected-room-trend-chart.mud-chart {
+    height: clamp(148px, 16vh, 198px) !important;
+    max-height: 198px;
+}
+
+@media (min-width: 600px) {
+    #selected-room-trend .selected-room-trend-chart.mud-chart {
+        height: clamp(152px, 15vh, 200px) !important;
+        max-height: 200px;
+    }
+}
+
 /*
  * MudChart heights: 125% display scaling (e.g. 1920×1200) yields ~960px CSS height — vh is large,
  * so prefer low vh + strict max px. Do not grow charts at wide breakpoints; that only makes stacks taller.

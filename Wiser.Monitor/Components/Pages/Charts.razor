@@ -239,7 +239,7 @@
     @* Room trend + compliance: half width each from md up (toolbar stays full width above). *@
     <MudGrid Spacing="2" Class="charts-two-col-row charts-line-pair-row">
         <MudItem xs="12" md="6" Class="charts-grid-cell">
-            <MudPaper Class="pa-3 chart-card charts-grid-paper">
+            <MudPaper id="selected-room-trend" Class="pa-3 chart-card charts-grid-paper">
                 <MudText Typo="Typo.h6" Class="mb-2">
                     <i class="fa-solid fa-chart-area"></i> Selected room trend
                 </MudText>
@@ -247,33 +247,100 @@
                 {
                     <MudAlert Severity="Severity.Error" Dense="true">@_error</MudAlert>
                 }
-                else if (_series.Count == 0)
+                else if (_roomTrendTempSeries.Count == 0)
                 {
                     <MudAlert Severity="Severity.Info" Dense="true">No chart data yet.</MudAlert>
                 }
                 else
                 {
-                    <MudChart T="double"
-                              ChartType="ChartType.Line"
-                              ChartSeries="_series"
-                              ChartLabels="_labels"
-                              ChartOptions="_lineOptions"
-                              Width="100%"
-                              MatchBoundsToSize="true"
-                              Class="@($"{ChartHostClass} chart-in-split-row")">
-                        <TooltipTemplate>
-                            @{
-                                var path = context.Segment;
-                                var i = path.Index;
-                                var when = i >= 0 && i < _pointTs.Length
-                                    ? TimeZoneInfo.ConvertTime(DateTimeOffset.FromUnixTimeSeconds(_pointTs[i]), DisplayZone).ToString("g", CultureInfo.CurrentCulture)
-                                    : path.LabelXValue;
-                            }
-                            <rect x="-76" y="-30" width="152" height="34" rx="6" ry="6" fill="#0f172ae6" stroke="#334155" stroke-width="1" />
-                            <text x="0" y="-16" text-anchor="middle" fill="#f8fafc" style="font-size:11px;font-weight:600">@when</text>
-                            <text x="0" y="-2" text-anchor="middle" fill="#cbd5e1" style="font-size:10px">@path.LabelYValue</text>
-                        </TooltipTemplate>
-                    </MudChart>
+                    <MudStack Spacing="2" Class="selected-room-trend-stack">
+                        @if (RoomTrendToggleChipsVisible)
+                        {
+                            <MudStack Row="true" Spacing="1" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center">
+                                @foreach (var name in RoomTrendToggleableNamesPresent)
+                                {
+                                    var hidden = _roomTrendHiddenSeries.Contains(name);
+                                    <MudChip T="string"
+                                             Text="@name"
+                                             Color="@(hidden ? Color.Default : Color.Primary)"
+                                             Variant="@(hidden ? Variant.Text : Variant.Filled)"
+                                             OnClick="@(() => ToggleRoomTrendSeriesVisibility(name))" />
+                                }
+                                @if (_roomTrendHiddenSeries.Count > 0)
+                                {
+                                    <MudButton Variant="Variant.Text" Color="Color.Primary" Size="Size.Small" OnClick="ClearRoomTrendHiddenSeries">
+                                        Show all
+                                    </MudButton>
+                                }
+                            </MudStack>
+                        }
+                        @if (!RoomTrendAnyTempSeriesVisible)
+                        {
+                            <MudAlert Severity="Severity.Info" Dense="true" Class="mb-0">
+                                All temperature lines are hidden. Tap a grey chip to show one again, or <strong>Show all</strong>.
+                            </MudAlert>
+                        }
+                        else
+                        {
+                        <MudText Typo="Typo.subtitle2" Class="mb-0">Room temperature &amp; target (°C)</MudText>
+                        <MudChart T="double"
+                                  ChartType="ChartType.Line"
+                                  ChartSeries="_roomTrendTempSeries"
+                                  ChartLabels="_labels"
+                                  ChartOptions="_roomTrendTempLineOptions"
+                                  Width="100%"
+                                  Height="200px"
+                                  MatchBoundsToSize="false"
+                                  Class="@($"{ChartHostClass} chart-in-split-row selected-room-trend-chart")"
+                                  @key="@($"temp-{_roomTrendChartRenderKey}")">
+                            <TooltipTemplate>
+                                @{
+                                    var path = context.Segment;
+                                    var i = path.Index;
+                                    var when = i >= 0 && i < _pointTs.Length
+                                        ? TimeZoneInfo.ConvertTime(DateTimeOffset.FromUnixTimeSeconds(_pointTs[i]), DisplayZone).ToString("g", CultureInfo.CurrentCulture)
+                                        : path.LabelXValue;
+                                }
+                                <rect x="-76" y="-30" width="152" height="34" rx="6" ry="6" fill="#0f172ae6" stroke="#334155" stroke-width="1" />
+                                <text x="0" y="-16" text-anchor="middle" fill="#f8fafc" style="font-size:11px;font-weight:600">@when</text>
+                                <text x="0" y="-2" text-anchor="middle" fill="#cbd5e1" style="font-size:10px">@path.LabelYValue</text>
+                                </TooltipTemplate>
+                            </MudChart>
+                        }
+                        <MudText Typo="Typo.subtitle2" Class="mb-0 mt-1">Valve demand (%)</MudText>
+                        @if (!_roomTrendHasValveSeries)
+                        {
+                            <MudAlert Severity="Severity.Info" Dense="true" Class="mb-0">
+                                No valve percentage samples in this window (older data or TRV without PercentageDemand).
+                            </MudAlert>
+                        }
+                        else
+                        {
+                            <MudChart T="double"
+                                      ChartType="ChartType.Line"
+                                      ChartSeries="_roomTrendValveSeries"
+                                      ChartLabels="_labels"
+                                      ChartOptions="_roomTrendValveLineOptions"
+                                      Width="100%"
+                                      Height="200px"
+                                      MatchBoundsToSize="false"
+                                      Class="@($"{ChartHostClass} chart-in-split-row selected-room-trend-chart")"
+                                      @key="@($"valve-{_roomTrendChartRenderKey}")">
+                                <TooltipTemplate>
+                                    @{
+                                        var path = context.Segment;
+                                        var i = path.Index;
+                                        var when = i >= 0 && i < _pointTs.Length
+                                            ? TimeZoneInfo.ConvertTime(DateTimeOffset.FromUnixTimeSeconds(_pointTs[i]), DisplayZone).ToString("g", CultureInfo.CurrentCulture)
+                                            : path.LabelXValue;
+                                    }
+                                    <rect x="-76" y="-30" width="152" height="34" rx="6" ry="6" fill="#0f172ae6" stroke="#334155" stroke-width="1" />
+                                    <text x="0" y="-16" text-anchor="middle" fill="#f8fafc" style="font-size:11px;font-weight:600">@when</text>
+                                    <text x="0" y="-2" text-anchor="middle" fill="#cbd5e1" style="font-size:10px">@path.LabelYValue</text>
+                                </TooltipTemplate>
+                            </MudChart>
+                        }
+                    </MudStack>
                 }
             </MudPaper>
         </MudItem>
@@ -408,7 +475,11 @@
 
     private string[] _labels = [];
     private long[] _pointTs = [];
-    private List<ChartSeries<double>> _series = [];
+    private List<ChartSeries<double>> _roomTrendTempSeries = [];
+    private List<ChartSeries<double>> _roomTrendValveSeries = [];
+    private bool _roomTrendHasValveSeries;
+    private readonly HashSet<string> _roomTrendHiddenSeries = new(StringComparer.OrdinalIgnoreCase);
+    private int _roomTrendChartRenderKey;
     private List<ChartSeries<double>> _heatCallingTempTsSeries = [];
     private List<ChartSeries<double>> _heatCallingValveTsSeries = [];
     private bool _heatCallingHasValveSeries;
@@ -451,11 +522,41 @@
     private string[] _runtimeDistributionLabels = [];
     private List<ChartSeries<double>> _runtimeDistributionSeries = [];
     private Dictionary<string, bool> _roomIsActiveMap = new(StringComparer.OrdinalIgnoreCase);
-    private readonly LineChartOptions _lineOptions = new()
+    private readonly LineChartOptions _roomTrendTempLineOptions = new()
     {
         InterpolationOption = InterpolationOption.Straight,
         ShowToolTips = true,
+        YAxisTitle = "°C",
     };
+    private readonly LineChartOptions _roomTrendValveLineOptions = new()
+    {
+        InterpolationOption = InterpolationOption.Straight,
+        ShowToolTips = true,
+        YAxisTitle = "Valve %",
+        YAxisSuggestedMax = 100,
+        YAxisRequireZeroPoint = true,
+        YAxisTicks = 20,
+    };
+
+    private const string RoomTrendSeriesRoom = "Room °C";
+    private const string RoomTrendSeriesTarget = "Target °C";
+    private const string RoomTrendSeriesOutdoor = "Outdoor °C";
+    private const string RoomTrendSeriesValve = "Valve demand %";
+
+    private static readonly string[] RoomTrendToggleableNames =
+    [
+        RoomTrendSeriesRoom,
+        RoomTrendSeriesTarget,
+        RoomTrendSeriesOutdoor,
+    ];
+
+    private IEnumerable<string> RoomTrendToggleableNamesPresent =>
+        RoomTrendToggleableNames.Where(n => _roomTrendTempSeries.Exists(s => s.Name == n));
+
+    private bool RoomTrendToggleChipsVisible => RoomTrendToggleableNamesPresent.Any();
+
+    private bool RoomTrendAnyTempSeriesVisible =>
+        _roomTrendTempSeries.Exists(static s => s.Visible);
 
     private string ChartHostClass => _hours >= 168
         ? "mud-chart-responsive chart-range-long"
@@ -516,7 +617,9 @@
     private Task LoadChartAsync()
     {
         _error = null;
-        _series = [];
+        _roomTrendTempSeries = [];
+        _roomTrendValveSeries = [];
+        _roomTrendHasValveSeries = false;
         _labels = [];
         _pointTs = [];
         _heatCallingTempTsSeries = [];
@@ -548,32 +651,25 @@
                 {
                     _pointTs = roomRows.Select(static x => x.Ts).ToArray();
                     _labels = BuildSparseTimeLabels(_pointTs, _hours, DisplayZone);
-                    ApplyLineChartOptions(roomRows.Count);
+                    ApplyRoomTrendLineOptions(roomRows.Count);
 
                     var targetChartValues = roomRows.Select(ChartTargetTempC).ToArray();
-                    _series =
+                    ForwardFillTargetLine(targetChartValues);
+
+                    _roomTrendTempSeries =
                     [
                         new ChartSeries<double>
                         {
-                            Name = "Room °C",
+                            Name = RoomTrendSeriesRoom,
                             Data = roomRows.Select(static x => x.TempC).ToArray(),
                         },
                     ];
                     if (targetChartValues.Any(static v => !double.IsNaN(v)))
                     {
-                        _series.Add(new ChartSeries<double>
+                        _roomTrendTempSeries.Add(new ChartSeries<double>
                         {
-                            Name = "Target °C",
+                            Name = RoomTrendSeriesTarget,
                             Data = targetChartValues,
-                        });
-                    }
-
-                    if (roomRows.Any(x => x.PercentageDemand.HasValue))
-                    {
-                        _series.Add(new ChartSeries<double>
-                        {
-                            Name = "Valve demand %",
-                            Data = roomRows.Select(x => x.PercentageDemand is null ? double.NaN : x.PercentageDemand.Value).ToArray(),
                         });
                     }
 
@@ -584,13 +680,31 @@
                             Store.SeriesOutdoor(since));
                         if (alignedOutdoor.Any(static x => x is not null))
                         {
-                            _series.Add(new ChartSeries<double>
+                            _roomTrendTempSeries.Add(new ChartSeries<double>
                             {
-                                Name = "Outdoor °C",
+                                Name = RoomTrendSeriesOutdoor,
                                 Data = alignedOutdoor.Select(static x => x ?? double.NaN).ToArray(),
                             });
                         }
                     }
+
+                    if (roomRows.Any(x => x.PercentageDemand.HasValue))
+                    {
+                        _roomTrendHasValveSeries = true;
+                        _roomTrendValveSeries =
+                        [
+                            new ChartSeries<double>
+                            {
+                                Name = RoomTrendSeriesValve,
+                                Data = roomRows.Select(x => x.PercentageDemand is null ? double.NaN : x.PercentageDemand.Value).ToArray(),
+                            },
+                        ];
+                    }
+
+                    var presentNames = _roomTrendTempSeries.Select(static s => s.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
+                    _roomTrendHiddenSeries.IntersectWith(presentNames);
+                    ApplyRoomTrendSeriesVisibility();
+                    _roomTrendChartRenderKey++;
                 }
             }
 
@@ -615,27 +729,58 @@
         _qualityReasons24h = summary.ByReason.Take(4).ToList();
     }
 
-    private void ApplyLineChartOptions(int pointCount)
+    private void ApplyRoomTrendLineOptions(int pointCount)
     {
-        _lineOptions.XAxisLabelRotation = _hours switch
+        var rotation = _hours switch
         {
             <= 12 => 0,
             <= 24 => 32,
             <= 48 => 48,
             _ => 58,
         };
-
-        _lineOptions.XAxisTitle = _hours >= 168
+        var xTitle = _hours >= 168
             ? "Time (local, ~7 days)"
             : _hours > 24
                 ? "Time (local)"
                 : null;
 
-        _lineOptions.TooltipTitleFormat = "{{SERIES_NAME}}";
-        _lineOptions.TooltipSubtitleFormat = "{{Y_VALUE}}";
-
         var manyPoints = pointCount > 200;
-        _lineOptions.ShowDataMarkers = _hours <= 24 && !manyPoints;
+        var markers = _hours <= 24 && !manyPoints;
+
+        foreach (var opt in new[] { _roomTrendTempLineOptions, _roomTrendValveLineOptions })
+        {
+            opt.XAxisLabelRotation = rotation;
+            opt.XAxisTitle = xTitle;
+            opt.TooltipTitleFormat = "{{SERIES_NAME}}";
+            opt.TooltipSubtitleFormat = "{{Y_VALUE}}";
+            opt.ShowDataMarkers = markers;
+        }
+    }
+
+    private void ApplyRoomTrendSeriesVisibility()
+    {
+        foreach (var s in _roomTrendTempSeries)
+            s.Visible = !_roomTrendHiddenSeries.Contains(s.Name);
+    }
+
+    private void ToggleRoomTrendSeriesVisibility(string name)
+    {
+        if (_roomTrendHiddenSeries.Contains(name))
+            _roomTrendHiddenSeries.Remove(name);
+        else
+            _roomTrendHiddenSeries.Add(name);
+
+        ApplyRoomTrendSeriesVisibility();
+        _roomTrendChartRenderKey++;
+        StateHasChanged();
+    }
+
+    private void ClearRoomTrendHiddenSeries()
+    {
+        _roomTrendHiddenSeries.Clear();
+        ApplyRoomTrendSeriesVisibility();
+        _roomTrendChartRenderKey++;
+        StateHasChanged();
     }
 
     /// <summary>
@@ -690,6 +835,20 @@
     {
         var sp = x.SetpointC ?? x.CurrentSetpointC ?? x.ScheduledSetpointC;
         return sp is { } v ? WiserSetpointDisplay.ToDisplayTargetC(v) : double.NaN;
+    }
+
+    /// <summary>Carry last known target through gaps (null setpoints between polls); leading NaNs unchanged.</summary>
+    private static void ForwardFillTargetLine(double[] values)
+    {
+        double? last = null;
+        for (var i = 0; i < values.Length; i++)
+        {
+            var v = values[i];
+            if (!double.IsNaN(v) && !double.IsInfinity(v))
+                last = v;
+            else if (last is { } lv)
+                values[i] = lv;
+        }
     }
 
     /// <summary>
