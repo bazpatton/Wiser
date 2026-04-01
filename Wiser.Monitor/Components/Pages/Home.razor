@@ -140,7 +140,7 @@
         _lastError = err;
         var okText = ok is null
             ? "No successful poll yet."
-            : $"Last OK: {DateTimeOffset.FromUnixTimeSeconds(ok.Value).ToLocalTime():g}";
+            : $"Last OK: {TimeZoneInfo.ConvertTime(DateTimeOffset.FromUnixTimeSeconds(ok.Value), DisplayZone).ToString("g", CultureInfo.CurrentCulture)}";
         _status = $"Poll interval: {Options.IntervalSec}s · Alerts: {(Options.AlertsEnabled ? "On" : "Off")} · {okText}";
 
         var quality = Store.GetDataQualitySummary(24);
