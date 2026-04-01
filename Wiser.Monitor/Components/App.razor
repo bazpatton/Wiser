@@ -11,6 +11,12 @@
 </head>
 <body>
     <Routes @rendermode="InteractiveServer" />
+    <script>
+        window.wiserScrollToId = (id) => {
+            const el = document.getElementById(id);
+            if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        };
+    </script>
     <script src="_framework/blazor.web.js"></script>
     <script src="_content/MudBlazor/MudBlazor.min.js"></script>
 </body>

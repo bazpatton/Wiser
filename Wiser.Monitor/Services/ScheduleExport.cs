@@ -34,13 +34,19 @@ public static class ScheduleExport
             }
 
             writer.WritePropertyName("schedules");
+            writer.WriteStartArray();
             if (TryGetArray(root, "Schedule", out var schedArr))
-                schedArr.WriteTo(writer);
-            else
             {
-                writer.WriteStartArray();
-                writer.WriteEndArray();
+                foreach (var sched in schedArr.EnumerateArray())
+                {
+                    var sid = GetScheduleId(sched);
+                    if (sid < 0 || sid >= HubScheduleIdPolicy.FirstInternalScheduleId)
+                        continue;
+                    sched.WriteTo(writer);
+                }
             }
+
+            writer.WriteEndArray();
 
             writer.WritePropertyName("rooms");
             writer.WriteStartArray();
@@ -51,7 +57,11 @@ public static class ScheduleExport
                     writer.WriteStartObject();
                     WriteInt(writer, "id", room, "id", "Id");
                     WriteString(writer, "Name", room, "Name", "name");
-                    WriteInt(writer, "ScheduleId", room, "ScheduleId", "scheduleId");
+                    var roomSchedId = GetInt(room, "ScheduleId", "scheduleId");
+                    if (roomSchedId >= HubScheduleIdPolicy.FirstInternalScheduleId)
+                        writer.WriteNull("ScheduleId");
+                    else
+                        WriteInt(writer, "ScheduleId", room, "ScheduleId", "scheduleId");
                     writer.WriteEndObject();
                 }
             }
@@ -100,7 +110,7 @@ public static class ScheduleExport
         foreach (var sched in schedules.EnumerateArray().OrderBy(GetScheduleId))
         {
             var sid = GetScheduleId(sched);
-            if (sid < 0)
+            if (sid < 0 || sid >= HubScheduleIdPolicy.FirstInternalScheduleId)
                 continue;
             var roomsCol = scheduleIdToRooms.TryGetValue(sid, out var rn)
                 ? EscapeCsv(string.Join("; ", rn))

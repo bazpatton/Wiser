@@ -52,6 +52,7 @@ builder.Services.AddHttpClient<WiserHubFetch>(c => c.Timeout = TimeSpan.FromSeco
 builder.Services.AddHttpClient<OutdoorWeatherClient>(c => c.Timeout = TimeSpan.FromSeconds(20));
 builder.Services.AddHttpClient<NtfyClient>(c => c.Timeout = TimeSpan.FromSeconds(15));
 builder.Services.AddSingleton<RoomAlertService>();
+builder.Services.AddScoped<RoomsLiveDataCache>();
 if (hubConfigured)
     builder.Services.AddHostedService<WiserPollWorker>();
 
@@ -260,6 +261,58 @@ app.MapPost("/api/room/mode", async (RoomModeRequest body, WiserHubFetch hub, Mo
         return Results.Json(new { error = ex.Message }, statusCode: StatusCodes.Status502BadGateway);
     }
 });
+
+app.MapPost("/api/schedules/apply", async (
+    HttpRequest req,
+    WiserHubFetch hub,
+    MonitorOptions o,
+    CancellationToken ct,
+    [FromQuery(Name = "dry_run")] bool dryRun = false) =>
+{
+    if (!hubConfigured)
+    {
+        return Results.Json(
+            new { error = "Hub is not configured. Set WISER_IP and WISER_SECRET.", configuration_errors = hubConfigurationErrors },
+            statusCode: StatusCodes.Status503ServiceUnavailable);
+    }
+
+    JsonDocument doc;
+    try
+    {
+        doc = await JsonDocument.ParseAsync(req.Body, cancellationToken: ct).ConfigureAwait(false);
+    }
+    catch (JsonException jex)
+    {
+        return Results.BadRequest(new { error = "invalid_json", detail = jex.Message });
+    }
+
+    using (doc)
+    {
+        var result = await hub.ApplySchedulesFromImportAsync(o, doc, dryRun, ct).ConfigureAwait(false);
+        if (!result.Succeeded)
+        {
+            return Results.Json(
+                new
+                {
+                    ok = false,
+                    dry_run = result.DryRun,
+                    applied = result.AppliedScheduleIds,
+                    summaries = result.Summaries,
+                    failed_schedule_id = result.FailedScheduleId,
+                    error = result.ErrorMessage,
+                },
+                statusCode: StatusCodes.Status502BadGateway);
+        }
+
+        return Results.Json(new
+        {
+            ok = true,
+            dry_run = result.DryRun,
+            applied = result.AppliedScheduleIds,
+            summaries = result.Summaries,
+        });
+    }
+}).DisableAntiforgery();
 
 app.MapGet("/api/daily-summary", (int? days, TemperatureStore store, MonitorOptions o) =>
 {

@@ -1,8 +1,12 @@
 @page "/schedules"
 @rendermode InteractiveServer
 
+@using System.Text.Json
+@using Microsoft.AspNetCore.Components.Forms
+
 @inject MonitorOptions Options
 @inject WiserHubFetch Hub
+@inject ISnackbar Snackbar
 
 <PageTitle>Wiser Monitor - Schedules</PageTitle>
 
@@ -46,6 +50,56 @@
         {
             <MudText Typo="Typo.caption" Class="mud-text-secondary mt-1">@_clockHint</MudText>
         }
+    </MudPaper>
+
+    <MudPaper Class="pa-3 card-soft">
+        <MudText Typo="Typo.h6" Class="mb-2">
+            <i class="fa-solid fa-file-import"></i> Apply schedules to hub
+        </MudText>
+        <MudAlert Severity="Severity.Warning" Dense="true" Class="mb-3">
+            Export JSON first as a backup. Only user programs (schedule id below 100) are included; internal hub schedules are omitted. Each schedule is <code>PATCH</code>ed using the same JSON shape as in the export. Dry run checks parse + body size only (no hub calls). Scripts: <code>POST /api/schedules/apply?dry_run=true</code> with the same body.
+        </MudAlert>
+        <MudTextField T="string"
+                      @bind-Value="_importJson"
+                      Label="JSON"
+                      Placeholder='Paste export or [ { "id": 1, "Monday": { ... } } ]'
+                      Variant="Variant.Outlined"
+                      Lines="14"
+                      Margin="Margin.Dense"
+                      Adornment="Adornment.Start"
+                      AdornmentIcon="@Icons.Material.Filled.Code"
+                      Class="schedule-import-field" />
+        <MudStack Row="true" Spacing="2" Class="mt-2" AlignItems="AlignItems.Center" Wrap="Wrap.Wrap">
+            <MudCheckBox T="bool"
+                         @bind-Value="_dryRun"
+                         Color="Color.Primary"
+                         Dense="true"
+                         Class="touch-control">
+                Dry run (validate only — no hub PATCH)
+            </MudCheckBox>
+        </MudStack>
+        <MudStack Row="true" Spacing="2" Class="mt-2" Wrap="Wrap.Wrap">
+            <MudButton Variant="Variant.Outlined"
+                       HtmlTag="label"
+                       for="@_importFileId"
+                       Color="Color.Primary"
+                       StartIcon="@Icons.Material.Filled.FolderOpen"
+                       Class="touch-target">
+                Load file
+            </MudButton>
+            <InputFile id="@_importFileId"
+                       OnChange="OnImportFile"
+                       accept=".json,application/json"
+                       class="schedule-input-file-hidden" />
+            <MudButton Variant="Variant.Filled"
+                       Color="Color.Secondary"
+                       StartIcon="@(_dryRun ? Icons.Material.Filled.FactCheck : Icons.Material.Filled.CloudUpload)"
+                       Class="touch-target"
+                       Disabled="@_applyBusy"
+                       OnClick="ApplyImportAsync">
+                @(_dryRun ? "Dry run" : "Apply to hub")
+            </MudButton>
+        </MudStack>
     </MudPaper>
 
     @if (!string.IsNullOrWhiteSpace(_error))
@@ -122,8 +176,12 @@
 </MudStack>
 
 @code {
+    private readonly string _importFileId = $"sched-json-{Guid.NewGuid():N}";
     private HubSchedulesOverview? _overview;
     private bool _loading = true;
+    private bool _applyBusy;
+    private bool _dryRun = true;
+    private string _importJson = "";
     private string? _error;
     private string? _clockHint;
 
@@ -151,8 +209,83 @@
         }
     }
 
-    private static string LabelSchedule(int scheduleId) =>
-        scheduleId <= 0 ? "—" : $"#{scheduleId}";
+    private async Task OnImportFile(InputFileChangeEventArgs e)
+    {
+        var file = e.File;
+        if (file is null)
+            return;
+        try
+        {
+            using var stream = file.OpenReadStream(2_000_000);
+            using var reader = new StreamReader(stream);
+            _importJson = await reader.ReadToEndAsync();
+            Snackbar.Add($"Loaded {file.Name}", Severity.Info);
+            await InvokeAsync(StateHasChanged);
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Could not read file: {ex.Message}", Severity.Error);
+        }
+    }
+
+    private async Task ApplyImportAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_importJson))
+        {
+            Snackbar.Add("Paste JSON or load a file first.", Severity.Warning);
+            return;
+        }
+
+        _applyBusy = true;
+        try
+        {
+            using var doc = JsonDocument.Parse(_importJson);
+            var result = await Hub.ApplySchedulesFromImportAsync(Options, doc, _dryRun, CancellationToken.None);
+            if (result.Succeeded)
+            {
+                if (result.DryRun)
+                {
+                    var sizes = result.Summaries is { Count: > 0 }
+                        ? string.Join(", ", result.Summaries.Select(s => $"#{s.ScheduleId} ({s.PatchBodyBytes} B)"))
+                        : string.Join(", ", result.AppliedScheduleIds.Select(static id => $"#{id}"));
+                    Snackbar.Add($"Dry run OK — would PATCH {result.AppliedScheduleIds.Count} schedule(s): {sizes}", Severity.Info);
+                }
+                else
+                {
+                    Snackbar.Add($"Applied schedule id(s): {string.Join(", ", result.AppliedScheduleIds)}", Severity.Success);
+                    await RefreshAsync();
+                }
+
+                return;
+            }
+
+            var msg = result.FailedScheduleId is int sid
+                ? $"Schedule #{sid}: {result.ErrorMessage}"
+                : result.ErrorMessage ?? "Apply failed.";
+            Snackbar.Add((_dryRun ? "Dry run failed: " : "") + msg, Severity.Error);
+        }
+        catch (JsonException ex)
+        {
+            Snackbar.Add($"Invalid JSON: {ex.Message}", Severity.Error);
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+        finally
+        {
+            _applyBusy = false;
+        }
+    }
+
+    private static string LabelSchedule(int scheduleId)
+    {
+        if (scheduleId <= 0)
+            return "—";
+        if (scheduleId >= HubScheduleIdPolicy.FirstInternalScheduleId)
+            return "internal";
+        return $"#{scheduleId}";
+    }
 
     private static string ProgramTitle(HubScheduleProgram prog)
     {

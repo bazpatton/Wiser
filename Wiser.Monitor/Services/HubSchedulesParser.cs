@@ -39,14 +39,16 @@ public static class HubSchedulesParser
         var roomRows = new List<HubRoomScheduleRow>();
         foreach (var room in rooms.OrderBy(r => r.Name, StringComparer.OrdinalIgnoreCase))
         {
-            if (!schedules.TryGetValue(room.ScheduleId, out var sched))
+            var sid = room.ScheduleId;
+            var userProgram = HubScheduleIdPolicy.IsUserProgramScheduleId(sid);
+            if (!userProgram || !schedules.TryGetValue(sid, out var sched))
             {
                 roomRows.Add(new HubRoomScheduleRow(
                     room.Name,
                     room.Id,
-                    room.ScheduleId,
-                    "No schedule linked.",
-                    "Today: no schedule."));
+                    sid,
+                    userProgram ? "No schedule linked." : "Internal schedule (not shown).",
+                    userProgram ? "Today: no schedule." : "Today: internal schedule hidden."));
                 continue;
             }
 
@@ -107,7 +109,7 @@ public static class HubSchedulesParser
         foreach (var el in arr.EnumerateArray())
         {
             var id = GetInt(el, "id", "Id");
-            if (id < 0)
+            if (id < 0 || id >= HubScheduleIdPolicy.FirstInternalScheduleId)
                 continue;
             var days = new Dictionary<string, List<SetPoint>>(StringComparer.Ordinal);
             foreach (var day in DayNames)

@@ -1,9 +1,13 @@
 @page "/rooms"
 @rendermode InteractiveServer
 
+@using Microsoft.JSInterop
 @inject MonitorOptions Options
 @inject WiserHubFetch Hub
 @inject TemperatureStore Store
+@inject RoomsLiveDataCache RoomsCache
+@inject NavigationManager Nav
+@inject IJSRuntime Js
 @inject ISnackbar Snackbar
 @implements IAsyncDisposable
 
@@ -234,14 +238,111 @@
     private DateTimeOffset? _lastRefreshAt;
     private CancellationTokenSource? _autoRefreshCts;
     private Task? _autoRefreshTask;
+    private bool _scrollFragmentOnce;
 
     private string LastUpdatedText => _lastRefreshAt is null
         ? "Last updated: never"
         : $"Last updated: {_lastRefreshAt.Value:HH:mm:ss} ({(int)Math.Max(0, (DateTimeOffset.Now - _lastRefreshAt.Value).TotalSeconds)}s ago)";
 
+    protected override void OnInitialized()
+    {
+        Nav.LocationChanged += OnLocationChanged;
+    }
+
     protected override async Task OnInitializedAsync()
     {
-        await RefreshAsync(fullPageLoader: true);
+        if (UriHasRoomFragment(Nav.Uri))
+            _scrollFragmentOnce = true;
+
+        if (RoomsCache.TryGetSnapshot(out var snap, out var cachedAt))
+        {
+            HydrateFromOverview(snap);
+            _lastRefreshAt = cachedAt;
+            _loading = false;
+            _hasLoadedOnce = true;
+            await RefreshAsync(fullPageLoader: false);
+        }
+        else
+        {
+            await RefreshAsync(fullPageLoader: true);
+        }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!_scrollFragmentOnce || _loading || !_hasLoadedOnce)
+            return;
+        if (_rooms.Count == 0)
+        {
+            _scrollFragmentOnce = false;
+            return;
+        }
+
+        _scrollFragmentOnce = false;
+        await ScrollToFragmentIfPresentAsync();
+    }
+
+    private void OnLocationChanged(object? sender, LocationChangedEventArgs e)
+    {
+        if (!LocationHasNonEmptyFragment(e.Location))
+            return;
+        _ = InvokeAsync(ScrollToFragmentIfPresentAsync);
+    }
+
+    private static bool LocationHasNonEmptyFragment(string location)
+    {
+        var hash = location.IndexOf('#', StringComparison.Ordinal);
+        return hash >= 0 && hash < location.Length - 1;
+    }
+
+    private static bool UriHasRoomFragment(string uri) => LocationHasNonEmptyFragment(uri);
+
+    private async Task ScrollToFragmentIfPresentAsync()
+    {
+        try
+        {
+            var uri = Nav.ToAbsoluteUri(Nav.Uri);
+            var frag = uri.Fragment;
+            if (frag.Length <= 1)
+                return;
+            var id = Uri.UnescapeDataString(frag.AsSpan(1).ToString());
+            if (!IsSafeFragmentElementId(id))
+                return;
+            await Js.InvokeVoidAsync("wiserScrollToId", id);
+        }
+        catch (JSDisconnectedException)
+        {
+        }
+    }
+
+    private static bool IsSafeFragmentElementId(string id)
+    {
+        if (id.Length == 0 || id.Length > 200)
+            return false;
+        foreach (var c in id)
+        {
+            if (char.IsAsciiLetterOrDigit(c) || c is '-' or '_')
+                continue;
+            return false;
+        }
+
+        return true;
+    }
+
+    private void HydrateFromOverview(HubLiveOverview overview)
+    {
+        _rooms.Clear();
+        _rooms.AddRange(overview.Rooms);
+        _heatingRelayOn = overview.HeatingRelayOn;
+        _heatingActive = overview.HeatingActive;
+    }
+
+    private bool TryHydrateFromServiceCache()
+    {
+        if (!RoomsCache.TryGetSnapshot(out var snap, out _))
+            return false;
+        HydrateFromOverview(snap);
+        return _rooms.Count > 0;
     }
 
     private Task OnAutoRefreshChanged(bool enabled)
@@ -401,6 +502,7 @@
         {
             using var doc = await Hub.FetchDomainDocumentAsync(Options, CancellationToken.None);
             var overview = HubLiveRoomsParser.ParseOverview(doc, _boostPresets);
+            RoomsCache.Update(overview);
             _rooms.Clear();
             _rooms.AddRange(overview.Rooms);
             _heatingRelayOn = overview.HeatingRelayOn;
@@ -408,26 +510,33 @@
         }
         catch (Exception ex)
         {
-            _loadError = $"Could not load live data: {ex.Message}. Showing latest stored values.";
-            _rooms.Clear();
-            _rooms.AddRange(
-                Store.LatestByRoom()
-                    .OrderBy(x => x.Key, StringComparer.OrdinalIgnoreCase)
-                    .Select(x => new HubLiveRoom(
-                        0,
-                        x.Key,
-                        "Saved",
-                        x.Value.TempC,
-                        x.Value.SetpointC,
-                        x.Value.HeatDemand,
-                        x.Value.HeatDemand != 0 ? "on" : "off",
-                        x.Value.PercentageDemand,
-                        null,
-                        null,
-                        null)));
-            var latestSystem = Store.GetLatestSystem();
-            _heatingRelayOn = latestSystem?.HeatingRelayOn ?? false;
-            _heatingActive = latestSystem?.HeatingActive ?? _rooms.Any(r => r.HeatDemand != 0);
+            if (TryHydrateFromServiceCache())
+            {
+                _loadError = $"Could not refresh live data: {ex.Message}. Showing cached snapshot.";
+            }
+            else
+            {
+                _loadError = $"Could not load live data: {ex.Message}. Showing latest stored values.";
+                _rooms.Clear();
+                _rooms.AddRange(
+                    Store.LatestByRoom()
+                        .OrderBy(x => x.Key, StringComparer.OrdinalIgnoreCase)
+                        .Select(x => new HubLiveRoom(
+                            0,
+                            x.Key,
+                            "Saved",
+                            x.Value.TempC,
+                            x.Value.SetpointC,
+                            x.Value.HeatDemand,
+                            x.Value.HeatDemand != 0 ? "on" : "off",
+                            x.Value.PercentageDemand,
+                            null,
+                            null,
+                            null)));
+                var latestSystem = Store.GetLatestSystem();
+                _heatingRelayOn = latestSystem?.HeatingRelayOn ?? false;
+                _heatingActive = latestSystem?.HeatingActive ?? _rooms.Any(r => r.HeatDemand != 0);
+            }
         }
         finally
         {
@@ -506,6 +615,7 @@
 
     public ValueTask DisposeAsync()
     {
+        Nav.LocationChanged -= OnLocationChanged;
         _autoRefreshCts?.Cancel();
         _autoRefreshCts?.Dispose();
         return ValueTask.CompletedTask;

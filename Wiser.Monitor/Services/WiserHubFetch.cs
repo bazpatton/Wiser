@@ -1,3 +1,4 @@
+using System.Buffers;
 using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
@@ -152,5 +153,197 @@ public sealed class WiserHubFetch(HttpClient http)
             var text = await resp.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
             throw new HttpRequestException($"Wiser hub returned {(int)resp.StatusCode}: {text}");
         }
+    }
+
+    /// <summary>
+    /// Hub rejects or chokes on these when PATCHing (read-only / derived). Matches aioWiserHeatAPI <c>_remove_schedule_elements</c>.
+    /// </summary>
+    private static readonly HashSet<string> SchedulePatchHubReadOnlyProps = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "id",
+        "CurrentSetpoint",
+        "CurrentState",
+        "Description",
+        "CurrentLevel",
+        "Name",
+        "Next",
+        "Type",
+        "WrittenTo",
+    };
+
+    /// <summary>Reads <c>Type</c> before stripping (needed for v2 URL). Returns null if absent.</summary>
+    private static string? ReadScheduleTypeFromElement(JsonElement root)
+    {
+        if (root.ValueKind != JsonValueKind.Object)
+            return null;
+        if (root.TryGetProperty("Type", out var t) && t.ValueKind == JsonValueKind.String)
+        {
+            var s = t.GetString();
+            if (!string.IsNullOrWhiteSpace(s))
+                return s.Trim();
+        }
+
+        if (root.TryGetProperty("type", out t) && t.ValueKind == JsonValueKind.String)
+        {
+            var s = t.GetString();
+            if (!string.IsNullOrWhiteSpace(s))
+                return s.Trim();
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// Build PATCH body: same day/program fields as domain export, without metadata the hub parses from the stream incorrectly.
+    /// </summary>
+    private static bool TryBuildSchedulePatchPayload(byte[] utf8JsonBody, out string? scheduleType, out byte[] payloadUtf8)
+    {
+        scheduleType = null;
+        payloadUtf8 = utf8JsonBody;
+        try
+        {
+            using var doc = JsonDocument.Parse(utf8JsonBody);
+            var root = doc.RootElement;
+            if (root.ValueKind != JsonValueKind.Object)
+                return false;
+
+            scheduleType = ReadScheduleTypeFromElement(root);
+
+            var buffer = new ArrayBufferWriter<byte>();
+            using (var w = new Utf8JsonWriter(buffer))
+            {
+                w.WriteStartObject();
+                foreach (var prop in root.EnumerateObject())
+                {
+                    if (SchedulePatchHubReadOnlyProps.Contains(prop.Name))
+                        continue;
+                    prop.WriteTo(w);
+                }
+
+                w.WriteEndObject();
+            }
+
+            payloadUtf8 = buffer.WrittenSpan.ToArray();
+            return true;
+        }
+        catch (JsonException)
+        {
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// PATCH one schedule (body is usually a hub <c>Schedule</c> object from export). Strips read-only fields like aioWiserHeatAPI, then tries v2 and domain URLs.
+    /// </summary>
+    public async Task PatchScheduleRawAsync(MonitorOptions options, int scheduleId, byte[] utf8JsonBody, CancellationToken ct)
+    {
+        if (scheduleId <= 0)
+            throw new ArgumentOutOfRangeException(nameof(scheduleId));
+        if (utf8JsonBody is null || utf8JsonBody.Length == 0)
+            throw new ArgumentException("Body required", nameof(utf8JsonBody));
+
+        if (!TryBuildSchedulePatchPayload(utf8JsonBody, out var scheduleType, out var patchBody))
+            patchBody = utf8JsonBody;
+
+        // aioWiserHeatAPI (current): PATCH /data/v2/schedules/{Type}/{id}. Legacy wiserheatingapi: /data/domain/Schedule/{id}.
+        var urls = new List<string>(5);
+        if (!string.IsNullOrEmpty(scheduleType))
+        {
+            var encType = Uri.EscapeDataString(scheduleType);
+            urls.Add($"http://{options.WiserIp}/data/v2/schedules/{encType}/{scheduleId}");
+            urls.Add($"http://{options.WiserIp}/data/v2/schedules/{encType}/{scheduleId}/");
+        }
+
+        urls.Add($"http://{options.WiserIp}/data/domain/Schedule/{scheduleId}");
+        urls.Add($"http://{options.WiserIp}/data/domain/Schedule/{scheduleId}/");
+
+        Exception? last = null;
+        for (var i = 0; i < urls.Count; i++)
+        {
+            using var req = new HttpRequestMessage(HttpMethod.Patch, urls[i]);
+            req.Headers.TryAddWithoutValidation("SECRET", options.WiserSecret);
+            req.Content = new ByteArrayContent(patchBody);
+            req.Content.Headers.ContentType = new MediaTypeHeaderValue("application/json");
+
+            using var resp = await http.SendAsync(req, ct).ConfigureAwait(false);
+            if (resp.IsSuccessStatusCode)
+                return;
+
+            var text = await resp.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
+            var code = (int)resp.StatusCode;
+            var ex = new HttpRequestException($"Wiser hub returned {code} for schedule {scheduleId} ({urls[i]}): {text}");
+            if (code == 404 && i < urls.Count - 1)
+            {
+                last = ex;
+                continue;
+            }
+
+            throw ex;
+        }
+
+        throw last ?? new HttpRequestException($"Schedule PATCH failed for id {scheduleId}.");
+    }
+
+    /// <summary>
+    /// Applies schedules from Monitor export JSON, a raw <c>Schedule</c> array, or a single schedule object.
+    /// When <paramref name="dryRun"/> is true, validates and builds PATCH bodies but does not contact the hub.
+    /// </summary>
+    public async Task<ScheduleApplyResult> ApplySchedulesFromImportAsync(
+        MonitorOptions options,
+        JsonDocument import,
+        bool dryRun,
+        CancellationToken ct)
+    {
+        var items = ScheduleImport.EnumerateSchedulesToApply(import.RootElement);
+        if (items.Count == 0)
+        {
+            return new ScheduleApplyResult(
+                false,
+                dryRun,
+                [],
+                null,
+                null,
+                "No schedule objects found. Use export JSON, or { \"schedules\": [ { ... } ] }, or a root array of schedules.");
+        }
+
+        var applied = new List<int>();
+        var summaries = new List<SchedulePatchSummary>();
+        foreach (var sched in items)
+        {
+            var id = ScheduleImport.GetScheduleId(sched);
+            if (id <= 0)
+                return new ScheduleApplyResult(false, dryRun, applied, summaries, null, "Each schedule must include a positive numeric \"id\".");
+
+            byte[] body;
+            try
+            {
+                body = Utf8NoBom.GetBytes(sched.GetRawText());
+            }
+            catch (Exception ex)
+            {
+                return new ScheduleApplyResult(false, dryRun, applied, summaries, id, ex.Message);
+            }
+
+            if (body.Length == 0)
+                return new ScheduleApplyResult(false, dryRun, applied, summaries, id, "Schedule JSON serialized to an empty body.");
+
+            summaries.Add(new SchedulePatchSummary(id, body.Length));
+
+            if (!dryRun)
+            {
+                try
+                {
+                    await PatchScheduleRawAsync(options, id, body, ct).ConfigureAwait(false);
+                }
+                catch (Exception ex)
+                {
+                    return new ScheduleApplyResult(false, dryRun, applied, summaries, id, ex.Message);
+                }
+            }
+
+            applied.Add(id);
+        }
+
+        return new ScheduleApplyResult(true, dryRun, applied, summaries, null, null);
     }
 }
