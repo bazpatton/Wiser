@@ -315,6 +315,9 @@
     private Task? _autoRefreshTask;
     private bool _scrollFragmentOnce;
 
+    /// <summary>Same zone as Charts / daily summary (<c>TIME_ZONE</c>), not the server OS timezone.</summary>
+    private TimeZoneInfo DisplayZone => TimeZoneResolver.Resolve(Options.TimeZoneId);
+
     private string LastUpdatedText => _lastRefreshAt is null
         ? "Last updated: never"
         : $"Last updated: {_lastRefreshAt.Value:HH:mm:ss} ({(int)Math.Max(0, (DateTimeOffset.Now - _lastRefreshAt.Value).TotalSeconds)}s ago)";
@@ -531,17 +534,17 @@
         return $"room-{(string.IsNullOrWhiteSpace(normalized) ? "unknown" : normalized)}";
     }
 
-    private static string? FormatBoostSummary(HubLiveRoom room)
+    private string? FormatBoostSummary(HubLiveRoom room)
     {
         var raw = room.OverrideTimeoutUnix;
         if (raw is null or 0)
             return null;
 
-        DateTimeOffset end;
+        DateTimeOffset endUtc;
         try
         {
             var v = raw.Value;
-            end = v > 10_000_000_000L
+            endUtc = v > 10_000_000_000L
                 ? DateTimeOffset.FromUnixTimeMilliseconds(v)
                 : DateTimeOffset.FromUnixTimeSeconds(v);
         }
@@ -550,16 +553,17 @@
             return null;
         }
 
-        var local = end.ToLocalTime();
-        if (local <= DateTimeOffset.Now)
+        if (endUtc <= DateTimeOffset.UtcNow)
             return null;
 
+        var endDisplay = TimeZoneInfo.ConvertTime(endUtc, DisplayZone);
         var prefix = room.SetpointOrigin?.Contains("Boost", StringComparison.OrdinalIgnoreCase) == true
             ? "Boost until "
             : "Heat until ";
 
         var target = room.SetpointC is null ? null : $"{room.SetpointC:F1} °C";
-        return target is null ? $"{prefix}{local:t}" : $"{prefix}{local:t} · target {target}";
+        var timeStr = endDisplay.ToString("t", CultureInfo.CurrentCulture);
+        return target is null ? $"{prefix}{timeStr}" : $"{prefix}{timeStr} · target {target}";
     }
 
     private static string CurrentModeLabel(HubLiveRoom room) =>
