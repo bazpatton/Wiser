@@ -112,7 +112,10 @@
                 {
                     <div class="room-heat-tile" style="background-color:@tile.Color;">
                         <div class="room-heat-name">@tile.Room</div>
-                        <div class="room-heat-temp">@tile.DisplayTemp</div>
+                        <div class="room-heat-temp">
+                            <span class="room-heat-state-dot" style="background-color:@tile.CurrentStateColor;" title="@tile.CurrentStateText"></span>
+                            @tile.DisplayTemp
+                        </div>
                         <div class="room-heat-meta">@tile.RangeText</div>
                         <div class="room-heat-meta">@tile.StatusText</div>
                         <div class="room-heat-meta">@tile.TrendText</div>
@@ -419,7 +422,9 @@
                     "Trend unavailable",
                     null,
                     -1,
-                    0));
+                    0,
+                    "Current state unavailable",
+                    "#94a3b8"));
                 continue;
             }
 
@@ -440,7 +445,9 @@
                     $"Ignored {ignoreStart:hh\\:mm}-{ignoreEnd:hh\\:mm}",
                     null,
                     -1,
-                    0));
+                    0,
+                    "Current state unavailable",
+                    "#94a3b8"));
                 continue;
             }
 
@@ -467,6 +474,7 @@
             };
 
             var color = GetComfortGradientColor(average, rangeMin, rangeMax);
+            var (currentStateText, currentStateColor) = GetCurrentState(current, rangeMin, rangeMax);
             tiles.Add(new RoomHeatTile(
                 room,
                 current,
@@ -477,7 +485,9 @@
                 $"Trend {FormatTrend(trendDelta)}",
                 trendDelta,
                 statusRank,
-                severity));
+                severity,
+                currentStateText,
+                currentStateColor));
         }
 
         _roomTiles.AddRange(tiles
@@ -569,6 +579,15 @@
         return "#2e8b57";
     }
 
+    private static (string Text, string Color) GetCurrentState(double currentTemp, double targetMin, double targetMax)
+    {
+        if (currentTemp > targetMax)
+            return ("Currently too warm", "#b22222");
+        if (currentTemp < targetMin)
+            return ("Currently too cold", "#1e3a8a");
+        return ("Currently in range", "#2e8b57");
+    }
+
     private static string FormatTrend(double trendDelta)
     {
         if (trendDelta > 0.4)
@@ -601,7 +620,9 @@
         string TrendText,
         double? TrendDeltaC,
         int StatusRank,
-        double Severity);
+        double Severity,
+        string CurrentStateText,
+        string CurrentStateColor);
 }
 
 <style>
@@ -631,6 +652,18 @@
     .room-heat-temp {
         font-size: 0.86rem;
         opacity: 0.95;
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+    }
+
+    .room-heat-state-dot {
+        width: 10px;
+        height: 10px;
+        border-radius: 999px;
+        border: 1px solid rgba(248, 250, 252, 0.7);
+        display: inline-block;
+        flex: 0 0 auto;
     }
 
     .room-heat-meta {
