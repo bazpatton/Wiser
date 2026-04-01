@@ -18,10 +18,12 @@ public static class HubDeviceParser
     {
         var root = domain.RootElement;
         var list = new List<HubDeviceStatus>();
-        AddFromArray(root, "RoomStat", "Room sensor", list);
-        AddFromArray(root, "SmartValve", "TRV", list);
-        AddFromArray(root, "Device", "Device", list);
-        AddFromRooms(root, list);
+        var roomNameById = BuildRoomNameMap(root);
+
+        AddFromArray(root, "RoomStat", "Room sensor", roomNameById, list);
+        AddFromArray(root, "SmartValve", "TRV", roomNameById, list);
+        AddFromArray(root, "Device", "Device", roomNameById, list);
+        AddFromRooms(root, roomNameById, list);
 
         // Deduplicate by id + name + type.
         return list
@@ -32,7 +34,24 @@ public static class HubDeviceParser
             .ToList();
     }
 
-    private static void AddFromRooms(JsonElement root, List<HubDeviceStatus> list)
+    private static Dictionary<int, string> BuildRoomNameMap(JsonElement root)
+    {
+        var map = new Dictionary<int, string>();
+        if (!TryGetArray(root, "Room", out var roomArr))
+            return map;
+
+        foreach (var room in roomArr.EnumerateArray())
+        {
+            var roomId = GetInt(room, "id", "Id");
+            var roomName = GetString(room, "Name", "name");
+            if (roomId is int id && !string.IsNullOrWhiteSpace(roomName))
+                map[id] = roomName!;
+        }
+
+        return map;
+    }
+
+    private static void AddFromRooms(JsonElement root, IReadOnlyDictionary<int, string> roomNameById, List<HubDeviceStatus> list)
     {
         if (!TryGetArray(root, "Room", out var roomArr))
             return;
@@ -47,7 +66,7 @@ public static class HubDeviceParser
             // If PercentageDemand is present, bias toward TRV; otherwise room sensor.
             var type = pctDemand.HasValue ? "TRV" : "Room sensor";
             var battery = GetBatteryPercent(room);
-            var signal = GetInt(room, "SignalStrength", "Signal", "Rssi");
+            var signal = GetSignal(room);
             if (battery is null && signal is null)
                 continue;
 
@@ -57,12 +76,12 @@ public static class HubDeviceParser
                 type,
                 battery,
                 signal,
-                roomName,
+                roomName ?? (roomNameById.TryGetValue(roomId, out var fromMap) ? fromMap : null),
                 "Room"));
         }
     }
 
-    private static void AddFromArray(JsonElement root, string key, string deviceType, List<HubDeviceStatus> list)
+    private static void AddFromArray(JsonElement root, string key, string defaultType, IReadOnlyDictionary<int, string> roomNameById, List<HubDeviceStatus> list)
     {
         if (!TryGetArray(root, key, out var arr))
             return;
@@ -70,10 +89,11 @@ public static class HubDeviceParser
         foreach (var item in arr.EnumerateArray())
         {
             var id = GetInt(item, "id", "Id", $"{key}Id") ?? -1;
+            var deviceType = ResolveDeviceType(item, defaultType);
             var name = GetString(item, "Name", "name", "DisplayName") ?? $"{deviceType} {id}";
-            var room = GetString(item, "RoomName", "Room", "RoomNameOverride");
+            var room = ResolveRoomName(item, roomNameById);
             var battery = GetBatteryPercent(item);
-            var signal = GetInt(item, "SignalStrength", "Signal", "Rssi");
+            var signal = GetSignal(item);
 
             list.Add(new HubDeviceStatus(
                 id,
@@ -89,9 +109,45 @@ public static class HubDeviceParser
     private static int? GetBatteryPercent(JsonElement item)
     {
         var v = GetInt(item, "BatteryPercent", "BatteryPercentage", "BatteryLevel", "Battery");
+        v ??= FindFirstNumberByKeyContains(item, "battery");
+        if (v is null && FindFirstBoolByKeyContains(item, "lowbattery") == true)
+            v = 15;
         if (v is null)
             return null;
         return Math.Clamp(v.Value, 0, 100);
+    }
+
+    private static int? GetSignal(JsonElement item)
+    {
+        var signal = GetInt(item, "SignalStrength", "Signal", "Rssi", "Lqi", "RSSI", "LQI");
+        signal ??= FindFirstNumberByKeyContains(item, "signal");
+        signal ??= FindFirstNumberByKeyContains(item, "rssi");
+        signal ??= FindFirstNumberByKeyContains(item, "lqi");
+        return signal;
+    }
+
+    private static string ResolveDeviceType(JsonElement item, string fallback)
+    {
+        var explicitType = GetString(item, "DeviceType", "ProductType", "ModelType", "Type");
+        if (string.IsNullOrWhiteSpace(explicitType))
+            return fallback;
+
+        return explicitType!.Contains("valve", StringComparison.OrdinalIgnoreCase) ? "TRV"
+            : explicitType.Contains("stat", StringComparison.OrdinalIgnoreCase) ? "Room sensor"
+            : explicitType;
+    }
+
+    private static string? ResolveRoomName(JsonElement item, IReadOnlyDictionary<int, string> roomNameById)
+    {
+        var room = GetString(item, "RoomName", "Room", "RoomNameOverride");
+        if (!string.IsNullOrWhiteSpace(room))
+            return room;
+
+        var roomId = GetInt(item, "RoomId", "RoomID", "room_id");
+        if (roomId is int id && roomNameById.TryGetValue(id, out var name))
+            return name;
+
+        return null;
     }
 
     private static int? GetInt(JsonElement item, params string[] names)
@@ -129,5 +185,69 @@ public static class HubDeviceParser
             return false;
         }
         return arr.ValueKind == JsonValueKind.Array;
+    }
+
+    private static int? FindFirstNumberByKeyContains(JsonElement element, string token)
+    {
+        if (element.ValueKind == JsonValueKind.Object)
+        {
+            foreach (var p in element.EnumerateObject())
+            {
+                if (p.Name.Contains(token, StringComparison.OrdinalIgnoreCase))
+                {
+                    if (p.Value.ValueKind == JsonValueKind.Number && p.Value.TryGetDouble(out var d))
+                        return (int)Math.Round(d, MidpointRounding.AwayFromZero);
+                    if (p.Value.ValueKind == JsonValueKind.String && int.TryParse(p.Value.GetString(), out var i))
+                        return i;
+                }
+
+                var nested = FindFirstNumberByKeyContains(p.Value, token);
+                if (nested is not null)
+                    return nested;
+            }
+        }
+        else if (element.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var item in element.EnumerateArray())
+            {
+                var nested = FindFirstNumberByKeyContains(item, token);
+                if (nested is not null)
+                    return nested;
+            }
+        }
+
+        return null;
+    }
+
+    private static bool? FindFirstBoolByKeyContains(JsonElement element, string token)
+    {
+        if (element.ValueKind == JsonValueKind.Object)
+        {
+            foreach (var p in element.EnumerateObject())
+            {
+                if (p.Name.Contains(token, StringComparison.OrdinalIgnoreCase))
+                {
+                    if (p.Value.ValueKind is JsonValueKind.True or JsonValueKind.False)
+                        return p.Value.GetBoolean();
+                    if (p.Value.ValueKind == JsonValueKind.String && bool.TryParse(p.Value.GetString(), out var b))
+                        return b;
+                }
+
+                var nested = FindFirstBoolByKeyContains(p.Value, token);
+                if (nested is not null)
+                    return nested;
+            }
+        }
+        else if (element.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var item in element.EnumerateArray())
+            {
+                var nested = FindFirstBoolByKeyContains(item, token);
+                if (nested is not null)
+                    return nested;
+            }
+        }
+
+        return null;
     }
 }
