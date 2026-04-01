@@ -113,6 +113,23 @@ public static class HubDeviceParser
         if (v is null && FindFirstBoolByKeyContains(item, "lowbattery") == true)
             v = 15;
         if (v is null)
+        {
+            var batteryState = FindFirstStringByKeyContains(item, "battery");
+            if (!string.IsNullOrWhiteSpace(batteryState))
+            {
+                // Map common textual battery states when numeric % isn't provided.
+                v = batteryState switch
+                {
+                    var s when s.Equals("low", StringComparison.OrdinalIgnoreCase) => 15,
+                    var s when s.Equals("ok", StringComparison.OrdinalIgnoreCase) => 60,
+                    var s when s.Equals("normal", StringComparison.OrdinalIgnoreCase) => 70,
+                    var s when s.Equals("good", StringComparison.OrdinalIgnoreCase) => 80,
+                    var s when s.Equals("full", StringComparison.OrdinalIgnoreCase) => 100,
+                    _ => null,
+                };
+            }
+        }
+        if (v is null)
             return null;
         return Math.Clamp(v.Value, 0, 100);
     }
@@ -146,6 +163,11 @@ public static class HubDeviceParser
         var roomId = GetInt(item, "RoomId", "RoomID", "room_id");
         if (roomId is int id && roomNameById.TryGetValue(id, out var name))
             return name;
+
+        // Common Wiser linking convention: device id equals room id.
+        var deviceId = GetInt(item, "id", "Id", "DeviceId");
+        if (deviceId is int did && roomNameById.TryGetValue(did, out var byDeviceId))
+            return byDeviceId;
 
         return null;
     }
@@ -244,6 +266,38 @@ public static class HubDeviceParser
             {
                 var nested = FindFirstBoolByKeyContains(item, token);
                 if (nested is not null)
+                    return nested;
+            }
+        }
+
+        return null;
+    }
+
+    private static string? FindFirstStringByKeyContains(JsonElement element, string token)
+    {
+        if (element.ValueKind == JsonValueKind.Object)
+        {
+            foreach (var p in element.EnumerateObject())
+            {
+                if (p.Name.Contains(token, StringComparison.OrdinalIgnoreCase)
+                    && p.Value.ValueKind == JsonValueKind.String)
+                {
+                    var s = p.Value.GetString()?.Trim();
+                    if (!string.IsNullOrWhiteSpace(s))
+                        return s;
+                }
+
+                var nested = FindFirstStringByKeyContains(p.Value, token);
+                if (!string.IsNullOrWhiteSpace(nested))
+                    return nested;
+            }
+        }
+        else if (element.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var item in element.EnumerateArray())
+            {
+                var nested = FindFirstStringByKeyContains(item, token);
+                if (!string.IsNullOrWhiteSpace(nested))
                     return nested;
             }
         }
