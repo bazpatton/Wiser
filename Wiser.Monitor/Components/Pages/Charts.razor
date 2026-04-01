@@ -4,6 +4,7 @@
 
 @inject TemperatureStore Store
 @inject MonitorOptions Options
+@implements IAsyncDisposable
 
 <PageTitle>Wiser Monitor - Charts</PageTitle>
 
@@ -57,16 +58,53 @@
                              Class="touch-control" />
             </MudItem>
             <MudItem xs="12" md="2" Class="d-flex align-stretch">
-                <MudButton Variant="Variant.Filled"
-                           Color="Color.Primary"
-                           StartIcon="@Icons.Material.Filled.Refresh"
-                           FullWidth="true"
-                           Class="touch-target charts-refresh-btn"
-                           OnClick="LoadChartAsync">
-                    Refresh
-                </MudButton>
+                <MudStack Row="true" Spacing="1" Wrap="Wrap.Wrap" Class="w-100">
+                    <MudCheckBox T="bool"
+                                 Label="Auto refresh"
+                                 Value="_autoRefreshEnabled"
+                                 ValueChanged="OnAutoRefreshChanged"
+                                 Class="touch-control" />
+                    <MudSelect T="int"
+                               Label="Interval"
+                               Value="_autoRefreshSec"
+                               ValueChanged="OnAutoRefreshSecondsChanged"
+                               Variant="Variant.Outlined"
+                               Dense="true"
+                               Margin="Margin.Dense"
+                               Class="touch-control"
+                               Disabled="@(!_autoRefreshEnabled)">
+                        <MudSelectItem Value="15">15s</MudSelectItem>
+                        <MudSelectItem Value="30">30s</MudSelectItem>
+                        <MudSelectItem Value="60">60s</MudSelectItem>
+                        <MudSelectItem Value="120">120s</MudSelectItem>
+                    </MudSelect>
+                    <MudButton Variant="Variant.Filled"
+                               Color="Color.Primary"
+                               StartIcon="@Icons.Material.Filled.Refresh"
+                               Class="touch-target charts-refresh-btn"
+                               OnClick="LoadChartAsync">
+                        Refresh
+                    </MudButton>
+                </MudStack>
             </MudItem>
         </MudGrid>
+        <MudStack Row="true" Spacing="1" Wrap="Wrap.Wrap" Class="mt-2">
+            <MudText Typo="Typo.caption" Class="mud-text-secondary">@LastUpdatedText</MudText>
+            <MudButton Variant="Variant.Outlined"
+                       Color="Color.Primary"
+                       Size="Size.Small"
+                       StartIcon="@Icons.Material.Filled.Download"
+                       Href="@DailySummaryCsvHref">
+                Export daily CSV
+            </MudButton>
+            <MudButton Variant="Variant.Outlined"
+                       Color="Color.Primary"
+                       Size="Size.Small"
+                       StartIcon="@Icons.Material.Filled.Download"
+                       Href="@RoomTrendsCsvHref">
+                Export trends CSV
+            </MudButton>
+        </MudStack>
     </MudPaper>
 
     <MudPaper Class="pa-3 chart-card">
@@ -160,6 +198,11 @@
     private int _hours = 24;
     private bool _includeOutdoor = true;
     private string? _error;
+    private bool _autoRefreshEnabled;
+    private int _autoRefreshSec = 30;
+    private DateTimeOffset? _lastRefreshAt;
+    private CancellationTokenSource? _autoRefreshCts;
+    private Task? _autoRefreshTask;
 
     private string[] _labels = [];
     private long[] _pointTs = [];
@@ -177,6 +220,11 @@
         : _hours > 24
             ? "mud-chart-responsive chart-range-medium"
             : "mud-chart-responsive";
+    private string LastUpdatedText => _lastRefreshAt is null
+        ? "Last updated: never"
+        : $"Last updated: {_lastRefreshAt.Value:HH:mm:ss} ({(int)Math.Max(0, (DateTimeOffset.Now - _lastRefreshAt.Value).TotalSeconds)}s ago)";
+    private string DailySummaryCsvHref => "/api/export/daily-summary.csv?days=14";
+    private string RoomTrendsCsvHref => $"/api/export/room-trends.csv?hours={_hours}";
 
     protected override async Task OnInitializedAsync()
     {
@@ -211,6 +259,47 @@
     {
         _includeOutdoor = include;
         return LoadChartAsync();
+    }
+
+    private Task OnAutoRefreshChanged(bool enabled)
+    {
+        _autoRefreshEnabled = enabled;
+        ConfigureAutoRefresh();
+        return Task.CompletedTask;
+    }
+
+    private Task OnAutoRefreshSecondsChanged(int seconds)
+    {
+        _autoRefreshSec = seconds;
+        ConfigureAutoRefresh();
+        return Task.CompletedTask;
+    }
+
+    private void ConfigureAutoRefresh()
+    {
+        _autoRefreshCts?.Cancel();
+        _autoRefreshCts?.Dispose();
+        _autoRefreshCts = null;
+        _autoRefreshTask = null;
+
+        if (!_autoRefreshEnabled)
+            return;
+
+        _autoRefreshCts = new CancellationTokenSource();
+        var ct = _autoRefreshCts.Token;
+        _autoRefreshTask = Task.Run(async () =>
+        {
+            using var timer = new PeriodicTimer(TimeSpan.FromSeconds(Math.Max(10, _autoRefreshSec)));
+            try
+            {
+                while (await timer.WaitForNextTickAsync(ct))
+                    await InvokeAsync(LoadChartAsync);
+            }
+            catch (OperationCanceledException)
+            {
+                // expected on toggle/teardown
+            }
+        }, ct);
     }
 
     private Task LoadChartAsync()
@@ -279,6 +368,7 @@
         {
             _error = $"Failed loading chart data: {ex.Message}";
         }
+        _lastRefreshAt = DateTimeOffset.Now;
 
         return Task.CompletedTask;
     }
@@ -545,6 +635,13 @@
         string TrendText,
         double? TrendDeltaC,
         int StatusRank);
+
+    public ValueTask DisposeAsync()
+    {
+        _autoRefreshCts?.Cancel();
+        _autoRefreshCts?.Dispose();
+        return ValueTask.CompletedTask;
+    }
 }
 
 <style>

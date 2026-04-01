@@ -1,4 +1,6 @@
 using System.Text.Json;
+using System.Globalization;
+using System.Text;
 using Microsoft.AspNetCore.Mvc;
 using MudBlazor.Services;
 using Wiser.Monitor;
@@ -176,6 +178,91 @@ app.MapGet("/api/system-series", (int? hours, TemperatureStore store) =>
     return Results.Json(new { hours = h, system_series = rows });
 });
 
+app.MapGet("/api/export/daily-summary.csv", (int? days, TemperatureStore store, MonitorOptions o) =>
+{
+    var d = Math.Clamp(days ?? 14, 1, 366);
+    var rows = store.GetDailySummaries(d, Math.Max(10, o.IntervalSec))
+        .OrderByDescending(static x => x.Date, StringComparer.Ordinal);
+
+    var csv = new StringBuilder();
+    csv.AppendLine("date_utc,hdd,avg_outdoor_c,heat_demand_est_min,boiler_relay_est_min,outdoor_samples");
+    foreach (var row in rows)
+    {
+        csv.Append(row.Date).Append(',')
+            .Append(FmtCsvOpt(row.Hdd)).Append(',')
+            .Append(FmtCsvOpt(row.AvgOutdoorC)).Append(',')
+            .Append(FmtCsv(row.HeatingActiveEstimateMin)).Append(',')
+            .Append(FmtCsv(row.HeatingRelayEstimateMin)).Append(',')
+            .Append(row.OutdoorSamples.ToString(CultureInfo.InvariantCulture))
+            .AppendLine();
+    }
+
+    return Results.File(Encoding.UTF8.GetBytes(csv.ToString()), "text/csv; charset=utf-8", $"daily-summary-{d}d.csv");
+});
+
+app.MapGet("/api/export/room-trends.csv", (int? hours, TemperatureStore store) =>
+{
+    var h = Math.Clamp(hours ?? 24, 1, 24 * 14);
+    var since = DateTimeOffset.UtcNow.ToUnixTimeSeconds() - h * 3600L;
+    var activity = store.GetRoomActivityMap();
+    var (ignoreStart, ignoreEnd) = store.GetTrendIgnoreWindow();
+    var rooms = store.ListRooms().OrderBy(x => x, StringComparer.OrdinalIgnoreCase).ToList();
+
+    var csv = new StringBuilder();
+    csv.AppendLine("room,current_temp_c,avg_temp_c,recommended_min_c,recommended_max_c,status,trend_delta_c,is_active,ignore_window_start,ignore_window_end,sample_count_used");
+
+    foreach (var room in rooms)
+    {
+        var rows = store.SeriesRoom(room, since);
+        if (rows.Count == 0)
+            continue;
+
+        var current = rows[^1].TempC;
+        var isActive = !activity.TryGetValue(room, out var activeFlag) || activeFlag;
+        var (rangeMin, rangeMax) = GetRecommendedTempRange(room, isActive);
+        var filtered = rows.Where(x => !IsWithinIgnoreWindow(x.Ts, ignoreStart, ignoreEnd)).ToList();
+        if (filtered.Count == 0)
+        {
+            csv.Append(EscapeCsv(room)).Append(',')
+                .Append(FmtCsv(current)).Append(',')
+                .Append(',')
+                .Append(FmtCsv(rangeMin)).Append(',')
+                .Append(FmtCsv(rangeMax)).Append(',')
+                .Append("No trend data").Append(',')
+                .Append(',')
+                .Append(isActive ? "true" : "false").Append(',')
+                .Append(ignoreStart.ToString(@"hh\:mm", CultureInfo.InvariantCulture)).Append(',')
+                .Append(ignoreEnd.ToString(@"hh\:mm", CultureInfo.InvariantCulture)).Append(',')
+                .Append('0')
+                .AppendLine();
+            continue;
+        }
+
+        var avg = filtered.Average(static x => x.TempC);
+        var trend = filtered[^1].TempC - filtered[0].TempC;
+        var status = avg < rangeMin
+            ? "Too cold"
+            : avg > rangeMax
+                ? "Too hot"
+                : "In range";
+
+        csv.Append(EscapeCsv(room)).Append(',')
+            .Append(FmtCsv(current)).Append(',')
+            .Append(FmtCsv(avg)).Append(',')
+            .Append(FmtCsv(rangeMin)).Append(',')
+            .Append(FmtCsv(rangeMax)).Append(',')
+            .Append(EscapeCsv(status)).Append(',')
+            .Append(FmtCsv(trend)).Append(',')
+            .Append(isActive ? "true" : "false").Append(',')
+            .Append(ignoreStart.ToString(@"hh\:mm", CultureInfo.InvariantCulture)).Append(',')
+            .Append(ignoreEnd.ToString(@"hh\:mm", CultureInfo.InvariantCulture)).Append(',')
+            .Append(filtered.Count.ToString(CultureInfo.InvariantCulture))
+            .AppendLine();
+    }
+
+    return Results.File(Encoding.UTF8.GetBytes(csv.ToString()), "text/csv; charset=utf-8", $"room-trends-{h}h.csv");
+});
+
 app.MapGet("/api/series", (
     string room,
     int hours,
@@ -245,6 +332,48 @@ static double?[] AlignOutdoor(long[] timestamps, IReadOnlyList<OutdoorSeriesRow>
         result[i] = last;
     }
     return result;
+}
+
+static string FmtCsv(double value) => value.ToString("0.###", CultureInfo.InvariantCulture);
+static string FmtCsvOpt(double? value) => value is null || double.IsNaN(value.Value) ? "" : value.Value.ToString("0.###", CultureInfo.InvariantCulture);
+
+static string EscapeCsv(string value)
+{
+    if (value.Contains(',') || value.Contains('"') || value.Contains('\n') || value.Contains('\r'))
+        return $"\"{value.Replace("\"", "\"\"", StringComparison.Ordinal)}\"";
+    return value;
+}
+
+static (double Min, double Max) GetRecommendedTempRange(string roomName, bool isActive)
+{
+    var r = roomName.ToLowerInvariant();
+    var baseRange = r switch
+    {
+        _ when r.Contains("bath") => (21.0, 23.0),
+        _ when r.Contains("bed") => (17.0, 19.0),
+        _ when r.Contains("kitchen") => (18.0, 20.0),
+        _ when r.Contains("hall") || r.Contains("landing") => (16.0, 18.0),
+        _ when r.Contains("living") || r.Contains("lounge") => (20.0, 22.0),
+        _ => (19.0, 21.0),
+    };
+
+    if (isActive)
+        return baseRange;
+
+    const double inactiveOffsetC = 2.0;
+    return (baseRange.Item1 - inactiveOffsetC, baseRange.Item2 - inactiveOffsetC);
+}
+
+static bool IsWithinIgnoreWindow(long timestampUtc, TimeSpan ignoreStart, TimeSpan ignoreEnd)
+{
+    if (ignoreStart == ignoreEnd)
+        return false;
+
+    var localTod = DateTimeOffset.FromUnixTimeSeconds(timestampUtc).ToLocalTime().TimeOfDay;
+    if (ignoreStart < ignoreEnd)
+        return localTod >= ignoreStart && localTod < ignoreEnd;
+
+    return localTod >= ignoreStart || localTod < ignoreEnd;
 }
 
 internal sealed record SeriesRoomRowDto(

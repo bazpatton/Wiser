@@ -5,6 +5,7 @@
 @inject WiserHubFetch Hub
 @inject TemperatureStore Store
 @inject ISnackbar Snackbar
+@implements IAsyncDisposable
 
 <PageTitle>Wiser Monitor - Rooms</PageTitle>
 
@@ -15,15 +16,37 @@
                 <MudText Typo="Typo.h5" Class="rooms-page-title">
                     <i class="fa-solid fa-house-chimney-window" aria-hidden="true"></i> Rooms
                 </MudText>
-                <MudButton Variant="Variant.Filled"
-                           StartIcon="@Icons.Material.Filled.Refresh"
-                           Color="Color.Primary"
-                           Class="touch-target"
-                           Disabled="@_loading"
-                           OnClick="@(() => RefreshAsync(fullPageLoader: true))">
-                    Refresh
-                </MudButton>
+                <MudStack Row="true" Spacing="1" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center">
+                    <MudCheckBox T="bool"
+                                 Label="Auto refresh"
+                                 Value="_autoRefreshEnabled"
+                                 ValueChanged="OnAutoRefreshChanged"
+                                 Class="touch-control" />
+                    <MudSelect T="int"
+                               Label="Interval"
+                               Value="_autoRefreshSec"
+                               ValueChanged="OnAutoRefreshSecondsChanged"
+                               Variant="Variant.Outlined"
+                               Dense="true"
+                               Margin="Margin.Dense"
+                               Class="touch-control"
+                               Disabled="@(!_autoRefreshEnabled)">
+                        <MudSelectItem Value="15">15s</MudSelectItem>
+                        <MudSelectItem Value="30">30s</MudSelectItem>
+                        <MudSelectItem Value="60">60s</MudSelectItem>
+                        <MudSelectItem Value="120">120s</MudSelectItem>
+                    </MudSelect>
+                    <MudButton Variant="Variant.Filled"
+                               StartIcon="@Icons.Material.Filled.Refresh"
+                               Color="Color.Primary"
+                               Class="touch-target"
+                               Disabled="@_loading"
+                               OnClick="@(() => RefreshAsync(fullPageLoader: true))">
+                        Refresh
+                    </MudButton>
+                </MudStack>
             </MudStack>
+            <MudText Typo="Typo.caption" Class="mud-text-secondary">@LastUpdatedText</MudText>
             @if (!string.IsNullOrWhiteSpace(_actionMessage))
             {
                 <MudAlert Severity="@(_actionError ? Severity.Error : Severity.Success)" Dense="true">
@@ -207,10 +230,66 @@
     private string? _loadError;
     private string? _actionMessage;
     private bool _actionError;
+    private bool _autoRefreshEnabled;
+    private int _autoRefreshSec = 30;
+    private DateTimeOffset? _lastRefreshAt;
+    private CancellationTokenSource? _autoRefreshCts;
+    private Task? _autoRefreshTask;
+
+    private string LastUpdatedText => _lastRefreshAt is null
+        ? "Last updated: never"
+        : $"Last updated: {_lastRefreshAt.Value:HH:mm:ss} ({(int)Math.Max(0, (DateTimeOffset.Now - _lastRefreshAt.Value).TotalSeconds)}s ago)";
 
     protected override async Task OnInitializedAsync()
     {
         await RefreshAsync(fullPageLoader: true);
+    }
+
+    private Task OnAutoRefreshChanged(bool enabled)
+    {
+        _autoRefreshEnabled = enabled;
+        ConfigureAutoRefresh();
+        return Task.CompletedTask;
+    }
+
+    private Task OnAutoRefreshSecondsChanged(int seconds)
+    {
+        _autoRefreshSec = seconds;
+        ConfigureAutoRefresh();
+        return Task.CompletedTask;
+    }
+
+    private void ConfigureAutoRefresh()
+    {
+        _autoRefreshCts?.Cancel();
+        _autoRefreshCts?.Dispose();
+        _autoRefreshCts = null;
+        _autoRefreshTask = null;
+
+        if (!_autoRefreshEnabled)
+            return;
+
+        _autoRefreshCts = new CancellationTokenSource();
+        var ct = _autoRefreshCts.Token;
+        _autoRefreshTask = Task.Run(async () =>
+        {
+            using var timer = new PeriodicTimer(TimeSpan.FromSeconds(Math.Max(10, _autoRefreshSec)));
+            try
+            {
+                while (await timer.WaitForNextTickAsync(ct))
+                {
+                    await InvokeAsync(async () =>
+                    {
+                        if (!_loading && !_isRefreshing)
+                            await RefreshAsync();
+                    });
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                // expected on toggle/teardown
+            }
+        }, ct);
     }
 
     private IEnumerable<HubLiveRoom> FilteredRooms()
@@ -336,6 +415,7 @@
         }
         finally
         {
+            _lastRefreshAt = DateTimeOffset.Now;
             if (fullPageLoader)
                 _loading = false;
             _isRefreshing = false;
@@ -406,5 +486,12 @@
         _actionMessage = "Live hub data required for control actions.";
         Snackbar.Add(_actionMessage, Severity.Warning);
         return false;
+    }
+
+    public ValueTask DisposeAsync()
+    {
+        _autoRefreshCts?.Cancel();
+        _autoRefreshCts?.Dispose();
+        return ValueTask.CompletedTask;
     }
 }
