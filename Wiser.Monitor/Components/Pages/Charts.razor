@@ -417,7 +417,8 @@
                     $"No data in selected period{(isActive ? string.Empty : ", inactive profile")}",
                     "Trend unavailable",
                     null,
-                    -1));
+                    -1,
+                    0));
                 continue;
             }
 
@@ -437,7 +438,8 @@
                     $"No trend data outside ignored window{(isActive ? string.Empty : ", inactive profile")}",
                     $"Ignored {ignoreStart:hh\\:mm}-{ignoreEnd:hh\\:mm}",
                     null,
-                    -1));
+                    -1,
+                    0));
                 continue;
             }
 
@@ -456,6 +458,12 @@
                 "In range" => 1,
                 _ => 0,
             };
+            var severity = status switch
+            {
+                "Too hot" => average - rangeMax,
+                "Too cold" => rangeMin - average,
+                _ => Math.Abs(average - ((rangeMin + rangeMax) / 2.0)),
+            };
 
             var color = GetComfortGradientColor(average, rangeMin, rangeMax);
             tiles.Add(new RoomHeatTile(
@@ -467,11 +475,13 @@
                 $"{status} (avg {average:0.0}C over {_hours}h){(isActive ? string.Empty : ", inactive profile")}",
                 $"Trend {FormatTrend(trendDelta)}",
                 trendDelta,
-                statusRank));
+                statusRank,
+                severity));
         }
 
         _roomTiles.AddRange(tiles
             .OrderByDescending(static x => x.StatusRank)
+            .ThenByDescending(static x => x.Severity)
             .ThenByDescending(static x => x.TrendDeltaC.HasValue)
             .ThenByDescending(static x => x.TrendDeltaC));
     }
@@ -589,7 +599,8 @@
         string StatusText,
         string TrendText,
         double? TrendDeltaC,
-        int StatusRank);
+        int StatusRank,
+        double Severity);
 }
 
 <style>
