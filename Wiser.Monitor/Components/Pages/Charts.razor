@@ -369,7 +369,8 @@
                     "#334155",
                     $"Recommended {missingMin:0.#} - {missingMax:0.#}C",
                     $"No data in selected period{(isActive ? string.Empty : ", inactive profile")}",
-                    "Trend unavailable"));
+                    "Trend unavailable",
+                    null));
                 continue;
             }
 
@@ -392,12 +393,13 @@
                 color,
                 $"Recommended {rangeMin:0.#} - {rangeMax:0.#}C",
                 $"{status} (avg {average:0.0}C over {_hours}h){(isActive ? string.Empty : ", inactive profile")}",
-                $"Trend {FormatTrend(trendDelta)}"));
+                $"Trend {FormatTrend(trendDelta)}",
+                trendDelta));
         }
 
         _roomTiles.AddRange(tiles
-            .OrderByDescending(static x => x.TempC.HasValue)
-            .ThenByDescending(static x => x.TempC));
+            .OrderByDescending(static x => x.TrendDeltaC.HasValue)
+            .ThenByDescending(static x => x.TrendDeltaC));
     }
 
     private void LoadDailyRows()
@@ -486,7 +488,8 @@
         string Color,
         string RangeText,
         string StatusText,
-        string TrendText);
+        string TrendText,
+        double? TrendDeltaC);
 }
 
 <style>
