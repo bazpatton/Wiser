@@ -109,6 +109,20 @@ app.MapGet("/api/hub-live-rooms", async (WiserHubFetch hub, MonitorOptions o, Ca
     });
 });
 
+app.MapGet("/api/hub-devices", async (WiserHubFetch hub, MonitorOptions o, CancellationToken ct) =>
+{
+    if (!hubConfigured)
+    {
+        return Results.Json(
+            new { error = "Hub is not configured. Set WISER_IP and WISER_SECRET.", configuration_errors = hubConfigurationErrors },
+            statusCode: StatusCodes.Status503ServiceUnavailable);
+    }
+
+    using var doc = await hub.FetchDomainDocumentAsync(o, ct).ConfigureAwait(false);
+    var devices = HubDeviceParser.ParseDevices(doc);
+    return Results.Json(new { devices });
+});
+
 app.MapPost("/api/room/boost", async (BoostRoomRequest body, WiserHubFetch hub, MonitorOptions o, CancellationToken ct) =>
 {
     if (!hubConfigured)
