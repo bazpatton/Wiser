@@ -359,6 +359,7 @@
                               ChartType="ChartType.Line"
                               ChartSeries="_comfortComplianceSeries"
                               ChartLabels="_comfortComplianceLabels"
+                              ChartOptions="_comfortComplianceLineOptions"
                               Width="100%"
                               MatchBoundsToSize="true"
                               Class="mud-chart-responsive chart-in-split-row" />
@@ -538,6 +539,18 @@
         YAxisTicks = 20,
     };
 
+    private readonly LineChartOptions _comfortComplianceLineOptions = new()
+    {
+        InterpolationOption = InterpolationOption.Straight,
+        ShowToolTips = true,
+        YAxisTitle = "% in range",
+        YAxisSuggestedMax = 100,
+        YAxisRequireZeroPoint = true,
+        YAxisTicks = 20,
+        TooltipTitleFormat = "{{SERIES_NAME}}",
+        TooltipSubtitleFormat = "{{Y_VALUE}}",
+    };
+
     private const string RoomTrendSeriesRoom = "Room °C";
     private const string RoomTrendSeriesTarget = "Target °C";
     private const string RoomTrendSeriesOutdoor = "Outdoor °C";
@@ -638,6 +651,8 @@
 
         try
         {
+            LoadRooms();
+
             var since24h = DateTimeOffset.UtcNow.ToUnixTimeSeconds() - (HeatCallingTrendHours * 3600L);
             BuildHeatCallingRoomsTimeseries(since24h);
             LoadDataQualitySummary();
@@ -1125,6 +1140,7 @@
         var todayLocal = TimeZoneInfo.ConvertTime(DateTimeOffset.UtcNow, zone).Date;
         var labels = new string[days];
         var values = new double[days];
+        var hasAnySample = false;
 
         for (var i = 0; i < days; i++)
         {
@@ -1146,6 +1162,7 @@
                     .Where(x => !IsWithinIgnoreWindow(x.Ts, ignoreStart, ignoreEnd, zone));
                 foreach (var row in rows)
                 {
+                    hasAnySample = true;
                     totalCount++;
                     if (row.TempC >= targetMin && row.TempC <= targetMax)
                         inRangeCount++;
@@ -1154,6 +1171,11 @@
 
             values[i] = totalCount == 0 ? double.NaN : inRangeCount * 100.0 / totalCount;
         }
+
+        if (!hasAnySample)
+            return;
+
+        FillComplianceNaNGapsForLineChart(values);
 
         _comfortComplianceLabels = labels;
         _comfortComplianceSeries =
@@ -1164,6 +1186,28 @@
                 Data = values,
             },
         ];
+    }
+
+    /// <summary>Mud line charts break Y scaling / splines when points are NaN; bridge gaps for display (no samples that day).</summary>
+    private static void FillComplianceNaNGapsForLineChart(double[] values)
+    {
+        double? last = null;
+        for (var i = 0; i < values.Length; i++)
+        {
+            if (!double.IsNaN(values[i]))
+                last = values[i];
+            else if (last is { } lv)
+                values[i] = lv;
+        }
+
+        double? next = null;
+        for (var i = values.Length - 1; i >= 0; i--)
+        {
+            if (!double.IsNaN(values[i]))
+                next = values[i];
+            else if (next is { } nv)
+                values[i] = nv;
+        }
     }
 
     private void BuildCurrentDeviationChart()
