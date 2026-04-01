@@ -682,6 +682,49 @@
     private static bool IsPlausibleHeatChartTemp(double tempC) => tempC is > -45 and < 75;
 
     /// <summary>
+    /// Valve demand series: keep 0% samples between peaks, but omit leading idle before the first &gt;0
+    /// and trailing idle after the first 0% following the last &gt;0 (so the line does not span the full 24h at 0).
+    /// </summary>
+    private static List<(DateTime T, double Y)> TrimValveDemandWindowForChart(IReadOnlyList<(DateTime T, double Y)> pts)
+    {
+        if (pts.Count == 0)
+            return [];
+
+        var first = -1;
+        for (var i = 0; i < pts.Count; i++)
+        {
+            if (pts[i].Y > 0)
+            {
+                first = i;
+                break;
+            }
+        }
+
+        if (first < 0)
+            return [];
+
+        var lastPos = -1;
+        for (var i = pts.Count - 1; i >= first; i--)
+        {
+            if (pts[i].Y > 0)
+            {
+                lastPos = i;
+                break;
+            }
+        }
+
+        var end = lastPos;
+        for (var i = lastPos + 1; i < pts.Count; i++)
+        {
+            end = i;
+            if (pts[i].Y == 0)
+                break;
+        }
+
+        return pts.Skip(first).Take(end - first + 1).ToList();
+    }
+
+    /// <summary>
     /// Multi-room 24h view: same per-room series as <see cref="LoadChartAsync"/> (temp + valve %), using MudChart timeseries (DateTime X).
     /// </summary>
     private void BuildHeatCallingRoomsTimeseries(long sinceTsUtc)
@@ -732,12 +775,13 @@
                 });
             }
 
-            // Omit 0% so idle TRVs do not draw long lines on the bottom (only demand > 0 is plotted).
-            var valvePairs = dedup
-                .Where(static r => r.PercentageDemand is > 0)
+            var valvePairsFull = dedup
+                .Where(static r => r.PercentageDemand.HasValue)
                 .Select(r => (TsToHeatChartDateTime(r.Ts), (double)r.PercentageDemand!.Value))
                 .OrderBy(x => x.Item1)
                 .ToList();
+
+            var valvePairs = TrimValveDemandWindowForChart(valvePairsFull);
 
             if (valvePairs.Count == 0)
                 continue;
