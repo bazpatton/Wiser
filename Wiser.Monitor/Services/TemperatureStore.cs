@@ -58,6 +58,12 @@ public sealed class TemperatureStore
                         is_active INTEGER NOT NULL DEFAULT 1,
                         updated_ts INTEGER NOT NULL
                     );
+
+                    CREATE TABLE IF NOT EXISTS app_settings (
+                        key TEXT PRIMARY KEY,
+                        value TEXT NOT NULL,
+                        updated_ts INTEGER NOT NULL
+                    );
                     """;
                 cmd.ExecuteNonQuery();
             }
@@ -343,6 +349,73 @@ public sealed class TemperatureStore
             cmd.Parameters.AddWithValue("$ts", DateTimeOffset.UtcNow.ToUnixTimeSeconds());
             cmd.ExecuteNonQuery();
         }
+    }
+
+    public (TimeSpan Start, TimeSpan End) GetTrendIgnoreWindow()
+    {
+        // Default: ignore 00:00 -> 07:00 local time for trend analysis.
+        var fallbackStart = TimeSpan.Zero;
+        var fallbackEnd = TimeSpan.FromHours(7);
+
+        lock (_gate)
+        {
+            using var c = Open();
+            using var cmd = c.CreateCommand();
+            cmd.CommandText =
+                """
+                SELECT key, value FROM app_settings
+                WHERE key IN ('trend_ignore_start', 'trend_ignore_end')
+                """;
+            using var r = cmd.ExecuteReader();
+
+            var start = fallbackStart;
+            var end = fallbackEnd;
+            while (r.Read())
+            {
+                var key = r.GetString(0);
+                var value = r.GetString(1);
+                if (!int.TryParse(value, out var minutes))
+                    continue;
+                minutes = Math.Clamp(minutes, 0, 1439);
+                if (key == "trend_ignore_start")
+                    start = TimeSpan.FromMinutes(minutes);
+                else if (key == "trend_ignore_end")
+                    end = TimeSpan.FromMinutes(minutes);
+            }
+
+            return (start, end);
+        }
+    }
+
+    public void SetTrendIgnoreWindow(TimeSpan start, TimeSpan end)
+    {
+        var startMinutes = Math.Clamp((int)start.TotalMinutes, 0, 1439);
+        var endMinutes = Math.Clamp((int)end.TotalMinutes, 0, 1439);
+        var ts = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+
+        lock (_gate)
+        {
+            using var c = Open();
+            UpsertSetting(c, "trend_ignore_start", startMinutes.ToString(System.Globalization.CultureInfo.InvariantCulture), ts);
+            UpsertSetting(c, "trend_ignore_end", endMinutes.ToString(System.Globalization.CultureInfo.InvariantCulture), ts);
+        }
+    }
+
+    private static void UpsertSetting(SqliteConnection c, string key, string value, long updatedTs)
+    {
+        using var cmd = c.CreateCommand();
+        cmd.CommandText =
+            """
+            INSERT INTO app_settings (key, value, updated_ts)
+            VALUES ($key, $value, $ts)
+            ON CONFLICT(key) DO UPDATE SET
+                value = excluded.value,
+                updated_ts = excluded.updated_ts
+            """;
+        cmd.Parameters.AddWithValue("$key", key);
+        cmd.Parameters.AddWithValue("$value", value);
+        cmd.Parameters.AddWithValue("$ts", updatedTs);
+        cmd.ExecuteNonQuery();
     }
 
     public Dictionary<string, LatestDto> LatestByRoom()
