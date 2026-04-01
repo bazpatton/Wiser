@@ -78,6 +78,30 @@
             Rooms qualify if they had valve/output demand or a poll with heating active (see daily <strong>Heat demand est. min</strong>).
             Time axis uses your configured display timezone, matching other charts.
         </MudText>
+        @if (_heatCallingHasAnyPlottedSeries && _heatCallingRoomPickerNames.Count > 0)
+        {
+            <MudText Typo="Typo.caption" Class="mud-text-secondary d-block mb-1">
+                Tap a room to hide it from <strong>both</strong> charts below (outlined = hidden).
+            </MudText>
+            <MudStack Row="true" Wrap="Wrap.Wrap" Spacing="1" Class="mb-3 align-center">
+                @foreach (var name in _heatCallingRoomPickerNames)
+                {
+                    var hidden = _heatCallingHiddenRooms.Contains(name);
+                    <MudChip T="string"
+                             Text="@name"
+                             Color="@(hidden ? Color.Default : Color.Primary)"
+                             Variant="@(hidden ? Variant.Outlined : Variant.Filled)"
+                             Icon="@(hidden ? Icons.Material.Filled.VisibilityOff : Icons.Material.Filled.Visibility)"
+                             OnClick="@(() => ToggleHeatCallingRoomVisibility(name))" />
+                }
+                @if (_heatCallingHiddenRooms.Count > 0)
+                {
+                    <MudButton Variant="Variant.Text" Color="Color.Primary" Size="Size.Small" OnClick="ClearHeatCallingHiddenRooms">
+                        Show all
+                    </MudButton>
+                }
+            </MudStack>
+        }
         @if (!_heatCallingHasAnyPlottedSeries)
         {
             <MudAlert Severity="Severity.Info" Dense="true">
@@ -86,14 +110,12 @@
         }
         else if (!HeatCallingAnyRoomVisible)
         {
-            <MudAlert Severity="Severity.Info" Dense="true" Class="mb-2">
-                All rooms are hidden. Tap a grey chip to show it again, or use <strong>Show all</strong>.
+            <MudAlert Severity="Severity.Info" Dense="true" Class="mb-0">
+                All rooms are hidden. Tap a grey chip above to show one again, or <strong>Show all</strong>.
             </MudAlert>
-            @HeatCallingRoomChipRow()
         }
         else
         {
-            @HeatCallingRoomChipRow()
             @if (_heatCallingTempTsSeries.Count == 0)
             {
                 <MudAlert Severity="Severity.Info" Dense="true" Class="mb-3">
@@ -391,6 +413,12 @@
     private List<ChartSeries<double>> _heatCallingValveTsSeries = [];
     private bool _heatCallingHasValveSeries;
     private bool _heatCallingHasAnyPlottedSeries;
+    private readonly HashSet<string> _heatCallingHiddenRooms = new(StringComparer.OrdinalIgnoreCase);
+    private List<string> _heatCallingRoomPickerNames = [];
+
+    private bool HeatCallingAnyRoomVisible =>
+        _heatCallingTempTsSeries.Exists(static s => s.Visible) || _heatCallingValveTsSeries.Exists(static s => s.Visible);
+
     private readonly TimeSeriesChartOptions _heatCallingTempTsOptions = new()
     {
         InterpolationOption = InterpolationOption.Straight,
@@ -662,6 +690,9 @@
         if (qualifying.Count == 0)
             return;
 
+        var qualifyingSet = new HashSet<string>(qualifying, StringComparer.OrdinalIgnoreCase);
+        _heatCallingHiddenRooms.IntersectWith(qualifyingSet);
+
         var orderedRooms = qualifying
             .Select(room => (Room: room, Rows: Store.SeriesRoom(room, sinceTsUtc)))
             .Where(x => x.Rows.Count > 0)
@@ -671,12 +702,15 @@
         if (orderedRooms.Count == 0)
             return;
 
+        _heatCallingRoomPickerNames = [.. orderedRooms.Select(static x => x.Room)];
+
         var tempSeries = new List<ChartSeries<double>>(orderedRooms.Count);
         var valveSeries = new List<ChartSeries<double>>(orderedRooms.Count);
         var anyValve = false;
 
         foreach (var (room, rows) in orderedRooms)
         {
+            var visible = !_heatCallingHiddenRooms.Contains(room);
             var dedup = rows.GroupBy(static r => r.Ts).Select(static g => g.Last()).ToList();
 
             var tempPairs = dedup
@@ -690,6 +724,7 @@
                 tempSeries.Add(new ChartSeries<double>
                 {
                     Name = room,
+                    Visible = visible,
                     Data = tempPairs,
                     TooltipYValueFormat = "F1",
                     TooltipTitleFormat = "{{SERIES_NAME}}",
@@ -710,6 +745,7 @@
             valveSeries.Add(new ChartSeries<double>
             {
                 Name = room,
+                Visible = visible,
                 Data = valvePairs,
                 TooltipYValueFormat = "F0",
                 TooltipTitleFormat = "{{SERIES_NAME}}",
@@ -725,6 +761,33 @@
         var estPoints = orderedRooms.Sum(x => x.Rows.Count);
         _heatCallingTempTsOptions.ShowDataMarkers = estPoints <= 200;
         _heatCallingValveTsOptions.ShowDataMarkers = estPoints <= 200;
+    }
+
+    private void ToggleHeatCallingRoomVisibility(string room)
+    {
+        if (_heatCallingHiddenRooms.Contains(room))
+            _heatCallingHiddenRooms.Remove(room);
+        else
+            _heatCallingHiddenRooms.Add(room);
+
+        ApplyHeatCallingSeriesVisibility();
+    }
+
+    private void ClearHeatCallingHiddenRooms()
+    {
+        _heatCallingHiddenRooms.Clear();
+        ApplyHeatCallingSeriesVisibility();
+    }
+
+    private void ApplyHeatCallingSeriesVisibility()
+    {
+        foreach (var s in _heatCallingTempTsSeries)
+            s.Visible = !_heatCallingHiddenRooms.Contains(s.Name);
+
+        foreach (var s in _heatCallingValveTsSeries)
+            s.Visible = !_heatCallingHiddenRooms.Contains(s.Name);
+
+        StateHasChanged();
     }
 
     private void BuildRoomHeatMap(long sinceTs)
