@@ -116,6 +116,9 @@
                             <span class="room-heat-state-dot" style="background-color:@tile.CurrentStateColor;" title="@tile.CurrentStateText"></span>
                             @tile.DisplayTemp
                         </div>
+                        <div class="room-heat-now-badge" style="background-color:@tile.CurrentStateColor;">
+                            @tile.CurrentStateText
+                        </div>
                         <div class="room-heat-meta">@tile.RangeText</div>
                         <div class="room-heat-meta">@tile.StatusText</div>
                         <div class="room-heat-meta">@tile.TrendText</div>
@@ -582,10 +585,10 @@
     private static (string Text, string Color) GetCurrentState(double currentTemp, double targetMin, double targetMax)
     {
         if (currentTemp > targetMax)
-            return ("Currently too warm", "#b22222");
+            return ("Now: too warm", "#b22222");
         if (currentTemp < targetMin)
-            return ("Currently too cold", "#1e3a8a");
-        return ("Currently in range", "#2e8b57");
+            return ("Now: too cold", "#1e3a8a");
+        return ("Now: in range", "#2e8b57");
     }
 
     private static string FormatTrend(double trendDelta)
@@ -658,12 +661,25 @@
     }
 
     .room-heat-state-dot {
-        width: 10px;
-        height: 10px;
+        width: 12px;
+        height: 12px;
         border-radius: 999px;
-        border: 1px solid rgba(248, 250, 252, 0.7);
+        border: 2px solid rgba(248, 250, 252, 0.95);
+        box-shadow: 0 0 0 1px rgba(15, 23, 42, 0.7);
         display: inline-block;
         flex: 0 0 auto;
+    }
+
+    .room-heat-now-badge {
+        display: inline-block;
+        color: #f8fafc;
+        font-size: 0.72rem;
+        font-weight: 700;
+        line-height: 1.1;
+        padding: 2px 6px;
+        border-radius: 4px;
+        border: 1px solid rgba(248, 250, 252, 0.7);
+        width: fit-content;
     }
 
     .room-heat-meta {
