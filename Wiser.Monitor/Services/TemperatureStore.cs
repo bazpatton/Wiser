@@ -64,6 +64,16 @@ public sealed class TemperatureStore
                         value TEXT NOT NULL,
                         updated_ts INTEGER NOT NULL
                     );
+
+                    CREATE TABLE IF NOT EXISTS data_quality_events (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        ts INTEGER NOT NULL,
+                        room TEXT,
+                        source TEXT NOT NULL,
+                        reason TEXT NOT NULL,
+                        raw_value REAL
+                    );
+                    CREATE INDEX IF NOT EXISTS idx_data_quality_events_ts ON data_quality_events(ts);
                     """;
                 cmd.ExecuteNonQuery();
             }
@@ -164,6 +174,12 @@ public sealed class TemperatureStore
             using (var cmd = c.CreateCommand())
             {
                 cmd.CommandText = "DELETE FROM system_readings WHERE ts < $c";
+                cmd.Parameters.AddWithValue("$c", cutoff);
+                cmd.ExecuteNonQuery();
+            }
+            using (var cmd = c.CreateCommand())
+            {
+                cmd.CommandText = "DELETE FROM data_quality_events WHERE ts < $c";
                 cmd.Parameters.AddWithValue("$c", cutoff);
                 cmd.ExecuteNonQuery();
             }
@@ -418,6 +434,93 @@ public sealed class TemperatureStore
         cmd.ExecuteNonQuery();
     }
 
+    public void InsertDataQualityEvent(long ts, string? room, string source, string reason, double? rawValue)
+    {
+        if (string.IsNullOrWhiteSpace(source) || string.IsNullOrWhiteSpace(reason))
+            return;
+
+        lock (_gate)
+        {
+            using var c = Open();
+            using var cmd = c.CreateCommand();
+            cmd.CommandText =
+                """
+                INSERT INTO data_quality_events (ts, room, source, reason, raw_value)
+                VALUES ($ts, $room, $source, $reason, $raw)
+                """;
+            cmd.Parameters.AddWithValue("$ts", ts);
+            cmd.Parameters.AddWithValue("$room", string.IsNullOrWhiteSpace(room) ? (object)DBNull.Value : room.Trim());
+            cmd.Parameters.AddWithValue("$source", source.Trim());
+            cmd.Parameters.AddWithValue("$reason", reason.Trim());
+            cmd.Parameters.AddWithValue("$raw", rawValue ?? (object)DBNull.Value);
+            cmd.ExecuteNonQuery();
+        }
+    }
+
+    public DataQualitySummary GetDataQualitySummary(int hours)
+    {
+        hours = Math.Clamp(hours, 1, 24 * 30);
+        var since = DateTimeOffset.UtcNow.ToUnixTimeSeconds() - hours * 3600L;
+
+        lock (_gate)
+        {
+            using var c = Open();
+            var byReason = new List<DataQualityReasonCount>();
+            var bySource = new List<DataQualitySourceCount>();
+            var byRoom = new List<DataQualityRoomCount>();
+
+            using (var cmd = c.CreateCommand())
+            {
+                cmd.CommandText =
+                    """
+                    SELECT reason, COUNT(*) FROM data_quality_events
+                    WHERE ts >= $since
+                    GROUP BY reason
+                    ORDER BY COUNT(*) DESC
+                    """;
+                cmd.Parameters.AddWithValue("$since", since);
+                using var r = cmd.ExecuteReader();
+                while (r.Read())
+                    byReason.Add(new DataQualityReasonCount(r.GetString(0), (int)r.GetInt64(1)));
+            }
+
+            using (var cmd = c.CreateCommand())
+            {
+                cmd.CommandText =
+                    """
+                    SELECT source, COUNT(*) FROM data_quality_events
+                    WHERE ts >= $since
+                    GROUP BY source
+                    ORDER BY COUNT(*) DESC
+                    """;
+                cmd.Parameters.AddWithValue("$since", since);
+                using var r = cmd.ExecuteReader();
+                while (r.Read())
+                    bySource.Add(new DataQualitySourceCount(r.GetString(0), (int)r.GetInt64(1)));
+            }
+
+            using (var cmd = c.CreateCommand())
+            {
+                cmd.CommandText =
+                    """
+                    SELECT COALESCE(room, 'unknown') AS room_name, COUNT(*) FROM data_quality_events
+                    WHERE ts >= $since
+                    GROUP BY room_name
+                    ORDER BY COUNT(*) DESC
+                    LIMIT 20
+                    """;
+                cmd.Parameters.AddWithValue("$since", since);
+                using var r = cmd.ExecuteReader();
+                while (r.Read())
+                    byRoom.Add(new DataQualityRoomCount(r.GetString(0), (int)r.GetInt64(1)));
+            }
+
+            var total = byReason.Sum(static x => x.Count);
+            var now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+            return new DataQualitySummary(hours, since, now, total, byReason, bySource, byRoom);
+        }
+    }
+
     public Dictionary<string, LatestDto> LatestByRoom()
     {
         lock (_gate)
@@ -540,3 +643,16 @@ public sealed record DailySummaryRow(
     double HeatingActiveEstimateMin,
     double HeatingRelayEstimateMin,
     int OutdoorSamples);
+
+public sealed record DataQualitySummary(
+    int WindowHours,
+    long FromTs,
+    long ToTs,
+    int TotalIgnored,
+    IReadOnlyList<DataQualityReasonCount> ByReason,
+    IReadOnlyList<DataQualitySourceCount> BySource,
+    IReadOnlyList<DataQualityRoomCount> ByRoom);
+
+public sealed record DataQualityReasonCount(string Reason, int Count);
+public sealed record DataQualitySourceCount(string Source, int Count);
+public sealed record DataQualityRoomCount(string Room, int Count);

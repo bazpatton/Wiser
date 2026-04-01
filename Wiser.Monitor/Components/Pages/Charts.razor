@@ -9,13 +9,24 @@
 <PageTitle>Wiser Monitor - Charts</PageTitle>
 
 <MudStack Spacing="2">
-    <MudPaper Class="pa-4 page-header-card">
+    <MudPaper Class="pa-4 page-header-card" id="data-quality">
         <MudText Typo="Typo.h5">
             <i class="fa-solid fa-chart-line"></i> Charts
         </MudText>
         <MudText Typo="Typo.body2" Class="mt-1">
             Compare room temperature, target, valve demand, and optional outdoor data.
         </MudText>
+        <MudStack Row="true" Spacing="1" Wrap="Wrap.Wrap" Class="mt-2">
+            <MudChip T="string" Variant="Variant.Outlined" Color="Color.Warning">
+                Ignored readings (24h): @_qualityTotal24h
+            </MudChip>
+            @foreach (var rc in _qualityReasons24h)
+            {
+                <MudChip T="string" Variant="Variant.Outlined" Color="Color.Info">
+                    @($"{rc.Reason}: {rc.Count}")
+                </MudChip>
+            }
+        </MudStack>
     </MudPaper>
 
     <MudPaper Class="pa-3 card-soft charts-toolbar">
@@ -203,6 +214,8 @@
     private DateTimeOffset? _lastRefreshAt;
     private CancellationTokenSource? _autoRefreshCts;
     private Task? _autoRefreshTask;
+    private int _qualityTotal24h;
+    private List<DataQualityReasonCount> _qualityReasons24h = [];
 
     private string[] _labels = [];
     private long[] _pointTs = [];
@@ -363,6 +376,7 @@
             }
 
             BuildRoomHeatMap(since);
+            LoadDataQualitySummary();
         }
         catch (Exception ex)
         {
@@ -371,6 +385,13 @@
         _lastRefreshAt = DateTimeOffset.Now;
 
         return Task.CompletedTask;
+    }
+
+    private void LoadDataQualitySummary()
+    {
+        var summary = Store.GetDataQualitySummary(24);
+        _qualityTotal24h = summary.TotalIgnored;
+        _qualityReasons24h = summary.ByReason.Take(4).ToList();
     }
 
     private void ApplyLineChartOptions(int pointCount)

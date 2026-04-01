@@ -13,7 +13,14 @@ public sealed record WiserRoomSample(
 public sealed record DomainPollResult(
     IReadOnlyList<WiserRoomSample> Rooms,
     bool HeatingRelayOn,
-    bool HeatingActive);
+    bool HeatingActive,
+    IReadOnlyList<ExcludedRoomReading> ExcludedReadings);
+
+public sealed record ExcludedRoomReading(
+    string Room,
+    string Source,
+    string Reason,
+    double? RawValue);
 
 public static class WiserDomainParser
 {
@@ -23,13 +30,13 @@ public static class WiserDomainParser
 
     public static DomainPollResult ParseDomain(JsonDocument domain)
     {
-        var rooms = ParseRooms(domain);
+        var (rooms, excluded) = ParseRooms(domain);
         var relay = ParseHeatingRelayOn(domain.RootElement);
         var active = relay || rooms.Any(s => s.HeatDemand != 0);
-        return new DomainPollResult(rooms, relay, active);
+        return new DomainPollResult(rooms, relay, active, excluded);
     }
 
-    public static IReadOnlyList<WiserRoomSample> ParseRooms(JsonDocument domain)
+    public static (IReadOnlyList<WiserRoomSample> Rooms, IReadOnlyList<ExcludedRoomReading> Excluded) ParseRooms(JsonDocument domain)
     {
         if (!domain.RootElement.TryGetProperty("Room", out var roomEl))
             domain.RootElement.TryGetProperty("room", out roomEl);
@@ -41,12 +48,17 @@ public static class WiserDomainParser
         }
 
         var list = new List<WiserRoomSample>();
+        var excluded = new List<ExcludedRoomReading>();
         foreach (var room in roomEl.EnumerateArray())
         {
             var name = RoomName(room);
-            var temp = RoomTemperatureC(room);
+            var temp = RoomTemperatureC(room, out var reason, out var rawValue);
             if (temp is null)
+            {
+                if (!string.IsNullOrWhiteSpace(reason))
+                    excluded.Add(new ExcludedRoomReading(name, "hub_domain_parser", reason!, rawValue));
                 continue;
+            }
             list.Add(new WiserRoomSample(
                 name,
                 temp.Value,
@@ -55,7 +67,7 @@ public static class WiserDomainParser
                 RoomPercentageDemand(room)));
         }
 
-        return list;
+        return (list, excluded);
     }
 
     private static string RoomName(JsonElement room)
@@ -67,35 +79,57 @@ public static class WiserDomainParser
         return "Room";
     }
 
-    private static double? TenthsToC(JsonElement? tenthsEl)
+    private static double? TenthsToC(JsonElement? tenthsEl, out string? reason, out double? rawValue)
     {
+        reason = null;
+        rawValue = null;
         if (tenthsEl is null || tenthsEl.Value.ValueKind is JsonValueKind.Null or JsonValueKind.Undefined)
             return null;
         if (!tenthsEl.Value.TryGetDouble(out var v))
+        {
+            reason = "invalid_value";
             return null;
+        }
+        rawValue = v;
         // Some offline TRVs report short.MinValue in different scaled forms; ignore those samples.
         if (Math.Abs(v - OfflineShortMinTenths) < 0.5
             || Math.Abs(v - OfflineShortMinTenthsDiv10) < 0.05
             || Math.Abs(v - OfflineShortMinTenthsDiv100) < 0.005)
+        {
+            reason = "offline_sentinel";
             return null;
+        }
         if (v >= 2000)
+        {
+            reason = "out_of_range";
             return null;
+        }
         var c = v / 10.0;
         if (c < -50 || c > 80)
+        {
+            reason = "out_of_range";
             return null;
+        }
         return c;
     }
 
-    private static double? RoomTemperatureC(JsonElement room)
+    private static double? RoomTemperatureC(JsonElement room, out string? reason, out double? rawValue)
     {
+        reason = null;
+        rawValue = null;
         if (room.TryGetProperty("CalculatedTemperature", out var t))
         {
-            var c = TenthsToC(t);
+            var c = TenthsToC(t, out reason, out rawValue);
             if (c is not null)
                 return c;
         }
         if (room.TryGetProperty("DisplayedTemperature", out t))
-            return TenthsToC(t);
+        {
+            var c = TenthsToC(t, out reason, out rawValue);
+            if (c is not null)
+                return c;
+        }
+
         return null;
     }
 
@@ -103,12 +137,12 @@ public static class WiserDomainParser
     {
         if (room.TryGetProperty("CurrentSetPoint", out var t))
         {
-            var c = TenthsToC(t);
+            var c = TenthsToC(t, out _, out _);
             if (c is not null)
                 return c;
         }
         if (room.TryGetProperty("ScheduledSetPoint", out t))
-            return TenthsToC(t);
+            return TenthsToC(t, out _, out _);
         return null;
     }
 

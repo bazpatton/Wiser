@@ -178,6 +178,13 @@ app.MapGet("/api/system-series", (int? hours, TemperatureStore store) =>
     return Results.Json(new { hours = h, system_series = rows });
 });
 
+app.MapGet("/api/data-quality-summary", (int? hours, TemperatureStore store) =>
+{
+    var h = Math.Clamp(hours ?? 24, 1, 24 * 30);
+    var summary = store.GetDataQualitySummary(h);
+    return Results.Json(summary);
+});
+
 app.MapGet("/api/export/daily-summary.csv", (int? days, TemperatureStore store, MonitorOptions o) =>
 {
     var d = Math.Clamp(days ?? 14, 1, 366);

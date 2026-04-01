@@ -3,6 +3,7 @@
 
 @inject MonitorState MonitorState
 @inject MonitorOptions Options
+@inject TemperatureStore Store
 
 <PageTitle>Wiser Monitor</PageTitle>
 
@@ -44,11 +45,37 @@
             <MudAlert Dense="true" Severity="Severity.Warning" Class="mt-2">@_lastError</MudAlert>
         }
     </MudPaper>
+
+    <MudPaper Class="pa-4 status-card">
+        <MudText Typo="Typo.h6">
+            <i class="fa-solid fa-filter-circle-xmark"></i> Data quality (last 24h)
+        </MudText>
+        <MudStack Row="true" Wrap="Wrap.Wrap" Spacing="1" Class="mt-2">
+            <MudChip T="string" Variant="Variant.Outlined" Color="Color.Warning">
+                Ignored readings: @_qualityTotal24h
+            </MudChip>
+            @foreach (var item in _qualityReasons24h)
+            {
+                <MudChip T="string" Variant="Variant.Outlined" Color="Color.Info">
+                    @($"{item.Reason}: {item.Count}")
+                </MudChip>
+            }
+        </MudStack>
+        <MudButton Href="/charts#data-quality"
+                   Variant="Variant.Text"
+                   Color="Color.Primary"
+                   StartIcon="@Icons.Material.Filled.OpenInNew"
+                   Class="mt-2">
+            View details
+        </MudButton>
+    </MudPaper>
 </MudStack>
 
 @code {
     private string _status = "Loading...";
     private string? _lastError;
+    private int _qualityTotal24h;
+    private List<DataQualityReasonCount> _qualityReasons24h = [];
 
     protected override void OnInitialized()
     {
@@ -58,5 +85,9 @@
             ? "No successful poll yet."
             : $"Last OK: {DateTimeOffset.FromUnixTimeSeconds(ok.Value).ToLocalTime():g}";
         _status = $"Poll interval: {Options.IntervalSec}s · Alerts: {(Options.AlertsEnabled ? "On" : "Off")} · {okText}";
+
+        var quality = Store.GetDataQualitySummary(24);
+        _qualityTotal24h = quality.TotalIgnored;
+        _qualityReasons24h = quality.ByReason.Take(4).ToList();
     }
 }

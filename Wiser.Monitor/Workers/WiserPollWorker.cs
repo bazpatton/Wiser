@@ -59,6 +59,9 @@ public sealed class WiserPollWorker(
 
         store.InsertSystem(ts, poll.HeatingRelayOn, poll.HeatingActive);
 
+        foreach (var ex in poll.ExcludedReadings)
+            store.InsertDataQualityEvent(ts, ex.Room, ex.Source, ex.Reason, ex.RawValue);
+
         foreach (var s in samples)
             store.InsertRoom(ts, s.Name, s.TempC, s.SetpointC, s.HeatDemand, s.PercentageDemand);
 
