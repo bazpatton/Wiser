@@ -525,6 +525,7 @@
                     null,
                     -1,
                     0,
+                    0,
                     "Current state unavailable",
                     "#94a3b8"));
                 continue;
@@ -547,6 +548,7 @@
                     $"Ignored {ignoreStart:hh\\:mm}-{ignoreEnd:hh\\:mm}",
                     null,
                     -1,
+                    0,
                     0,
                     "Current state unavailable",
                     "#94a3b8"));
@@ -574,6 +576,7 @@
                 "Too cold" => rangeMin - average,
                 _ => Math.Abs(average - ((rangeMin + rangeMax) / 2.0)),
             };
+            var sortKeyWithinBand = status == "Too cold" ? severity : -severity;
 
             var color = GetComfortGradientColor(average, rangeMin, rangeMax);
             var (currentStateText, currentStateColor) = GetCurrentState(current, rangeMin, rangeMax);
@@ -588,15 +591,17 @@
                 trendDelta,
                 statusRank,
                 severity,
+                sortKeyWithinBand,
                 currentStateText,
                 currentStateColor));
         }
 
         _roomTiles.AddRange(tiles
             .OrderByDescending(static x => x.StatusRank)
-            .ThenByDescending(static x => x.Severity)
+            .ThenBy(static x => x.SortKeyWithinBand)
             .ThenByDescending(static x => x.TrendDeltaC.HasValue)
-            .ThenByDescending(static x => x.TrendDeltaC));
+            .ThenByDescending(static x => x.TrendDeltaC)
+            .ThenBy(static x => x.Room, StringComparer.OrdinalIgnoreCase));
     }
 
     private void BuildComfortComplianceTimeline(int days)
@@ -848,6 +853,7 @@
         double? TrendDeltaC,
         int StatusRank,
         double Severity,
+        double SortKeyWithinBand,
         string CurrentStateText,
         string CurrentStateColor);
 }
