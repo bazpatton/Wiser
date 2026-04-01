@@ -292,20 +292,7 @@
                                   Height="200px"
                                   MatchBoundsToSize="false"
                                   Class="@($"{ChartHostClass} chart-in-split-row selected-room-trend-chart")"
-                                  @key="@($"temp-{_roomTrendChartRenderKey}")">
-                            <TooltipTemplate>
-                                @{
-                                    var path = context.Segment;
-                                    var i = path.Index;
-                                    var when = i >= 0 && i < _pointTs.Length
-                                        ? TimeZoneInfo.ConvertTime(DateTimeOffset.FromUnixTimeSeconds(_pointTs[i]), DisplayZone).ToString("g", CultureInfo.CurrentCulture)
-                                        : path.LabelXValue;
-                                }
-                                <rect x="-76" y="-30" width="152" height="34" rx="6" ry="6" fill="#0f172ae6" stroke="#334155" stroke-width="1" />
-                                <text x="0" y="-16" text-anchor="middle" fill="#f8fafc" style="font-size:11px;font-weight:600">@when</text>
-                                <text x="0" y="-2" text-anchor="middle" fill="#cbd5e1" style="font-size:10px">@path.LabelYValue</text>
-                                </TooltipTemplate>
-                            </MudChart>
+                                  @key="@($"temp-{_roomTrendChartRenderKey}")" />
                         }
                         <MudText Typo="Typo.subtitle2" Class="mb-0 mt-1">Valve demand (%)</MudText>
                         @if (!_roomTrendHasValveSeries)
@@ -325,20 +312,7 @@
                                       Height="200px"
                                       MatchBoundsToSize="false"
                                       Class="@($"{ChartHostClass} chart-in-split-row selected-room-trend-chart")"
-                                      @key="@($"valve-{_roomTrendChartRenderKey}")">
-                                <TooltipTemplate>
-                                    @{
-                                        var path = context.Segment;
-                                        var i = path.Index;
-                                        var when = i >= 0 && i < _pointTs.Length
-                                            ? TimeZoneInfo.ConvertTime(DateTimeOffset.FromUnixTimeSeconds(_pointTs[i]), DisplayZone).ToString("g", CultureInfo.CurrentCulture)
-                                            : path.LabelXValue;
-                                    }
-                                    <rect x="-76" y="-30" width="152" height="34" rx="6" ry="6" fill="#0f172ae6" stroke="#334155" stroke-width="1" />
-                                    <text x="0" y="-16" text-anchor="middle" fill="#f8fafc" style="font-size:11px;font-weight:600">@when</text>
-                                    <text x="0" y="-2" text-anchor="middle" fill="#cbd5e1" style="font-size:10px">@path.LabelYValue</text>
-                                </TooltipTemplate>
-                            </MudChart>
+                                      @key="@($"valve-{_roomTrendChartRenderKey}")" />
                         }
                     </MudStack>
                 }
@@ -766,8 +740,6 @@
         {
             opt.XAxisLabelRotation = rotation;
             opt.XAxisTitle = xTitle;
-            opt.TooltipTitleFormat = "{{SERIES_NAME}}";
-            opt.TooltipSubtitleFormat = "{{Y_VALUE}}";
             opt.ShowDataMarkers = markers;
         }
     }
