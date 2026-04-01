@@ -111,39 +111,102 @@
     align-self: stretch;
 }
 
-/* MudChart: responsive height (replaces fixed px for small screens) */
+.charts-two-col-row .charts-grid-cell {
+    display: flex;
+    align-items: stretch;
+}
+
+.charts-two-col-row .charts-grid-paper {
+    display: flex;
+    flex-direction: column;
+    flex: 1 1 auto;
+    width: 100%;
+}
+
+/* Two line charts in one row: half width each; tuned heights so both cards align */
+.charts-line-pair-row .chart-in-split-row.mud-chart-responsive {
+    height: clamp(135px, 14vh, 180px);
+    max-height: 180px;
+}
+
+@media (min-width: 600px) {
+    .charts-line-pair-row .chart-in-split-row.mud-chart-responsive {
+        height: clamp(145px, 15vh, 195px);
+        max-height: 195px;
+    }
+}
+
+.charts-line-pair-row .chart-in-split-row.mud-chart-responsive.chart-range-medium {
+    height: clamp(145px, 15vh, 200px);
+    max-height: 200px;
+}
+
+.charts-line-pair-row .chart-in-split-row.mud-chart-responsive.chart-range-long {
+    height: clamp(155px, 16vh, 215px);
+    max-height: 215px;
+}
+
+@media (min-width: 600px) {
+    .charts-line-pair-row .chart-in-split-row.mud-chart-responsive.chart-range-medium {
+        height: clamp(150px, 16vh, 205px);
+        max-height: 205px;
+    }
+
+    .charts-line-pair-row .chart-in-split-row.mud-chart-responsive.chart-range-long {
+        height: clamp(160px, 17vh, 220px);
+        max-height: 220px;
+    }
+}
+
+/*
+ * MudChart heights: 125% display scaling (e.g. 1920×1200) yields ~960px CSS height — vh is large,
+ * so prefer low vh + strict max px. Do not grow charts at wide breakpoints; that only makes stacks taller.
+ */
 .mud-chart-responsive {
-    min-height: 220px;
-    height: min(42vh, 360px);
+    height: clamp(130px, 14vh, 175px);
+    max-height: 175px;
 }
 
 @media (min-width: 600px) {
     .mud-chart-responsive {
-        min-height: 280px;
-        height: 360px;
+        height: clamp(140px, 15vh, 190px);
+        max-height: 190px;
     }
 }
 
 /* Extra vertical space when x-axis labels are rotated (48h / 7d windows). */
 .mud-chart-responsive.chart-range-medium {
-    min-height: 260px;
-    height: min(48vh, 400px);
+    height: clamp(145px, 16vh, 200px);
+    max-height: 200px;
 }
 
 .mud-chart-responsive.chart-range-long {
-    min-height: 280px;
-    height: min(52vh, 440px);
+    height: clamp(155px, 18vh, 220px);
+    max-height: 220px;
 }
 
 @media (min-width: 600px) {
     .mud-chart-responsive.chart-range-medium {
-        min-height: 320px;
-        height: 400px;
+        height: clamp(150px, 16vh, 205px);
+        max-height: 205px;
     }
 
     .mud-chart-responsive.chart-range-long {
-        min-height: 340px;
-        height: 440px;
+        height: clamp(165px, 18vh, 225px);
+        max-height: 225px;
+    }
+}
+
+/* Side-by-side bar charts (half width each from md up) */
+.mud-chart-responsive.mud-chart-responsive--pair {
+    height: clamp(120px, 12vh, 155px);
+    max-height: 155px;
+}
+
+@media (min-width: 600px) {
+    .mud-chart-responsive.mud-chart-responsive--pair {
+        height: clamp(125px, 13vh, 165px);
+        max-height: 165px;
     }
 }
 

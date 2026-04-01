@@ -134,100 +134,115 @@
         </MudStack>
     </MudPaper>
 
-    <MudPaper Class="pa-3 chart-card">
-        @if (!string.IsNullOrWhiteSpace(_error))
-        {
-            <MudAlert Severity="Severity.Error" Dense="true">@_error</MudAlert>
-        }
-        else if (_series.Count == 0)
-        {
-            <MudAlert Severity="Severity.Info" Dense="true">No chart data yet.</MudAlert>
-        }
-        else
-        {
-            <MudChart T="double"
-                      ChartType="ChartType.Line"
-                      ChartSeries="_series"
-                      ChartLabels="_labels"
-                      ChartOptions="_lineOptions"
-                      Width="100%"
-                      MatchBoundsToSize="true"
-                      Class="@ChartHostClass">
-                <TooltipTemplate>
-                    @{
-                        var path = context.Segment;
-                        var i = path.Index;
-                        var when = i >= 0 && i < _pointTs.Length
-                            ? TimeZoneInfo.ConvertTime(DateTimeOffset.FromUnixTimeSeconds(_pointTs[i]), DisplayZone).ToString("g", CultureInfo.CurrentCulture)
-                            : path.LabelXValue;
-                    }
-                    <rect x="-76" y="-30" width="152" height="34" rx="6" ry="6" fill="#0f172ae6" stroke="#334155" stroke-width="1" />
-                    <text x="0" y="-16" text-anchor="middle" fill="#f8fafc" style="font-size:11px;font-weight:600">@when</text>
-                    <text x="0" y="-2" text-anchor="middle" fill="#cbd5e1" style="font-size:10px">@path.LabelYValue</text>
-                </TooltipTemplate>
-            </MudChart>
-        }
-    </MudPaper>
+    @* Room trend + compliance: half width each from md up (toolbar stays full width above). *@
+    <MudGrid Spacing="2" Class="charts-two-col-row charts-line-pair-row">
+        <MudItem xs="12" md="6" Class="charts-grid-cell">
+            <MudPaper Class="pa-3 chart-card charts-grid-paper">
+                <MudText Typo="Typo.h6" Class="mb-2">
+                    <i class="fa-solid fa-chart-area"></i> Selected room trend
+                </MudText>
+                @if (!string.IsNullOrWhiteSpace(_error))
+                {
+                    <MudAlert Severity="Severity.Error" Dense="true">@_error</MudAlert>
+                }
+                else if (_series.Count == 0)
+                {
+                    <MudAlert Severity="Severity.Info" Dense="true">No chart data yet.</MudAlert>
+                }
+                else
+                {
+                    <MudChart T="double"
+                              ChartType="ChartType.Line"
+                              ChartSeries="_series"
+                              ChartLabels="_labels"
+                              ChartOptions="_lineOptions"
+                              Width="100%"
+                              MatchBoundsToSize="true"
+                              Class="@($"{ChartHostClass} chart-in-split-row")">
+                        <TooltipTemplate>
+                            @{
+                                var path = context.Segment;
+                                var i = path.Index;
+                                var when = i >= 0 && i < _pointTs.Length
+                                    ? TimeZoneInfo.ConvertTime(DateTimeOffset.FromUnixTimeSeconds(_pointTs[i]), DisplayZone).ToString("g", CultureInfo.CurrentCulture)
+                                    : path.LabelXValue;
+                            }
+                            <rect x="-76" y="-30" width="152" height="34" rx="6" ry="6" fill="#0f172ae6" stroke="#334155" stroke-width="1" />
+                            <text x="0" y="-16" text-anchor="middle" fill="#f8fafc" style="font-size:11px;font-weight:600">@when</text>
+                            <text x="0" y="-2" text-anchor="middle" fill="#cbd5e1" style="font-size:10px">@path.LabelYValue</text>
+                        </TooltipTemplate>
+                    </MudChart>
+                }
+            </MudPaper>
+        </MudItem>
+        <MudItem xs="12" md="6" Class="charts-grid-cell">
+            <MudPaper Class="pa-3 chart-card charts-grid-paper">
+                <MudText Typo="Typo.h6" Class="mb-2">
+                    <i class="fa-solid fa-calendar-check"></i> Comfort Compliance Timeline (7 days)
+                </MudText>
+                @if (_comfortComplianceLabels.Length == 0 || _comfortComplianceSeries.Count == 0)
+                {
+                    <MudAlert Severity="Severity.Info" Dense="true">No compliance data yet.</MudAlert>
+                }
+                else
+                {
+                    <MudChart T="double"
+                              ChartType="ChartType.Line"
+                              ChartSeries="_comfortComplianceSeries"
+                              ChartLabels="_comfortComplianceLabels"
+                              Width="100%"
+                              MatchBoundsToSize="true"
+                              Class="mud-chart-responsive chart-in-split-row" />
+                }
+            </MudPaper>
+        </MudItem>
+    </MudGrid>
 
-    <MudPaper Class="pa-3 chart-card">
-        <MudText Typo="Typo.h6" Class="mb-2">
-            <i class="fa-solid fa-calendar-check"></i> Comfort Compliance Timeline (7 days)
-        </MudText>
-        @if (_comfortComplianceLabels.Length == 0 || _comfortComplianceSeries.Count == 0)
-        {
-            <MudAlert Severity="Severity.Info" Dense="true">No compliance data yet.</MudAlert>
-        }
-        else
-        {
-            <MudChart T="double"
-                      ChartType="ChartType.Line"
-                      ChartSeries="_comfortComplianceSeries"
-                      ChartLabels="_comfortComplianceLabels"
-                      Width="100%"
-                      MatchBoundsToSize="true"
-                      Class="mud-chart-responsive" />
-        }
-    </MudPaper>
-
-    <MudPaper Class="pa-3 chart-card">
-        <MudText Typo="Typo.h6" Class="mb-2">
-            <i class="fa-solid fa-sliders"></i> Current Deviation Chart (vs target midpoint)
-        </MudText>
-        @if (_currentDeviationLabels.Length == 0 || _currentDeviationSeries.Count == 0)
-        {
-            <MudAlert Severity="Severity.Info" Dense="true">No deviation data yet.</MudAlert>
-        }
-        else
-        {
-            <MudChart T="double"
-                      ChartType="ChartType.Bar"
-                      ChartSeries="_currentDeviationSeries"
-                      ChartLabels="_currentDeviationLabels"
-                      Width="100%"
-                      MatchBoundsToSize="true"
-                      Class="mud-chart-responsive" />
-        }
-    </MudPaper>
-
-    <MudPaper Class="pa-3 chart-card">
-        <MudText Typo="Typo.h6" Class="mb-2">
-            <i class="fa-solid fa-clock"></i> Heating Runtime Distribution (local hour of day)
-        </MudText>
-        @if (_runtimeDistributionLabels.Length == 0 || _runtimeDistributionSeries.Count == 0)
-        {
-            <MudAlert Severity="Severity.Info" Dense="true">No heating runtime data yet.</MudAlert>
-        }
-        else
-        {
-            <MudChart T="double"
-                      ChartType="ChartType.Bar"
-                      ChartSeries="_runtimeDistributionSeries"
-                      ChartLabels="_runtimeDistributionLabels"
-                      Width="100%"
-                      MatchBoundsToSize="true"
-                      Class="mud-chart-responsive" />
-        }
-    </MudPaper>
+    @* Bar charts side-by-side from md breakpoint up (similar vertical scale, saves vertical scroll). *@
+    <MudGrid Spacing="2" Class="charts-two-col-row">
+        <MudItem xs="12" md="6" Class="charts-grid-cell">
+            <MudPaper Class="pa-3 chart-card charts-grid-paper">
+                <MudText Typo="Typo.h6" Class="mb-2">
+                    <i class="fa-solid fa-sliders"></i> Current Deviation Chart (vs target midpoint)
+                </MudText>
+                @if (_currentDeviationLabels.Length == 0 || _currentDeviationSeries.Count == 0)
+                {
+                    <MudAlert Severity="Severity.Info" Dense="true">No deviation data yet.</MudAlert>
+                }
+                else
+                {
+                    <MudChart T="double"
+                              ChartType="ChartType.Bar"
+                              ChartSeries="_currentDeviationSeries"
+                              ChartLabels="_currentDeviationLabels"
+                              Width="100%"
+                              MatchBoundsToSize="true"
+                              Class="mud-chart-responsive mud-chart-responsive--pair" />
+                }
+            </MudPaper>
+        </MudItem>
+        <MudItem xs="12" md="6" Class="charts-grid-cell">
+            <MudPaper Class="pa-3 chart-card charts-grid-paper">
+                <MudText Typo="Typo.h6" Class="mb-2">
+                    <i class="fa-solid fa-clock"></i> Heating Runtime Distribution (local hour of day)
+                </MudText>
+                @if (_runtimeDistributionLabels.Length == 0 || _runtimeDistributionSeries.Count == 0)
+                {
+                    <MudAlert Severity="Severity.Info" Dense="true">No heating runtime data yet.</MudAlert>
+                }
+                else
+                {
+                    <MudChart T="double"
+                              ChartType="ChartType.Bar"
+                              ChartSeries="_runtimeDistributionSeries"
+                              ChartLabels="_runtimeDistributionLabels"
+                              Width="100%"
+                              MatchBoundsToSize="true"
+                              Class="mud-chart-responsive mud-chart-responsive--pair" />
+                }
+            </MudPaper>
+        </MudItem>
+    </MudGrid>
 
     <MudPaper Class="pa-4 table-card">
         <MudText Typo="Typo.h6">
