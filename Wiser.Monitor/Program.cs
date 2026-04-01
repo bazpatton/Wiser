@@ -53,6 +53,7 @@ builder.Services.AddHttpClient<OutdoorWeatherClient>(c => c.Timeout = TimeSpan.F
 builder.Services.AddHttpClient<NtfyClient>(c => c.Timeout = TimeSpan.FromSeconds(15));
 builder.Services.AddSingleton<RoomAlertService>();
 builder.Services.AddScoped<RoomsLiveDataCache>();
+builder.Services.AddSingleton<ApiRoomsNamesCache>();
 if (hubConfigured)
     builder.Services.AddHostedService<WiserPollWorker>();
 
@@ -79,13 +80,8 @@ app.MapGet("/api/health", (MonitorState state, MonitorOptions o) =>
     });
 });
 
-app.MapGet("/api/rooms", (TemperatureStore store, MonitorState state) =>
-{
-    var names = new HashSet<string>(store.ListRooms(), StringComparer.OrdinalIgnoreCase);
-    foreach (var n in state.GetLastRooms())
-        names.Add(n);
-    return Results.Json(new { rooms = names.OrderBy(x => x, StringComparer.OrdinalIgnoreCase).ToList() });
-});
+app.MapGet("/api/rooms", (TemperatureStore store, MonitorState state, ApiRoomsNamesCache roomsNamesCache) =>
+    Results.Json(new { rooms = roomsNamesCache.GetOrCreate(store, state) }));
 
 app.MapGet("/api/latest", (TemperatureStore store) =>
     Results.Json(new { rooms = store.LatestByRoom(), system = store.GetLatestSystem() }));

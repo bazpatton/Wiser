@@ -10,6 +10,7 @@ public sealed class WiserPollWorker(
     WiserHubFetch hub,
     OutdoorWeatherClient outdoor,
     RoomAlertService alerts,
+    ApiRoomsNamesCache apiRoomsNamesCache,
     ILogger<WiserPollWorker> log) : BackgroundService
 {
     private int _pollCount;
@@ -92,5 +93,6 @@ public sealed class WiserPollWorker(
             store.Prune(options.RetentionDays);
 
         state.SetPollSuccess();
+        apiRoomsNamesCache.Invalidate();
     }
 }
