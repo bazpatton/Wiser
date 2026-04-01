@@ -41,7 +41,10 @@
             <div class="room-heat-grid">
                 @foreach (var tile in _roomTiles)
                 {
-                    <div class="room-heat-tile" style="background-color:@tile.Color;">
+                    <a class="room-heat-tile room-heat-link"
+                       style="background-color:@tile.Color;"
+                       href="@GetRoomDetailsHref(tile.Room)"
+                       title="@($"Open {tile.Room} in Rooms")">
                         <div class="room-heat-name">
                             <span class="room-heat-state-square" style="background-color:@tile.CurrentStateColor;" title="@tile.CurrentStateText"></span>
                             @tile.Room
@@ -52,7 +55,7 @@
                         <div class="room-heat-meta">@tile.RangeText</div>
                         <div class="room-heat-meta">@tile.StatusText</div>
                         <div class="room-heat-meta">@tile.TrendText</div>
-                    </div>
+                    </a>
                 }
             </div>
         }
@@ -807,6 +810,17 @@
         return localTod >= ignoreStart || localTod < ignoreEnd;
     }
 
+    private static string GetRoomDetailsHref(string roomName) => $"/rooms#{BuildRoomAnchorId(roomName)}";
+
+    private static string BuildRoomAnchorId(string roomName)
+    {
+        var chars = roomName.Trim().ToLowerInvariant()
+            .Select(static c => char.IsLetterOrDigit(c) ? c : '-')
+            .ToArray();
+        var normalized = new string(chars).Trim('-');
+        return $"room-{(string.IsNullOrWhiteSpace(normalized) ? "unknown" : normalized)}";
+    }
+
     private sealed record RoomHeatTile(
         string Room,
         double? TempC,
@@ -838,6 +852,16 @@
         display: flex;
         flex-direction: column;
         justify-content: space-between;
+    }
+
+    .room-heat-link {
+        text-decoration: none;
+        transition: transform 0.12s ease, box-shadow 0.12s ease;
+    }
+
+    .room-heat-link:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 4px 12px rgba(15, 23, 42, 0.35);
     }
 
     .room-heat-name {
