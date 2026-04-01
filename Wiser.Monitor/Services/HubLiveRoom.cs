@@ -30,6 +30,10 @@ public sealed record BoostPresetInfo(
 
 public static class HubLiveRoomsParser
 {
+    private const int OfflineShortMinTenths = short.MinValue;
+    private const double OfflineShortMinTenthsDiv10 = short.MinValue / 10.0;
+    private const double OfflineShortMinTenthsDiv100 = short.MinValue / 100.0;
+
     public static HubLiveOverview ParseOverview(JsonDocument domain, IReadOnlyList<BoostPresetInfo> boostPresets)
     {
         var root = domain.RootElement;
@@ -139,9 +143,17 @@ public static class HubLiveRoomsParser
             return null;
         if (!tenthsEl.TryGetDouble(out var v))
             return null;
+        // Some offline TRVs report short.MinValue in different scaled forms; ignore those samples.
+        if (Math.Abs(v - OfflineShortMinTenths) < 0.5
+            || Math.Abs(v - OfflineShortMinTenthsDiv10) < 0.05
+            || Math.Abs(v - OfflineShortMinTenthsDiv100) < 0.005)
+            return null;
         if (v >= 2000)
             return null;
-        return v / 10.0;
+        var c = v / 10.0;
+        if (c < -50 || c > 80)
+            return null;
+        return c;
     }
 
     private static double? RoomTemperatureC(JsonElement room)
