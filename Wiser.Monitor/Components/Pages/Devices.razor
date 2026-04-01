@@ -1,0 +1,127 @@
+@page "/devices"
+@rendermode InteractiveServer
+
+@inject MonitorOptions Options
+@inject WiserHubFetch Hub
+@inject TemperatureStore Store
+
+<PageTitle>Wiser Monitor - Devices</PageTitle>
+
+<MudStack Spacing="3">
+    <MudPaper Class="pa-4 page-header-card">
+        <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center" Wrap="Wrap.Wrap">
+            <MudText Typo="Typo.h5">
+                <i class="fa-solid fa-microchip"></i> Devices
+            </MudText>
+            <MudButton Variant="Variant.Filled"
+                       StartIcon="@Icons.Material.Filled.Refresh"
+                       Color="Color.Primary"
+                       Class="touch-target"
+                       Disabled="@_loading"
+                       OnClick="RefreshAsync">
+                Refresh
+            </MudButton>
+        </MudStack>
+        <MudText Typo="Typo.body2" Class="mt-1">
+            Device health summary, including battery level and signal where available.
+        </MudText>
+    </MudPaper>
+
+    @if (!string.IsNullOrWhiteSpace(_error))
+    {
+        <MudAlert Severity="Severity.Warning" Dense="true">@_error</MudAlert>
+    }
+
+    @if (_loading && _devices.Count == 0)
+    {
+        <MudPaper Class="pa-6 card-soft">
+            <MudProgressCircular Color="Color.Primary" Indeterminate="true" />
+            <MudText Class="mt-2">Loading device data…</MudText>
+        </MudPaper>
+    }
+    else if (_devices.Count == 0)
+    {
+        <MudAlert Severity="Severity.Info" Dense="true">No device information available from hub.</MudAlert>
+    }
+    else
+    {
+        <MudGrid Spacing="2">
+            @foreach (var group in _devices.GroupBy(d => d.DeviceType).OrderBy(g => g.Key, StringComparer.OrdinalIgnoreCase))
+            {
+                <MudItem xs="12">
+                    <MudPaper Class="pa-3 card-soft">
+                        <MudText Typo="Typo.h6">@group.Key</MudText>
+                        <MudTable T="HubDeviceStatus" Dense="true" Hover="true" Breakpoint="Breakpoint.Sm" Items="@group.ToList()">
+                            <HeaderContent>
+                                <MudTh>Name</MudTh>
+                                <MudTh>Room</MudTh>
+                                <MudTh>Battery</MudTh>
+                                <MudTh>Signal</MudTh>
+                                <MudTh>Source</MudTh>
+                            </HeaderContent>
+                            <RowTemplate>
+                                <MudTd DataLabel="Name">@context.Name</MudTd>
+                                <MudTd DataLabel="Room">@(string.IsNullOrWhiteSpace(context.Room) ? "—" : context.Room)</MudTd>
+                                <MudTd DataLabel="Battery">
+                                    @if (context.BatteryPercent is int battery)
+                                    {
+                                        <MudStack Spacing="1" Style="min-width:170px;">
+                                            <MudProgressLinear Value="@battery" Color="@BatteryColor(battery)" Rounded="true" />
+                                            <MudChip T="string" Variant="Variant.Outlined" Color="@BatteryColor(battery)" Size="Size.Small">@($"{battery}%")</MudChip>
+                                        </MudStack>
+                                    }
+                                    else
+                                    {
+                                        <MudText Typo="Typo.body2" Class="mud-text-secondary">—</MudText>
+                                    }
+                                </MudTd>
+                                <MudTd DataLabel="Signal">@(context.Signal?.ToString() ?? "—")</MudTd>
+                                <MudTd DataLabel="Source">@context.RawKind</MudTd>
+                            </RowTemplate>
+                        </MudTable>
+                    </MudPaper>
+                </MudItem>
+            }
+        </MudGrid>
+    }
+</MudStack>
+
+@code {
+    private readonly List<HubDeviceStatus> _devices = [];
+    private bool _loading = true;
+    private string? _error;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await RefreshAsync();
+    }
+
+    private async Task RefreshAsync()
+    {
+        _loading = true;
+        _error = null;
+        try
+        {
+            using var doc = await Hub.FetchDomainDocumentAsync(Options, CancellationToken.None);
+            _devices.Clear();
+            _devices.AddRange(HubDeviceParser.ParseDevices(doc));
+        }
+        catch (Exception ex)
+        {
+            _error = $"Could not load live device data: {ex.Message}";
+            _devices.Clear();
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private static Color BatteryColor(int battery) =>
+        battery switch
+        {
+            >= 60 => Color.Success,
+            >= 30 => Color.Warning,
+            _ => Color.Error,
+        };
+}

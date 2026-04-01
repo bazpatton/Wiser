@@ -14,6 +14,7 @@ public sealed class MonitorOptions
     public double? OpenMeteoLat { get; set; }
     public double? OpenMeteoLon { get; set; }
     public string DataDir { get; set; } = "./data";
+    public string? TimeZoneId { get; set; }
 
     /// <summary>
     /// IANA timezone for UI times (e.g. <c>Europe/London</c>). When unset, uses <see cref="TimeZoneInfo.Local"/>.
@@ -93,7 +94,9 @@ public sealed class MonitorOptions
             OpenMeteoLat = lat,
             OpenMeteoLon = lon,
             DataDir = string.IsNullOrWhiteSpace(cfg["DATA_DIR"]) ? "./data" : cfg["DATA_DIR"]!.Trim(),
-            DisplayTimeZoneId = ResolveDisplayTimeZoneId(cfg),
+            TimeZoneId = string.IsNullOrWhiteSpace(cfg["TIME_ZONE"])
+                ? (string.IsNullOrWhiteSpace(cfg["TZ"]) ? null : cfg["TZ"]!.Trim())
+                : cfg["TIME_ZONE"]!.Trim(),
         };
     }
 

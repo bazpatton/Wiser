@@ -7,6 +7,7 @@ services:
       - .env
     environment:
       DATA_DIR: /data
+      TIME_ZONE: "${TIME_ZONE:-Europe/London}"
     volumes:
       - wiser_monitor_data:/data
     restart: unless-stopped

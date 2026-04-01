@@ -9,16 +9,63 @@
 <PageTitle>Wiser Monitor - Charts</PageTitle>
 
 <MudStack Spacing="2">
-    <MudPaper Class="pa-4 page-header-card">
+    <MudPaper Class="pa-4 page-header-card" id="data-quality">
         <MudText Typo="Typo.h5">
             <i class="fa-solid fa-chart-line"></i> Charts
         </MudText>
         <MudText Typo="Typo.body2" Class="mt-1">
             Compare room temperature, target, valve demand, and optional outdoor data.
         </MudText>
+        <MudStack Row="true" Spacing="1" Wrap="Wrap.Wrap" Class="mt-2">
+            <MudChip T="string" Variant="Variant.Outlined" Color="Color.Warning">
+                Dropped invalid readings (24h): @_qualityTotal24h
+            </MudChip>
+            @foreach (var rc in _qualityReasons24h)
+            {
+                <MudChip T="string" Variant="Variant.Outlined" Color="Color.Info">
+                    @($"{rc.Reason}: {rc.Count}")
+                </MudChip>
+            }
+        </MudStack>
+    </MudPaper>
+
+    <MudPaper Class="pa-3 chart-card">
+        <MudText Typo="Typo.h6" Class="mb-2">
+            <i class="fa-solid fa-grip"></i> Current room temperatures and trend status
+        </MudText>
+        @if (_roomTiles.Count == 0)
+        {
+            <MudAlert Severity="Severity.Info" Dense="true">No heatmap data yet.</MudAlert>
+        }
+        else
+        {
+            <div class="room-heat-grid">
+                @foreach (var tile in _roomTiles)
+                {
+                    <a class="room-heat-tile room-heat-link"
+                       style="background-color:@tile.Color;"
+                       href="@GetRoomDetailsHref(tile.Room)"
+                       title="@($"Open {tile.Room} in Rooms")">
+                        <div class="room-heat-name">
+                            <span class="room-heat-state-square" style="background-color:@tile.CurrentStateColor;" title="@tile.CurrentStateText"></span>
+                            @tile.Room
+                        </div>
+                        <div class="room-heat-temp">
+                            @tile.DisplayTemp
+                        </div>
+                        <div class="room-heat-meta">@tile.RangeText</div>
+                        <div class="room-heat-meta">@tile.StatusText</div>
+                        <div class="room-heat-meta">@tile.TrendText</div>
+                    </a>
+                }
+            </div>
+        }
     </MudPaper>
 
     <MudPaper Class="pa-3 card-soft charts-toolbar">
+        <MudText Typo="Typo.h6" Class="mb-2">
+            <i class="fa-solid fa-wave-square"></i> Room trend chart
+        </MudText>
         <MudGrid Spacing="2">
             <MudItem xs="12" md="4">
                 <MudSelect T="string"
@@ -68,6 +115,23 @@
                 </MudButton>
             </MudItem>
         </MudGrid>
+        <MudStack Row="true" Spacing="1" Wrap="Wrap.Wrap" Class="mt-2">
+            <MudText Typo="Typo.caption" Class="mud-text-secondary">@LastUpdatedText</MudText>
+            <MudButton Variant="Variant.Outlined"
+                       Color="Color.Primary"
+                       Size="Size.Small"
+                       StartIcon="@Icons.Material.Filled.Download"
+                       Href="@DailySummaryCsvHref">
+                Export daily CSV
+            </MudButton>
+            <MudButton Variant="Variant.Outlined"
+                       Color="Color.Primary"
+                       Size="Size.Small"
+                       StartIcon="@Icons.Material.Filled.Download"
+                       Href="@RoomTrendsCsvHref">
+                Export trends CSV
+            </MudButton>
+        </MudStack>
     </MudPaper>
 
     <MudPaper Class="pa-3 chart-card">
@@ -94,7 +158,7 @@
                         var path = context.Segment;
                         var i = path.Index;
                         var when = i >= 0 && i < _pointTs.Length
-                            ? DisplayClock.FormatGeneral(DateTimeOffset.FromUnixTimeSeconds(_pointTs[i]), Options)
+                            ? TimeZoneInfo.ConvertTime(DateTimeOffset.FromUnixTimeSeconds(_pointTs[i]), DisplayZone).ToString("g", CultureInfo.CurrentCulture)
                             : path.LabelXValue;
                     }
                     <rect x="-76" y="-30" width="152" height="34" rx="6" ry="6" fill="#0f172ae6" stroke="#334155" stroke-width="1" />
@@ -105,13 +169,73 @@
         }
     </MudPaper>
 
+    <MudPaper Class="pa-3 chart-card">
+        <MudText Typo="Typo.h6" Class="mb-2">
+            <i class="fa-solid fa-calendar-check"></i> Comfort Compliance Timeline (7 days)
+        </MudText>
+        @if (_comfortComplianceLabels.Length == 0 || _comfortComplianceSeries.Count == 0)
+        {
+            <MudAlert Severity="Severity.Info" Dense="true">No compliance data yet.</MudAlert>
+        }
+        else
+        {
+            <MudChart T="double"
+                      ChartType="ChartType.Line"
+                      ChartSeries="_comfortComplianceSeries"
+                      ChartLabels="_comfortComplianceLabels"
+                      Width="100%"
+                      MatchBoundsToSize="true"
+                      Class="mud-chart-responsive" />
+        }
+    </MudPaper>
+
+    <MudPaper Class="pa-3 chart-card">
+        <MudText Typo="Typo.h6" Class="mb-2">
+            <i class="fa-solid fa-sliders"></i> Current Deviation Chart (vs target midpoint)
+        </MudText>
+        @if (_currentDeviationLabels.Length == 0 || _currentDeviationSeries.Count == 0)
+        {
+            <MudAlert Severity="Severity.Info" Dense="true">No deviation data yet.</MudAlert>
+        }
+        else
+        {
+            <MudChart T="double"
+                      ChartType="ChartType.Bar"
+                      ChartSeries="_currentDeviationSeries"
+                      ChartLabels="_currentDeviationLabels"
+                      Width="100%"
+                      MatchBoundsToSize="true"
+                      Class="mud-chart-responsive" />
+        }
+    </MudPaper>
+
+    <MudPaper Class="pa-3 chart-card">
+        <MudText Typo="Typo.h6" Class="mb-2">
+            <i class="fa-solid fa-clock"></i> Heating Runtime Distribution (local hour of day)
+        </MudText>
+        @if (_runtimeDistributionLabels.Length == 0 || _runtimeDistributionSeries.Count == 0)
+        {
+            <MudAlert Severity="Severity.Info" Dense="true">No heating runtime data yet.</MudAlert>
+        }
+        else
+        {
+            <MudChart T="double"
+                      ChartType="ChartType.Bar"
+                      ChartSeries="_runtimeDistributionSeries"
+                      ChartLabels="_runtimeDistributionLabels"
+                      Width="100%"
+                      MatchBoundsToSize="true"
+                      Class="mud-chart-responsive" />
+        }
+    </MudPaper>
+
     <MudPaper Class="pa-4 table-card">
         <MudText Typo="Typo.h6">
             <i class="fa-solid fa-table"></i> Daily summary (energy proxies)
         </MudText>
         <MudTable T="DailySummaryRow" Dense="true" Hover="true" Breakpoint="Breakpoint.Sm" Items="_dailyRows">
             <HeaderContent>
-                <MudTh>Date (UTC)</MudTh>
+                <MudTh>Date (Local)</MudTh>
                 <MudTh class="text-right">HDD</MudTh>
                 <MudTh class="text-right">Avg outdoor °C</MudTh>
                 <MudTh class="text-right">Heat demand est. min</MudTh>
@@ -136,11 +260,22 @@
     private int _hours = 24;
     private bool _includeOutdoor = true;
     private string? _error;
+    private DateTimeOffset? _lastRefreshAt;
+    private int _qualityTotal24h;
+    private List<DataQualityReasonCount> _qualityReasons24h = [];
 
     private string[] _labels = [];
     private long[] _pointTs = [];
     private List<ChartSeries<double>> _series = [];
+    private readonly List<RoomHeatTile> _roomTiles = [];
     private readonly List<DailySummaryRow> _dailyRows = [];
+    private string[] _comfortComplianceLabels = [];
+    private List<ChartSeries<double>> _comfortComplianceSeries = [];
+    private string[] _currentDeviationLabels = [];
+    private List<ChartSeries<double>> _currentDeviationSeries = [];
+    private string[] _runtimeDistributionLabels = [];
+    private List<ChartSeries<double>> _runtimeDistributionSeries = [];
+    private Dictionary<string, bool> _roomIsActiveMap = new(StringComparer.OrdinalIgnoreCase);
     private readonly LineChartOptions _lineOptions = new()
     {
         InterpolationOption = InterpolationOption.Straight,
@@ -152,6 +287,12 @@
         : _hours > 24
             ? "mud-chart-responsive chart-range-medium"
             : "mud-chart-responsive";
+    private string LastUpdatedText => _lastRefreshAt is null
+        ? "Last updated: never"
+        : $"Last updated: {_lastRefreshAt.Value:HH:mm:ss} ({(int)Math.Max(0, (DateTimeOffset.Now - _lastRefreshAt.Value).TotalSeconds)}s ago)";
+    private string DailySummaryCsvHref => "/api/export/daily-summary.csv?days=14";
+    private string RoomTrendsCsvHref => $"/api/export/room-trends.csv?hours={_hours}";
+    private TimeZoneInfo DisplayZone => TimeZoneResolver.Resolve(Options.TimeZoneId);
 
     protected override async Task OnInitializedAsync()
     {
@@ -194,6 +335,14 @@
         _series = [];
         _labels = [];
         _pointTs = [];
+        _roomTiles.Clear();
+        _comfortComplianceLabels = [];
+        _comfortComplianceSeries = [];
+        _currentDeviationLabels = [];
+        _currentDeviationSeries = [];
+        _runtimeDistributionLabels = [];
+        _runtimeDistributionSeries = [];
+        _roomIsActiveMap = new(StringComparer.OrdinalIgnoreCase);
 
         if (string.IsNullOrWhiteSpace(_selectedRoom))
             return Task.CompletedTask;
@@ -206,7 +355,7 @@
                 return Task.CompletedTask;
 
             _pointTs = roomRows.Select(static x => x.Ts).ToArray();
-            _labels = BuildSparseTimeLabels(_pointTs, _hours, Options);
+            _labels = BuildSparseTimeLabels(_pointTs, _hours, DisplayZone);
             ApplyLineChartOptions(roomRows.Count);
 
             _series =
@@ -246,13 +395,27 @@
                     });
                 }
             }
+
+            BuildRoomHeatMap(since);
+            BuildComfortComplianceTimeline(days: 7);
+            BuildCurrentDeviationChart();
+            BuildHeatingRuntimeDistribution();
+            LoadDataQualitySummary();
         }
         catch (Exception ex)
         {
             _error = $"Failed loading chart data: {ex.Message}";
         }
+        _lastRefreshAt = DateTimeOffset.Now;
 
         return Task.CompletedTask;
+    }
+
+    private void LoadDataQualitySummary()
+    {
+        var summary = Store.GetDataQualitySummary(24);
+        _qualityTotal24h = summary.TotalIgnored;
+        _qualityReasons24h = summary.ByReason.Take(4).ToList();
     }
 
     private void ApplyLineChartOptions(int pointCount)
@@ -281,7 +444,7 @@
     /// <summary>
     /// Fewer x labels for long windows so MudChart does not draw overlapping timestamps. Tooltip still shows exact time.
     /// </summary>
-    private static string[] BuildSparseTimeLabels(IReadOnlyList<long> timestampsUtc, int hoursWindow, MonitorOptions options)
+    private static string[] BuildSparseTimeLabels(IReadOnlyList<long> timestampsUtc, int hoursWindow, TimeZoneInfo zone)
     {
         var n = timestampsUtc.Count;
         if (n == 0)
@@ -313,18 +476,236 @@
         {
             var show = i == 0 || i == n - 1 || i % step == 0;
             labels[i] = show
-                ? TimeZoneInfo.ConvertTime(DateTimeOffset.FromUnixTimeSeconds(timestampsUtc[i]), tz)
-                    .ToString(format, CultureInfo.CurrentCulture)
+                ? TimeZoneInfo.ConvertTime(DateTimeOffset.FromUnixTimeSeconds(timestampsUtc[i]), zone).ToString(format, CultureInfo.CurrentCulture)
                 : string.Empty;
         }
 
         return labels;
     }
 
+    private void BuildRoomHeatMap(long sinceTs)
+    {
+        if (_rooms.Count == 0)
+            return;
+
+        var activityMap = Store.GetRoomActivityMap();
+        _roomIsActiveMap = activityMap;
+        var (ignoreStart, ignoreEnd) = Store.GetTrendIgnoreWindow();
+        _roomTiles.Clear();
+        var tiles = new List<RoomHeatTile>(_rooms.Count);
+
+        foreach (var room in _rooms)
+        {
+            var isActive = !activityMap.TryGetValue(room, out var activeFlag) || activeFlag;
+            var rows = Store.SeriesRoom(room, sinceTs);
+            if (rows.Count == 0)
+            {
+                var (missingMin, missingMax) = GetRecommendedTempRange(room, isActive);
+                tiles.Add(new RoomHeatTile(
+                    room,
+                    null,
+                    "—",
+                    "#334155",
+                    $"Recommended {missingMin:0.#} - {missingMax:0.#}C",
+                    $"No data in selected period{(isActive ? string.Empty : ", inactive profile")}",
+                    "Trend unavailable",
+                    null,
+                    -1,
+                    0,
+                    "Current state unavailable",
+                    "#94a3b8"));
+                continue;
+            }
+
+            var current = rows[^1].TempC;
+            var trendRows = rows
+                .Where(x => !IsWithinIgnoreWindow(x.Ts, ignoreStart, ignoreEnd, DisplayZone))
+                .ToList();
+            if (trendRows.Count == 0)
+            {
+                var (missingMin, missingMax) = GetRecommendedTempRange(room, isActive);
+                tiles.Add(new RoomHeatTile(
+                    room,
+                    current,
+                    $"{current:0.0}C",
+                    "#334155",
+                    $"Recommended {missingMin:0.#} - {missingMax:0.#}C",
+                    $"No trend data outside ignored window{(isActive ? string.Empty : ", inactive profile")}",
+                    $"Ignored {ignoreStart:hh\\:mm}-{ignoreEnd:hh\\:mm}",
+                    null,
+                    -1,
+                    0,
+                    "Current state unavailable",
+                    "#94a3b8"));
+                continue;
+            }
+
+            var average = trendRows.Average(static x => x.TempC);
+            var trendDelta = trendRows[^1].TempC - trendRows[0].TempC;
+
+            var (rangeMin, rangeMax) = GetRecommendedTempRange(room, isActive);
+            var status = average < rangeMin
+                ? "Too cold"
+                : average > rangeMax
+                    ? "Too hot"
+                    : "In range";
+            var statusRank = status switch
+            {
+                "Too hot" => 2,
+                "In range" => 1,
+                _ => 0,
+            };
+            var severity = status switch
+            {
+                "Too hot" => average - rangeMax,
+                "Too cold" => rangeMin - average,
+                _ => Math.Abs(average - ((rangeMin + rangeMax) / 2.0)),
+            };
+
+            var color = GetComfortGradientColor(average, rangeMin, rangeMax);
+            var (currentStateText, currentStateColor) = GetCurrentState(current, rangeMin, rangeMax);
+            tiles.Add(new RoomHeatTile(
+                room,
+                current,
+                $"{current:0.0}C",
+                color,
+                $"Recommended {rangeMin:0.#} - {rangeMax:0.#}C",
+                $"{status} (avg {average:0.0}C over {_hours}h){(isActive ? string.Empty : ", inactive profile")}",
+                $"Trend {FormatTrend(trendDelta)}",
+                trendDelta,
+                statusRank,
+                severity,
+                currentStateText,
+                currentStateColor));
+        }
+
+        _roomTiles.AddRange(tiles
+            .OrderByDescending(static x => x.StatusRank)
+            .ThenByDescending(static x => x.Severity)
+            .ThenByDescending(static x => x.TrendDeltaC.HasValue)
+            .ThenByDescending(static x => x.TrendDeltaC));
+    }
+
+    private void BuildComfortComplianceTimeline(int days)
+    {
+        days = Math.Clamp(days, 1, 31);
+        if (_rooms.Count == 0)
+            return;
+
+        var activityMap = Store.GetRoomActivityMap();
+        var (ignoreStart, ignoreEnd) = Store.GetTrendIgnoreWindow();
+        var zone = DisplayZone;
+        var todayLocal = TimeZoneInfo.ConvertTime(DateTimeOffset.UtcNow, zone).Date;
+        var labels = new string[days];
+        var values = new double[days];
+
+        for (var i = 0; i < days; i++)
+        {
+            var day = todayLocal.AddDays(-(days - 1 - i));
+            labels[i] = day.ToString("ddd d", CultureInfo.CurrentCulture);
+
+            var start = new DateTimeOffset(day, zone.GetUtcOffset(day)).ToUnixTimeSeconds();
+            var next = day.AddDays(1);
+            var end = new DateTimeOffset(next, zone.GetUtcOffset(next)).ToUnixTimeSeconds();
+
+            var inRangeCount = 0;
+            var totalCount = 0;
+            foreach (var room in _rooms)
+            {
+                var isActive = !activityMap.TryGetValue(room, out var activeFlag) || activeFlag;
+                var (targetMin, targetMax) = GetRecommendedTempRange(room, isActive);
+                var rows = Store.SeriesRoom(room, start)
+                    .Where(x => x.Ts < end)
+                    .Where(x => !IsWithinIgnoreWindow(x.Ts, ignoreStart, ignoreEnd, zone));
+                foreach (var row in rows)
+                {
+                    totalCount++;
+                    if (row.TempC >= targetMin && row.TempC <= targetMax)
+                        inRangeCount++;
+                }
+            }
+
+            values[i] = totalCount == 0 ? double.NaN : inRangeCount * 100.0 / totalCount;
+        }
+
+        _comfortComplianceLabels = labels;
+        _comfortComplianceSeries =
+        [
+            new ChartSeries<double>
+            {
+                Name = "Comfort compliance %",
+                Data = values,
+            },
+        ];
+    }
+
+    private void BuildCurrentDeviationChart()
+    {
+        if (_roomTiles.Count == 0)
+            return;
+
+        var labels = _roomTiles.Select(static t => t.Room).ToArray();
+        var values = _roomTiles
+            .Select(t =>
+            {
+                if (t.TempC is null)
+                    return double.NaN;
+                var isActive = !_roomIsActiveMap.TryGetValue(t.Room, out var activeFlag) || activeFlag;
+                var (targetMin, targetMax) = GetRecommendedTempRange(t.Room, isActive);
+                var targetMid = (targetMin + targetMax) / 2.0;
+                return t.TempC.Value - targetMid;
+            })
+            .ToArray();
+
+        _currentDeviationLabels = labels;
+        _currentDeviationSeries =
+        [
+            new ChartSeries<double>
+            {
+                Name = "Deviation °C (+ warm / - cold)",
+                Data = values,
+            },
+        ];
+    }
+
+    private void BuildHeatingRuntimeDistribution()
+    {
+        var since = DateTimeOffset.UtcNow.ToUnixTimeSeconds() - (_hours * 3600L);
+        var systemRows = Store.SeriesSystem(since);
+        if (systemRows.Count == 0)
+            return;
+
+        var minutesByHour = new double[24];
+        var minutesPerSample = Math.Max(10, Options.IntervalSec) / 60.0;
+        var zone = DisplayZone;
+
+        foreach (var row in systemRows)
+        {
+            if (row.HeatingRelayOn == 0)
+                continue;
+            var hour = TimeZoneInfo.ConvertTime(DateTimeOffset.FromUnixTimeSeconds(row.Ts), zone).Hour;
+            minutesByHour[hour] += minutesPerSample;
+        }
+
+        _runtimeDistributionLabels = Enumerable.Range(0, 24)
+            .Select(static h => h.ToString("00", CultureInfo.InvariantCulture))
+            .ToArray();
+        _runtimeDistributionSeries =
+        [
+            new ChartSeries<double>
+            {
+                Name = $"Relay runtime minutes ({_hours}h window)",
+                Data = minutesByHour,
+            },
+        ];
+    }
+
     private void LoadDailyRows()
     {
         _dailyRows.Clear();
-        _dailyRows.AddRange(Store.GetDailySummaries(14, Math.Max(10, Options.IntervalSec)));
+        _dailyRows.AddRange(
+            Store.GetDailySummaries(14, Math.Max(10, Options.IntervalSec), DisplayZone)
+                .OrderByDescending(static x => x.Date, StringComparer.Ordinal));
     }
 
     private static double?[] AlignOutdoor(long[] timestamps, IReadOnlyList<OutdoorSeriesRow> outdoor)
@@ -353,4 +734,170 @@
 
     private static string Fmt(double value) => double.IsNaN(value) ? "—" : value.ToString("0.0");
     private static string FmtOpt(double? value) => value is null || double.IsNaN(value.Value) ? "—" : value.Value.ToString("0.0");
+    private static (double Min, double Max) GetRecommendedTempRange(string roomName, bool isActive)
+    {
+        var r = roomName.ToLowerInvariant();
+        var baseRange = r switch
+        {
+            _ when r.Contains("bath") => (21.0, 23.0),
+            _ when r.Contains("bed") => (17.0, 19.0),
+            _ when r.Contains("kitchen") => (18.0, 20.0),
+            _ when r.Contains("hall") || r.Contains("landing") => (16.0, 18.0),
+            _ when r.Contains("living") || r.Contains("lounge") => (20.0, 22.0),
+            _ => (19.0, 21.0),
+        };
+
+        if (isActive)
+            return baseRange;
+
+        const double inactiveOffsetC = 2.0;
+        return (baseRange.Item1 - inactiveOffsetC, baseRange.Item2 - inactiveOffsetC);
+    }
+
+    private static string GetComfortGradientColor(double avgTemp, double targetMin, double targetMax)
+    {
+        if (avgTemp > targetMax)
+        {
+            // Hot side: light orange-red -> deep red.
+            var tHot = Math.Clamp((avgTemp - targetMax) / 4.0, 0.0, 1.0);
+            if (tHot < 0.33)
+                return "#ff7f50";
+            if (tHot < 0.66)
+                return "#ff4500";
+            return "#b22222";
+        }
+
+        if (avgTemp < targetMin)
+        {
+            // Cold side: light ice blue -> deep cold blue.
+            var tCold = Math.Clamp((targetMin - avgTemp) / 4.0, 0.0, 1.0);
+            if (tCold < 0.33)
+                return "#87cefa";
+            if (tCold < 0.66)
+                return "#00bfff";
+            return "#1e3a8a";
+        }
+
+        // In-range: calm green.
+        return "#2e8b57";
+    }
+
+    private static (string Text, string Color) GetCurrentState(double currentTemp, double targetMin, double targetMax)
+    {
+        if (currentTemp > targetMax)
+            return ("Now: too warm", "#b22222");
+        if (currentTemp < targetMin)
+            return ("Now: too cold", "#1e3a8a");
+        return ("Now: in range", "#2e8b57");
+    }
+
+    private static string FormatTrend(double trendDelta)
+    {
+        if (trendDelta > 0.4)
+            return $"up {trendDelta:+0.0;-0.0;0.0}C";
+        if (trendDelta < -0.4)
+            return $"down {trendDelta:+0.0;-0.0;0.0}C";
+        return $"steady {trendDelta:+0.0;-0.0;0.0}C";
+    }
+
+    private static bool IsWithinIgnoreWindow(long timestampUtc, TimeSpan ignoreStart, TimeSpan ignoreEnd, TimeZoneInfo zone)
+    {
+        if (ignoreStart == ignoreEnd)
+            return false;
+
+        var localTod = TimeZoneInfo.ConvertTime(DateTimeOffset.FromUnixTimeSeconds(timestampUtc), zone).TimeOfDay;
+        if (ignoreStart < ignoreEnd)
+            return localTod >= ignoreStart && localTod < ignoreEnd;
+
+        // Overnight window e.g. 22:00 -> 06:00
+        return localTod >= ignoreStart || localTod < ignoreEnd;
+    }
+
+    private static string GetRoomDetailsHref(string roomName) => $"/rooms#{BuildRoomAnchorId(roomName)}";
+
+    private static string BuildRoomAnchorId(string roomName)
+    {
+        var chars = roomName.Trim().ToLowerInvariant()
+            .Select(static c => char.IsLetterOrDigit(c) ? c : '-')
+            .ToArray();
+        var normalized = new string(chars).Trim('-');
+        return $"room-{(string.IsNullOrWhiteSpace(normalized) ? "unknown" : normalized)}";
+    }
+
+    private sealed record RoomHeatTile(
+        string Room,
+        double? TempC,
+        string DisplayTemp,
+        string Color,
+        string RangeText,
+        string StatusText,
+        string TrendText,
+        double? TrendDeltaC,
+        int StatusRank,
+        double Severity,
+        string CurrentStateText,
+        string CurrentStateColor);
 }
+
+<style>
+    .room-heat-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+        gap: 8px;
+    }
+
+    .room-heat-tile {
+        border-radius: 6px;
+        border: 1px solid rgba(255, 255, 255, 0.18);
+        padding: 8px 10px;
+        color: #f8fafc;
+        min-height: 62px;
+        display: flex;
+        flex-direction: column;
+        justify-content: space-between;
+    }
+
+    .room-heat-link {
+        text-decoration: none;
+        transition: transform 0.12s ease, box-shadow 0.12s ease;
+    }
+
+    .room-heat-link:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 4px 12px rgba(15, 23, 42, 0.35);
+    }
+
+    .room-heat-name {
+        font-size: 0.9rem;
+        font-weight: 600;
+        line-height: 1.1;
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+    }
+
+    .room-heat-temp {
+        font-size: 0.92rem;
+        font-weight: 700;
+        color: #f8fafc;
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+    }
+
+    .room-heat-state-square {
+        width: 10px;
+        height: 10px;
+        border-radius: 2px;
+        border: 1px solid rgba(248, 250, 252, 0.75);
+        box-shadow: 0 0 0 1px rgba(15, 23, 42, 0.55);
+        display: inline-block;
+        flex: 0 0 auto;
+    }
+
+    .room-heat-meta {
+        font-size: 0.76rem;
+        opacity: 0.92;
+        line-height: 1.2;
+    }
+</style>

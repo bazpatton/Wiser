@@ -1,4 +1,7 @@
 @inherits LayoutComponentBase
+@implements IDisposable
+
+@inject NavigationManager Navigation
 
 <MudThemeProvider Theme="_theme" />
 <MudPopoverProvider />
@@ -18,7 +21,9 @@
             <MudStack Row="true" Spacing="1" Class="desktop-nav">
                 <MudButton Href="/" Variant="Variant.Text" Color="Color.Inherit" StartIcon="@Icons.Material.Filled.Home">Home</MudButton>
                 <MudButton Href="/rooms" Variant="Variant.Text" Color="Color.Inherit" StartIcon="@Icons.Material.Filled.MeetingRoom">Rooms</MudButton>
+                <MudButton Href="/devices" Variant="Variant.Text" Color="Color.Inherit" StartIcon="@Icons.Material.Filled.Memory">Devices</MudButton>
                 <MudButton Href="/charts" Variant="Variant.Text" Color="Color.Inherit" StartIcon="@Icons.Material.Filled.ShowChart">Charts</MudButton>
+                <MudButton Href="/settings" Variant="Variant.Text" Color="Color.Inherit" StartIcon="@Icons.Material.Filled.Settings">Settings</MudButton>
             </MudStack>
         </MudHidden>
         <MudSpacer />
@@ -40,7 +45,9 @@
         <MudNavMenu>
             <MudNavLink Href="/" Match="NavLinkMatch.All" Icon="@Icons.Material.Filled.Home" OnClick="@(() => CloseDrawer())">Home</MudNavLink>
             <MudNavLink Href="/rooms" Icon="@Icons.Material.Filled.MeetingRoom" OnClick="@(() => CloseDrawer())">Rooms</MudNavLink>
+            <MudNavLink Href="/devices" Icon="@Icons.Material.Filled.Memory" OnClick="@(() => CloseDrawer())">Devices</MudNavLink>
             <MudNavLink Href="/charts" Icon="@Icons.Material.Filled.ShowChart" OnClick="@(() => CloseDrawer())">Charts</MudNavLink>
+            <MudNavLink Href="/settings" Icon="@Icons.Material.Filled.Settings" OnClick="@(() => CloseDrawer())">Settings</MudNavLink>
         </MudNavMenu>
     </MudDrawer>
 
@@ -71,6 +78,11 @@
         },
     };
 
+    protected override void OnInitialized()
+    {
+        Navigation.LocationChanged += HandleLocationChanged;
+    }
+
     private void ToggleDrawer()
     {
         _drawerOpen = !_drawerOpen;
@@ -79,5 +91,17 @@
     private void CloseDrawer()
     {
         _drawerOpen = false;
+    }
+
+    private void HandleLocationChanged(object? sender, LocationChangedEventArgs e)
+    {
+        // Ensure temporary drawer closes after any navigation.
+        _drawerOpen = false;
+        _ = InvokeAsync(StateHasChanged);
+    }
+
+    public void Dispose()
+    {
+        Navigation.LocationChanged -= HandleLocationChanged;
     }
 }

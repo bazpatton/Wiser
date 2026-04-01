@@ -5,6 +5,7 @@
 @inject WiserHubFetch Hub
 @inject TemperatureStore Store
 @inject ISnackbar Snackbar
+@implements IAsyncDisposable
 
 <PageTitle>Wiser Monitor - Rooms</PageTitle>
 
@@ -15,15 +16,37 @@
                 <MudText Typo="Typo.h5" Class="rooms-page-title">
                     <i class="fa-solid fa-house-chimney-window" aria-hidden="true"></i> Rooms
                 </MudText>
-                <MudButton Variant="Variant.Filled"
-                           StartIcon="@Icons.Material.Filled.Refresh"
-                           Color="Color.Primary"
-                           Class="touch-target"
-                           Disabled="@_loading"
-                           OnClick="@(() => RefreshAsync(fullPageLoader: true))">
-                    Refresh
-                </MudButton>
+                <MudStack Row="true" Spacing="1" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center">
+                    <MudCheckBox T="bool"
+                                 Label="Auto refresh"
+                                 Value="_autoRefreshEnabled"
+                                 ValueChanged="OnAutoRefreshChanged"
+                                 Class="touch-control" />
+                    <MudSelect T="int"
+                               Label="Interval"
+                               Value="_autoRefreshSec"
+                               ValueChanged="OnAutoRefreshSecondsChanged"
+                               Variant="Variant.Outlined"
+                               Dense="true"
+                               Margin="Margin.Dense"
+                               Class="touch-control"
+                               Disabled="@(!_autoRefreshEnabled)">
+                        <MudSelectItem Value="15">15s</MudSelectItem>
+                        <MudSelectItem Value="30">30s</MudSelectItem>
+                        <MudSelectItem Value="60">60s</MudSelectItem>
+                        <MudSelectItem Value="120">120s</MudSelectItem>
+                    </MudSelect>
+                    <MudButton Variant="Variant.Filled"
+                               StartIcon="@Icons.Material.Filled.Refresh"
+                               Color="Color.Primary"
+                               Class="touch-target"
+                               Disabled="@_loading"
+                               OnClick="@(() => RefreshAsync(fullPageLoader: true))">
+                        Refresh
+                    </MudButton>
+                </MudStack>
             </MudStack>
+            <MudText Typo="Typo.caption" Class="mud-text-secondary">@LastUpdatedText</MudText>
             @if (!string.IsNullOrWhiteSpace(_actionMessage))
             {
                 <MudAlert Severity="@(_actionError ? Severity.Error : Severity.Success)" Dense="true">
@@ -91,22 +114,40 @@
             @foreach (var room in FilteredRooms())
             {
                 <MudItem xs="12" sm="6" lg="4">
-                    <MudPaper Class="pa-3 room-card" @key="room.Id">
+                    <MudPaper Class="pa-3 room-card" @key="room.Id" id="@BuildRoomAnchorId(room.Name)">
                         <MudStack Spacing="2">
                             <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Start" Wrap="Wrap.Wrap">
                                 <MudText Typo="Typo.h6" Class="room-name">@room.Name</MudText>
-                                <MudChip T="string"
-                                         Size="Size.Small"
-                                         Color="@(room.HeatDemand != 0 ? Color.Error : Color.Info)"
-                                         Variant="Variant.Outlined">
-                                    @(room.HeatDemand != 0 ? "Calling heat" : "Idle")
-                                </MudChip>
+                                <MudStack Row="true" Spacing="1" Wrap="Wrap.Wrap">
+                                    @if (IsOfflineTemperature(room.TempC))
+                                    {
+                                        <MudChip T="string"
+                                                 Size="Size.Small"
+                                                 Color="Color.Warning"
+                                                 Variant="Variant.Filled">
+                                            Offline
+                                        </MudChip>
+                                    }
+                                    <MudChip T="string"
+                                             Size="Size.Small"
+                                             Color="@(room.HeatDemand != 0 ? Color.Error : Color.Info)"
+                                             Variant="Variant.Outlined">
+                                        @(room.HeatDemand != 0 ? "Calling heat" : "Idle")
+                                    </MudChip>
+                                </MudStack>
                             </MudStack>
 
                             <MudStack Row="true" Spacing="2" AlignItems="AlignItems.Center" Wrap="Wrap.Wrap" Class="room-temp-row">
                                 <MudText Typo="Typo.body1" Class="room-measured">
                                     <span class="rad-icon" aria-hidden="true">@RadiatorGlyph(room.RadiatorState)</span>
-                                    <strong>@($"{room.TempC:F1}")</strong><span class="mud-text-secondary"> °C</span>
+                                    @if (IsOfflineTemperature(room.TempC))
+                                    {
+                                        <strong>Offline</strong><span class="mud-text-secondary"> (sensor value -327.68 °C)</span>
+                                    }
+                                    else
+                                    {
+                                        <strong>@($"{room.TempC:F1}")</strong><span class="mud-text-secondary"> °C</span>
+                                    }
                                 </MudText>
                                 <MudText Typo="Typo.body2" Class="mud-text-secondary">
                                     Target @(room.SetpointC is null ? "—" : $"{room.SetpointC:F1} °C")
@@ -128,20 +169,19 @@
                                 </MudAlert>
                             }
 
-                            <MudSelect T="string"
-                                       Label="Mode"
-                                       Value="@GetModeKey(room)"
-                                       ValueChanged="@(v => OnRoomModeSelectChanged(room, v))"
-                                       Variant="Variant.Outlined"
-                                       Margin="Margin.Dense"
-                                       Dense="true"
-                                       FullWidth="true"
-                                       Class="room-mode-select touch-control"
-                                       Disabled="@(room.Id <= 0 || _busyRoomId == room.Id)">
-                                <MudSelectItem Value="@("auto")">Auto — follow schedule</MudSelectItem>
-                                <MudSelectItem Value="@("manual")">Manual — hold current target</MudSelectItem>
-                                <MudSelectItem Value="@("off")">Off — heating off</MudSelectItem>
-                            </MudSelect>
+                            <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center">
+                                <MudText Typo="Typo.caption" Class="mud-text-secondary">Mode</MudText>
+                                <MudMenu Label="@CurrentModeLabel(room)"
+                                         Variant="Variant.Outlined"
+                                         Size="Size.Small"
+                                         Dense="true"
+                                         Color="Color.Primary"
+                                         Disabled="@(room.Id <= 0 || _busyRoomId == room.Id)">
+                                    <MudMenuItem OnClick="@(() => OnRoomModeSelectChanged(room, "auto"))">Auto — follow schedule</MudMenuItem>
+                                    <MudMenuItem OnClick="@(() => OnRoomModeSelectChanged(room, "manual"))">Manual — hold current target</MudMenuItem>
+                                    <MudMenuItem OnClick="@(() => OnRoomModeSelectChanged(room, "off"))">Off — heating off</MudMenuItem>
+                                </MudMenu>
+                            </MudStack>
 
                             <MudText Typo="Typo.caption" Class="mud-text-secondary">
                                 Hub mode: @(room.Mode ?? "—")
@@ -189,10 +229,66 @@
     private string? _loadError;
     private string? _actionMessage;
     private bool _actionError;
+    private bool _autoRefreshEnabled;
+    private int _autoRefreshSec = 30;
+    private DateTimeOffset? _lastRefreshAt;
+    private CancellationTokenSource? _autoRefreshCts;
+    private Task? _autoRefreshTask;
+
+    private string LastUpdatedText => _lastRefreshAt is null
+        ? "Last updated: never"
+        : $"Last updated: {_lastRefreshAt.Value:HH:mm:ss} ({(int)Math.Max(0, (DateTimeOffset.Now - _lastRefreshAt.Value).TotalSeconds)}s ago)";
 
     protected override async Task OnInitializedAsync()
     {
         await RefreshAsync(fullPageLoader: true);
+    }
+
+    private Task OnAutoRefreshChanged(bool enabled)
+    {
+        _autoRefreshEnabled = enabled;
+        ConfigureAutoRefresh();
+        return Task.CompletedTask;
+    }
+
+    private Task OnAutoRefreshSecondsChanged(int seconds)
+    {
+        _autoRefreshSec = seconds;
+        ConfigureAutoRefresh();
+        return Task.CompletedTask;
+    }
+
+    private void ConfigureAutoRefresh()
+    {
+        _autoRefreshCts?.Cancel();
+        _autoRefreshCts?.Dispose();
+        _autoRefreshCts = null;
+        _autoRefreshTask = null;
+
+        if (!_autoRefreshEnabled)
+            return;
+
+        _autoRefreshCts = new CancellationTokenSource();
+        var ct = _autoRefreshCts.Token;
+        _autoRefreshTask = Task.Run(async () =>
+        {
+            using var timer = new PeriodicTimer(TimeSpan.FromSeconds(Math.Max(10, _autoRefreshSec)));
+            try
+            {
+                while (await timer.WaitForNextTickAsync(ct))
+                {
+                    await InvokeAsync(async () =>
+                    {
+                        if (!_loading && !_isRefreshing)
+                            await RefreshAsync();
+                    });
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                // expected on toggle/teardown
+            }
+        }, ct);
     }
 
     private IEnumerable<HubLiveRoom> FilteredRooms()
@@ -213,7 +309,19 @@
         : radiatorState.Equals("off", StringComparison.OrdinalIgnoreCase) ? "❄️"
         : "—";
 
-    private string? FormatBoostSummary(HubLiveRoom room)
+    private static bool IsOfflineTemperature(double tempC) =>
+        Math.Abs(tempC - (-327.68)) < 0.001;
+
+    private static string BuildRoomAnchorId(string roomName)
+    {
+        var chars = roomName.Trim().ToLowerInvariant()
+            .Select(static c => char.IsLetterOrDigit(c) ? c : '-')
+            .ToArray();
+        var normalized = new string(chars).Trim('-');
+        return $"room-{(string.IsNullOrWhiteSpace(normalized) ? "unknown" : normalized)}";
+    }
+
+    private static string? FormatBoostSummary(HubLiveRoom room)
     {
         var raw = room.OverrideTimeoutUnix;
         if (raw is null or 0)
@@ -245,6 +353,14 @@
         var target = room.SetpointC is null ? null : $"{room.SetpointC:F1} °C";
         return target is null ? $"{prefix}{timeLabel}" : $"{prefix}{timeLabel} · target {target}";
     }
+
+    private static string CurrentModeLabel(HubLiveRoom room) =>
+        GetModeKey(room) switch
+        {
+            "auto" => "Auto",
+            "off" => "Off",
+            _ => "Manual",
+        };
 
     /// <summary>Dropdown value for current hub state.</summary>
     private static string GetModeKey(HubLiveRoom room)
@@ -317,6 +433,7 @@
         }
         finally
         {
+            _lastRefreshAt = DateTimeOffset.Now;
             if (fullPageLoader)
                 _loading = false;
             _isRefreshing = false;
@@ -387,5 +504,12 @@
         _actionMessage = "Live hub data required for control actions.";
         Snackbar.Add(_actionMessage, Severity.Warning);
         return false;
+    }
+
+    public ValueTask DisposeAsync()
+    {
+        _autoRefreshCts?.Cancel();
+        _autoRefreshCts?.Dispose();
+        return ValueTask.CompletedTask;
     }
 }

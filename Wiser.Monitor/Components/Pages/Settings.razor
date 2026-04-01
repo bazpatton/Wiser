@@ -1,0 +1,161 @@
+@page "/settings"
+@rendermode InteractiveServer
+@using System.Globalization
+
+@inject TemperatureStore Store
+@inject ISnackbar Snackbar
+
+<PageTitle>Wiser Monitor - Settings</PageTitle>
+
+<MudStack Spacing="3">
+    <MudPaper Class="pa-4 page-header-card">
+        <MudText Typo="Typo.h5">
+            <i class="fa-solid fa-gear"></i> Settings
+        </MudText>
+        <MudText Typo="Typo.body2" Class="mt-1">
+            Mark rooms as inactive to apply a lower recommended average range in charts.
+        </MudText>
+    </MudPaper>
+
+    <MudPaper Class="pa-4 card-soft">
+        <MudText Typo="Typo.subtitle1" Class="mb-2">Trend ignore window (local time)</MudText>
+        <MudGrid Spacing="2">
+            <MudItem xs="12" sm="6" md="3">
+                <MudTextField T="string"
+                              Label="Ignore start"
+                              Value="_ignoreStartText"
+                              ValueChanged="OnIgnoreStartChanged"
+                              InputType="InputType.Time"
+                              Variant="Variant.Outlined"
+                              Margin="Margin.Dense" />
+            </MudItem>
+            <MudItem xs="12" sm="6" md="3">
+                <MudTextField T="string"
+                              Label="Ignore end"
+                              Value="_ignoreEndText"
+                              ValueChanged="OnIgnoreEndChanged"
+                              InputType="InputType.Time"
+                              Variant="Variant.Outlined"
+                              Margin="Margin.Dense" />
+            </MudItem>
+            <MudItem xs="12" md="6" Class="d-flex align-center">
+                <MudText Typo="Typo.caption" Class="mud-text-secondary">
+                    Default is 00:00 to 07:00. Readings in this window are excluded from room trend calculations.
+                </MudText>
+            </MudItem>
+        </MudGrid>
+
+        <MudDivider Class="my-3" />
+
+        <MudText Typo="Typo.subtitle1" Class="mb-2">Room activity profile</MudText>
+        @if (_rooms.Count == 0)
+        {
+            <MudAlert Severity="Severity.Info" Dense="true">No rooms available yet.</MudAlert>
+        }
+        else
+        {
+            <MudTable T="RoomActivitySetting" Items="_rooms" Dense="true" Hover="true" Breakpoint="Breakpoint.Sm">
+                <HeaderContent>
+                    <MudTh>Room</MudTh>
+                    <MudTh>Active</MudTh>
+                    <MudTh>Status</MudTh>
+                </HeaderContent>
+                <RowTemplate>
+                    <MudTd DataLabel="Room">@context.Room</MudTd>
+                    <MudTd DataLabel="Active">
+                        <MudSwitch T="bool"
+                                   Value="@context.IsActive"
+                                   ValueChanged="@((value) => context.IsActive = value)"
+                                   Color="Color.Primary" />
+                    </MudTd>
+                    <MudTd DataLabel="Status">@(context.IsActive ? "Active" : "Inactive")</MudTd>
+                </RowTemplate>
+            </MudTable>
+        }
+
+        <MudStack Row="true" Spacing="1" Class="mt-3">
+            <MudButton Variant="Variant.Filled"
+                       Color="Color.Primary"
+                       OnClick="SaveAsync"
+                       StartIcon="@Icons.Material.Filled.Save">
+                Save
+            </MudButton>
+            <MudButton Variant="Variant.Outlined"
+                       Color="Color.Default"
+                       OnClick="LoadAsync"
+                       StartIcon="@Icons.Material.Filled.Refresh">
+                Reload
+            </MudButton>
+        </MudStack>
+    </MudPaper>
+</MudStack>
+
+@code {
+    private readonly List<RoomActivitySetting> _rooms = [];
+    private string _ignoreStartText = "00:00";
+    private string _ignoreEndText = "07:00";
+
+    protected override Task OnInitializedAsync() => LoadAsync();
+
+    private Task LoadAsync()
+    {
+        _rooms.Clear();
+        var rooms = Store.ListRooms().OrderBy(x => x, StringComparer.OrdinalIgnoreCase).ToList();
+        var activity = Store.GetRoomActivityMap();
+        var (ignoreStart, ignoreEnd) = Store.GetTrendIgnoreWindow();
+        _ignoreStartText = ignoreStart.ToString(@"hh\:mm", CultureInfo.InvariantCulture);
+        _ignoreEndText = ignoreEnd.ToString(@"hh\:mm", CultureInfo.InvariantCulture);
+        foreach (var room in rooms)
+            _rooms.Add(new RoomActivitySetting(room, !activity.TryGetValue(room, out var isActive) || isActive));
+        return Task.CompletedTask;
+    }
+
+    private Task SaveAsync()
+    {
+        if (!TryParseTime(_ignoreStartText, out var ignoreStart) || !TryParseTime(_ignoreEndText, out var ignoreEnd))
+        {
+            Snackbar.Add("Please enter valid ignore times in HH:mm format.", Severity.Warning);
+            return Task.CompletedTask;
+        }
+
+        foreach (var room in _rooms)
+            Store.SetRoomActive(room.Room, room.IsActive);
+        Store.SetTrendIgnoreWindow(ignoreStart, ignoreEnd);
+        Snackbar.Add("Room activity settings saved.", Severity.Success);
+        return Task.CompletedTask;
+    }
+
+    private Task OnIgnoreStartChanged(string value)
+    {
+        _ignoreStartText = value;
+        return Task.CompletedTask;
+    }
+
+    private Task OnIgnoreEndChanged(string value)
+    {
+        _ignoreEndText = value;
+        return Task.CompletedTask;
+    }
+
+    private static bool TryParseTime(string text, out TimeSpan value)
+    {
+        if (TimeSpan.TryParseExact(text, @"hh\:mm", CultureInfo.InvariantCulture, out value))
+            return true;
+        if (TimeSpan.TryParseExact(text, @"h\:mm", CultureInfo.InvariantCulture, out value))
+            return true;
+        value = default;
+        return false;
+    }
+
+    private sealed class RoomActivitySetting
+    {
+        public RoomActivitySetting(string room, bool isActive)
+        {
+            Room = room;
+            IsActive = isActive;
+        }
+
+        public string Room { get; }
+        public bool IsActive { get; set; }
+    }
+}

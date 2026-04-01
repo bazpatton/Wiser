@@ -52,6 +52,28 @@ public sealed class TemperatureStore
                         heating_active INTEGER NOT NULL
                     );
                     CREATE INDEX IF NOT EXISTS idx_system_readings_ts ON system_readings(ts);
+
+                    CREATE TABLE IF NOT EXISTS room_settings (
+                        room TEXT PRIMARY KEY,
+                        is_active INTEGER NOT NULL DEFAULT 1,
+                        updated_ts INTEGER NOT NULL
+                    );
+
+                    CREATE TABLE IF NOT EXISTS app_settings (
+                        key TEXT PRIMARY KEY,
+                        value TEXT NOT NULL,
+                        updated_ts INTEGER NOT NULL
+                    );
+
+                    CREATE TABLE IF NOT EXISTS data_quality_events (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        ts INTEGER NOT NULL,
+                        room TEXT,
+                        source TEXT NOT NULL,
+                        reason TEXT NOT NULL,
+                        raw_value REAL
+                    );
+                    CREATE INDEX IF NOT EXISTS idx_data_quality_events_ts ON data_quality_events(ts);
                     """;
                 cmd.ExecuteNonQuery();
             }
@@ -155,6 +177,12 @@ public sealed class TemperatureStore
                 cmd.Parameters.AddWithValue("$c", cutoff);
                 cmd.ExecuteNonQuery();
             }
+            using (var cmd = c.CreateCommand())
+            {
+                cmd.CommandText = "DELETE FROM data_quality_events WHERE ts < $c";
+                cmd.Parameters.AddWithValue("$c", cutoff);
+                cmd.ExecuteNonQuery();
+            }
         }
     }
 
@@ -202,15 +230,16 @@ public sealed class TemperatureStore
     }
 
     /// <summary>
-    /// Per UTC calendar day: simple HDD (15.5 °C base − mean outdoor) and heating-time proxy from poll counts × interval.
+    /// Per local calendar day: simple HDD (15.5 °C base − mean outdoor) and heating-time proxy from poll counts × interval.
     /// </summary>
-    public IReadOnlyList<DailySummaryRow> GetDailySummaries(int days, int pollIntervalSec)
+    public IReadOnlyList<DailySummaryRow> GetDailySummaries(int days, int pollIntervalSec, TimeZoneInfo? zone = null)
     {
         days = Math.Clamp(days, 1, 366);
         var intervalMin = pollIntervalSec / 60.0;
         const double hddBaseC = 15.5;
         var list = new List<DailySummaryRow>();
-        var today = DateTime.UtcNow.Date;
+        var localZone = zone ?? TimeZoneInfo.Local;
+        var today = TimeZoneInfo.ConvertTime(DateTimeOffset.UtcNow, localZone).Date;
 
         lock (_gate)
         {
@@ -218,8 +247,11 @@ public sealed class TemperatureStore
             for (var i = days - 1; i >= 0; i--)
             {
                 var day = today.AddDays(-i);
-                var start = new DateTimeOffset(day, TimeSpan.Zero).ToUnixTimeSeconds();
-                var end = new DateTimeOffset(day.AddDays(1), TimeSpan.Zero).ToUnixTimeSeconds();
+                var startOffset = localZone.GetUtcOffset(day);
+                var nextDay = day.AddDays(1);
+                var endOffset = localZone.GetUtcOffset(nextDay);
+                var start = new DateTimeOffset(day, startOffset).ToUnixTimeSeconds();
+                var end = new DateTimeOffset(nextDay, endOffset).ToUnixTimeSeconds();
 
                 double? avgOutdoor = null;
                 var outdoorSamples = 0;
@@ -292,6 +324,204 @@ public sealed class TemperatureStore
             while (r.Read())
                 names.Add(r.GetString(0));
             return names;
+        }
+    }
+
+    public Dictionary<string, bool> GetRoomActivityMap()
+    {
+        lock (_gate)
+        {
+            using var c = Open();
+            using var cmd = c.CreateCommand();
+            cmd.CommandText = "SELECT room, is_active FROM room_settings";
+            using var r = cmd.ExecuteReader();
+            var map = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
+            while (r.Read())
+            {
+                var room = r.GetString(0);
+                var isActive = r.GetInt32(1) != 0;
+                map[room] = isActive;
+            }
+
+            return map;
+        }
+    }
+
+    public void SetRoomActive(string room, bool isActive)
+    {
+        if (string.IsNullOrWhiteSpace(room))
+            return;
+
+        lock (_gate)
+        {
+            using var c = Open();
+            using var cmd = c.CreateCommand();
+            cmd.CommandText =
+                """
+                INSERT INTO room_settings (room, is_active, updated_ts)
+                VALUES ($room, $active, $ts)
+                ON CONFLICT(room) DO UPDATE SET
+                    is_active = excluded.is_active,
+                    updated_ts = excluded.updated_ts
+                """;
+            cmd.Parameters.AddWithValue("$room", room.Trim());
+            cmd.Parameters.AddWithValue("$active", isActive ? 1 : 0);
+            cmd.Parameters.AddWithValue("$ts", DateTimeOffset.UtcNow.ToUnixTimeSeconds());
+            cmd.ExecuteNonQuery();
+        }
+    }
+
+    public (TimeSpan Start, TimeSpan End) GetTrendIgnoreWindow()
+    {
+        // Default: ignore 00:00 -> 07:00 local time for trend analysis.
+        var fallbackStart = TimeSpan.Zero;
+        var fallbackEnd = TimeSpan.FromHours(7);
+
+        lock (_gate)
+        {
+            using var c = Open();
+            using var cmd = c.CreateCommand();
+            cmd.CommandText =
+                """
+                SELECT key, value FROM app_settings
+                WHERE key IN ('trend_ignore_start', 'trend_ignore_end')
+                """;
+            using var r = cmd.ExecuteReader();
+
+            var start = fallbackStart;
+            var end = fallbackEnd;
+            while (r.Read())
+            {
+                var key = r.GetString(0);
+                var value = r.GetString(1);
+                if (!int.TryParse(value, out var minutes))
+                    continue;
+                minutes = Math.Clamp(minutes, 0, 1439);
+                if (key == "trend_ignore_start")
+                    start = TimeSpan.FromMinutes(minutes);
+                else if (key == "trend_ignore_end")
+                    end = TimeSpan.FromMinutes(minutes);
+            }
+
+            return (start, end);
+        }
+    }
+
+    public void SetTrendIgnoreWindow(TimeSpan start, TimeSpan end)
+    {
+        var startMinutes = Math.Clamp((int)start.TotalMinutes, 0, 1439);
+        var endMinutes = Math.Clamp((int)end.TotalMinutes, 0, 1439);
+        var ts = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+
+        lock (_gate)
+        {
+            using var c = Open();
+            UpsertSetting(c, "trend_ignore_start", startMinutes.ToString(System.Globalization.CultureInfo.InvariantCulture), ts);
+            UpsertSetting(c, "trend_ignore_end", endMinutes.ToString(System.Globalization.CultureInfo.InvariantCulture), ts);
+        }
+    }
+
+    private static void UpsertSetting(SqliteConnection c, string key, string value, long updatedTs)
+    {
+        using var cmd = c.CreateCommand();
+        cmd.CommandText =
+            """
+            INSERT INTO app_settings (key, value, updated_ts)
+            VALUES ($key, $value, $ts)
+            ON CONFLICT(key) DO UPDATE SET
+                value = excluded.value,
+                updated_ts = excluded.updated_ts
+            """;
+        cmd.Parameters.AddWithValue("$key", key);
+        cmd.Parameters.AddWithValue("$value", value);
+        cmd.Parameters.AddWithValue("$ts", updatedTs);
+        cmd.ExecuteNonQuery();
+    }
+
+    public void InsertDataQualityEvent(long ts, string? room, string source, string reason, double? rawValue)
+    {
+        if (string.IsNullOrWhiteSpace(source) || string.IsNullOrWhiteSpace(reason))
+            return;
+
+        lock (_gate)
+        {
+            using var c = Open();
+            using var cmd = c.CreateCommand();
+            cmd.CommandText =
+                """
+                INSERT INTO data_quality_events (ts, room, source, reason, raw_value)
+                VALUES ($ts, $room, $source, $reason, $raw)
+                """;
+            cmd.Parameters.AddWithValue("$ts", ts);
+            cmd.Parameters.AddWithValue("$room", string.IsNullOrWhiteSpace(room) ? (object)DBNull.Value : room.Trim());
+            cmd.Parameters.AddWithValue("$source", source.Trim());
+            cmd.Parameters.AddWithValue("$reason", reason.Trim());
+            cmd.Parameters.AddWithValue("$raw", rawValue ?? (object)DBNull.Value);
+            cmd.ExecuteNonQuery();
+        }
+    }
+
+    public DataQualitySummary GetDataQualitySummary(int hours)
+    {
+        hours = Math.Clamp(hours, 1, 24 * 30);
+        var since = DateTimeOffset.UtcNow.ToUnixTimeSeconds() - hours * 3600L;
+
+        lock (_gate)
+        {
+            using var c = Open();
+            var byReason = new List<DataQualityReasonCount>();
+            var bySource = new List<DataQualitySourceCount>();
+            var byRoom = new List<DataQualityRoomCount>();
+
+            using (var cmd = c.CreateCommand())
+            {
+                cmd.CommandText =
+                    """
+                    SELECT reason, COUNT(*) FROM data_quality_events
+                    WHERE ts >= $since
+                    GROUP BY reason
+                    ORDER BY COUNT(*) DESC
+                    """;
+                cmd.Parameters.AddWithValue("$since", since);
+                using var r = cmd.ExecuteReader();
+                while (r.Read())
+                    byReason.Add(new DataQualityReasonCount(r.GetString(0), (int)r.GetInt64(1)));
+            }
+
+            using (var cmd = c.CreateCommand())
+            {
+                cmd.CommandText =
+                    """
+                    SELECT source, COUNT(*) FROM data_quality_events
+                    WHERE ts >= $since
+                    GROUP BY source
+                    ORDER BY COUNT(*) DESC
+                    """;
+                cmd.Parameters.AddWithValue("$since", since);
+                using var r = cmd.ExecuteReader();
+                while (r.Read())
+                    bySource.Add(new DataQualitySourceCount(r.GetString(0), (int)r.GetInt64(1)));
+            }
+
+            using (var cmd = c.CreateCommand())
+            {
+                cmd.CommandText =
+                    """
+                    SELECT COALESCE(room, 'unknown') AS room_name, COUNT(*) FROM data_quality_events
+                    WHERE ts >= $since
+                    GROUP BY room_name
+                    ORDER BY COUNT(*) DESC
+                    LIMIT 20
+                    """;
+                cmd.Parameters.AddWithValue("$since", since);
+                using var r = cmd.ExecuteReader();
+                while (r.Read())
+                    byRoom.Add(new DataQualityRoomCount(r.GetString(0), (int)r.GetInt64(1)));
+            }
+
+            var total = byReason.Sum(static x => x.Count);
+            var now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+            return new DataQualitySummary(hours, since, now, total, byReason, bySource, byRoom);
         }
     }
 
@@ -417,3 +647,16 @@ public sealed record DailySummaryRow(
     double HeatingActiveEstimateMin,
     double HeatingRelayEstimateMin,
     int OutdoorSamples);
+
+public sealed record DataQualitySummary(
+    int WindowHours,
+    long FromTs,
+    long ToTs,
+    int TotalIgnored,
+    IReadOnlyList<DataQualityReasonCount> ByReason,
+    IReadOnlyList<DataQualitySourceCount> BySource,
+    IReadOnlyList<DataQualityRoomCount> ByRoom);
+
+public sealed record DataQualityReasonCount(string Reason, int Count);
+public sealed record DataQualitySourceCount(string Source, int Count);
+public sealed record DataQualityRoomCount(string Room, int Count);

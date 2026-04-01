@@ -4,6 +4,7 @@
 
 @inject MonitorState MonitorState
 @inject MonitorOptions Options
+@inject TemperatureStore Store
 
 <PageTitle>Wiser Monitor</PageTitle>
 
@@ -18,8 +19,14 @@
             <MudButton Href="/rooms" Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Home" Class="touch-target">
                 Rooms
             </MudButton>
+            <MudButton Href="/devices" Variant="Variant.Outlined" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Memory" Class="touch-target">
+                Devices
+            </MudButton>
             <MudButton Href="/charts" Variant="Variant.Outlined" Color="Color.Primary" StartIcon="@Icons.Material.Filled.ShowChart" Class="touch-target">
                 Charts
+            </MudButton>
+            <MudButton Href="/settings" Variant="Variant.Outlined" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Settings" Class="touch-target">
+                Settings
             </MudButton>
         </MudStack>
     </MudPaper>
@@ -42,11 +49,80 @@
             <MudAlert Dense="true" Severity="Severity.Warning" Class="mt-2">@_lastError</MudAlert>
         }
     </MudPaper>
+
+    <MudPaper Class="pa-4 status-card">
+        <MudText Typo="Typo.h6">
+            <i class="fa-solid fa-filter-circle-xmark"></i> Data quality (last 24h)
+        </MudText>
+        <MudStack Row="true" Wrap="Wrap.Wrap" Spacing="1" Class="mt-2">
+            <MudChip T="string" Variant="Variant.Outlined" Color="Color.Warning">
+                Dropped invalid readings: @_qualityTotal24h
+            </MudChip>
+            @foreach (var item in _qualityReasons24h)
+            {
+                <MudChip T="string" Variant="Variant.Outlined" Color="Color.Info">
+                    @($"{item.Reason}: {item.Count}")
+                </MudChip>
+            }
+        </MudStack>
+        <MudButton Href="/charts#data-quality"
+                   Variant="Variant.Text"
+                   Color="Color.Primary"
+                   StartIcon="@Icons.Material.Filled.OpenInNew"
+                   Class="mt-2">
+            View details
+        </MudButton>
+    </MudPaper>
+
+    <MudPaper Class="pa-4 status-card">
+        <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center" Wrap="Wrap.Wrap">
+            <MudText Typo="Typo.h6">
+                <i class="fa-solid fa-grip"></i> Current room temperatures and trend status
+            </MudText>
+            <MudButton Href="/charts"
+                       Variant="Variant.Text"
+                       Color="Color.Primary"
+                       StartIcon="@Icons.Material.Filled.OpenInNew">
+                Open charts
+            </MudButton>
+        </MudStack>
+        @if (_homeRoomTiles.Count == 0)
+        {
+            <MudAlert Severity="Severity.Info" Dense="true" Class="mt-2">No room trend data yet.</MudAlert>
+        }
+        else
+        {
+            <div class="room-heat-grid home-room-heat-grid mt-2">
+                @foreach (var tile in _homeRoomTiles)
+                {
+                    <a class="room-heat-tile room-heat-link"
+                       style="background-color:@tile.Color;"
+                       href="@GetRoomDetailsHref(tile.Room)"
+                       title="@($"Open {tile.Room} in Rooms")">
+                        <div class="room-heat-name">
+                            <span class="room-heat-state-square" style="background-color:@tile.CurrentStateColor;" title="@tile.CurrentStateText"></span>
+                            @tile.Room
+                        </div>
+                        <div class="room-heat-temp">@tile.DisplayTemp</div>
+                        <div class="room-heat-meta">@tile.RangeText</div>
+                        <div class="room-heat-meta">@tile.StatusText</div>
+                        <div class="room-heat-meta">@tile.TrendText</div>
+                    </a>
+                }
+            </div>
+        }
+    </MudPaper>
 </MudStack>
 
 @code {
+    private const int HomeTrendHours = 24;
     private string _status = "Loading...";
     private string? _lastError;
+    private int _qualityTotal24h;
+    private List<DataQualityReasonCount> _qualityReasons24h = [];
+    private readonly List<HomeRoomHeatTile> _homeRoomTiles = [];
+
+    private TimeZoneInfo DisplayZone => TimeZoneResolver.Resolve(Options.TimeZoneId);
 
     protected override void OnInitialized()
     {
@@ -56,5 +132,275 @@
             ? "No successful poll yet."
             : $"Last OK: {DisplayClock.FormatGeneral(DateTimeOffset.FromUnixTimeSeconds(ok.Value), Options)}";
         _status = $"Poll interval: {Options.IntervalSec}s · Alerts: {(Options.AlertsEnabled ? "On" : "Off")} · {okText}";
+
+        var quality = Store.GetDataQualitySummary(24);
+        _qualityTotal24h = quality.TotalIgnored;
+        _qualityReasons24h = quality.ByReason.Take(4).ToList();
+        BuildHomeRoomHeatMap();
     }
+
+    private void BuildHomeRoomHeatMap()
+    {
+        _homeRoomTiles.Clear();
+        var rooms = Store.ListRooms().OrderBy(x => x, StringComparer.OrdinalIgnoreCase).ToList();
+        if (rooms.Count == 0)
+            return;
+
+        var sinceTs = DateTimeOffset.UtcNow.ToUnixTimeSeconds() - (HomeTrendHours * 3600L);
+        var activityMap = Store.GetRoomActivityMap();
+        var (ignoreStart, ignoreEnd) = Store.GetTrendIgnoreWindow();
+
+        var tiles = new List<HomeRoomHeatTile>(rooms.Count);
+        foreach (var room in rooms)
+        {
+            var isActive = !activityMap.TryGetValue(room, out var activeFlag) || activeFlag;
+            var rows = Store.SeriesRoom(room, sinceTs);
+            if (rows.Count == 0)
+            {
+                var (missingMin, missingMax) = GetRecommendedTempRange(room, isActive);
+                tiles.Add(new HomeRoomHeatTile(
+                    room,
+                    null,
+                    "—",
+                    "#334155",
+                    $"Recommended {missingMin:0.#} - {missingMax:0.#}C",
+                    $"No data in selected period{(isActive ? string.Empty : ", inactive profile")}",
+                    "Trend unavailable",
+                    null,
+                    -1,
+                    0,
+                    "Current state unavailable",
+                    "#94a3b8"));
+                continue;
+            }
+
+            var current = rows[^1].TempC;
+            var trendRows = rows
+                .Where(x => !IsWithinIgnoreWindow(x.Ts, ignoreStart, ignoreEnd, DisplayZone))
+                .ToList();
+            if (trendRows.Count == 0)
+            {
+                var (missingMin, missingMax) = GetRecommendedTempRange(room, isActive);
+                tiles.Add(new HomeRoomHeatTile(
+                    room,
+                    current,
+                    $"{current:0.0}C",
+                    "#334155",
+                    $"Recommended {missingMin:0.#} - {missingMax:0.#}C",
+                    $"No trend data outside ignored window{(isActive ? string.Empty : ", inactive profile")}",
+                    $"Ignored {ignoreStart:hh\\:mm}-{ignoreEnd:hh\\:mm}",
+                    null,
+                    -1,
+                    0,
+                    "Current state unavailable",
+                    "#94a3b8"));
+                continue;
+            }
+
+            var average = trendRows.Average(static x => x.TempC);
+            var trendDelta = trendRows[^1].TempC - trendRows[0].TempC;
+            var (rangeMin, rangeMax) = GetRecommendedTempRange(room, isActive);
+            var status = average < rangeMin
+                ? "Too cold"
+                : average > rangeMax
+                    ? "Too hot"
+                    : "In range";
+            var statusRank = status switch
+            {
+                "Too hot" => 2,
+                "In range" => 1,
+                _ => 0,
+            };
+            var severity = status switch
+            {
+                "Too hot" => average - rangeMax,
+                "Too cold" => rangeMin - average,
+                _ => Math.Abs(average - ((rangeMin + rangeMax) / 2.0)),
+            };
+            var color = GetComfortGradientColor(average, rangeMin, rangeMax);
+            var (currentStateText, currentStateColor) = GetCurrentState(current, rangeMin, rangeMax);
+            tiles.Add(new HomeRoomHeatTile(
+                room,
+                current,
+                $"{current:0.0}C",
+                color,
+                $"Recommended {rangeMin:0.#} - {rangeMax:0.#}C",
+                $"{status} (avg {average:0.0}C over {HomeTrendHours}h){(isActive ? string.Empty : ", inactive profile")}",
+                $"Trend {FormatTrend(trendDelta)}",
+                trendDelta,
+                statusRank,
+                severity,
+                currentStateText,
+                currentStateColor));
+        }
+
+        _homeRoomTiles.AddRange(tiles
+            .OrderByDescending(static x => x.StatusRank)
+            .ThenByDescending(static x => x.Severity)
+            .ThenByDescending(static x => x.TrendDeltaC.HasValue)
+            .ThenByDescending(static x => x.TrendDeltaC));
+    }
+
+    private static (double Min, double Max) GetRecommendedTempRange(string roomName, bool isActive)
+    {
+        var r = roomName.ToLowerInvariant();
+        var baseRange = r switch
+        {
+            _ when r.Contains("bath") => (21.0, 23.0),
+            _ when r.Contains("bed") => (17.0, 19.0),
+            _ when r.Contains("kitchen") => (18.0, 20.0),
+            _ when r.Contains("hall") || r.Contains("landing") => (16.0, 18.0),
+            _ when r.Contains("living") || r.Contains("lounge") => (20.0, 22.0),
+            _ => (19.0, 21.0),
+        };
+
+        if (isActive)
+            return baseRange;
+
+        const double inactiveOffsetC = 2.0;
+        return (baseRange.Item1 - inactiveOffsetC, baseRange.Item2 - inactiveOffsetC);
+    }
+
+    private static string GetComfortGradientColor(double avgTemp, double targetMin, double targetMax)
+    {
+        if (avgTemp > targetMax)
+        {
+            var tHot = Math.Clamp((avgTemp - targetMax) / 4.0, 0.0, 1.0);
+            if (tHot < 0.33)
+                return "#ff7f50";
+            if (tHot < 0.66)
+                return "#ff4500";
+            return "#b22222";
+        }
+
+        if (avgTemp < targetMin)
+        {
+            var tCold = Math.Clamp((targetMin - avgTemp) / 4.0, 0.0, 1.0);
+            if (tCold < 0.33)
+                return "#87cefa";
+            if (tCold < 0.66)
+                return "#00bfff";
+            return "#1e3a8a";
+        }
+
+        return "#2e8b57";
+    }
+
+    private static (string Text, string Color) GetCurrentState(double currentTemp, double targetMin, double targetMax)
+    {
+        if (currentTemp > targetMax)
+            return ("Now: too warm", "#b22222");
+        if (currentTemp < targetMin)
+            return ("Now: too cold", "#1e3a8a");
+        return ("Now: in range", "#2e8b57");
+    }
+
+    private static string FormatTrend(double trendDelta)
+    {
+        if (trendDelta > 0.4)
+            return $"up {trendDelta:+0.0;-0.0;0.0}C";
+        if (trendDelta < -0.4)
+            return $"down {trendDelta:+0.0;-0.0;0.0}C";
+        return $"steady {trendDelta:+0.0;-0.0;0.0}C";
+    }
+
+    private static bool IsWithinIgnoreWindow(long timestampUtc, TimeSpan ignoreStart, TimeSpan ignoreEnd, TimeZoneInfo zone)
+    {
+        if (ignoreStart == ignoreEnd)
+            return false;
+
+        var localTod = TimeZoneInfo.ConvertTime(DateTimeOffset.FromUnixTimeSeconds(timestampUtc), zone).TimeOfDay;
+        if (ignoreStart < ignoreEnd)
+            return localTod >= ignoreStart && localTod < ignoreEnd;
+
+        return localTod >= ignoreStart || localTod < ignoreEnd;
+    }
+
+    private static string GetRoomDetailsHref(string roomName) => $"/rooms#{BuildRoomAnchorId(roomName)}";
+
+    private static string BuildRoomAnchorId(string roomName)
+    {
+        var chars = roomName.Trim().ToLowerInvariant()
+            .Select(static c => char.IsLetterOrDigit(c) ? c : '-')
+            .ToArray();
+        var normalized = new string(chars).Trim('-');
+        return $"room-{(string.IsNullOrWhiteSpace(normalized) ? "unknown" : normalized)}";
+    }
+
+    private sealed record HomeRoomHeatTile(
+        string Room,
+        double? TempC,
+        string DisplayTemp,
+        string Color,
+        string RangeText,
+        string StatusText,
+        string TrendText,
+        double? TrendDeltaC,
+        int StatusRank,
+        double Severity,
+        string CurrentStateText,
+        string CurrentStateColor);
 }
+
+<style>
+    .home-room-heat-grid {
+        grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+    }
+
+    .room-heat-grid {
+        display: grid;
+        gap: 8px;
+    }
+
+    .room-heat-tile {
+        border-radius: 6px;
+        border: 1px solid rgba(255, 255, 255, 0.18);
+        padding: 8px 10px;
+        color: #f8fafc;
+        min-height: 62px;
+        display: flex;
+        flex-direction: column;
+        justify-content: space-between;
+        text-decoration: none;
+    }
+
+    .room-heat-link {
+        transition: transform 0.12s ease, box-shadow 0.12s ease;
+    }
+
+    .room-heat-link:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 4px 12px rgba(15, 23, 42, 0.35);
+    }
+
+    .room-heat-name {
+        font-size: 0.9rem;
+        font-weight: 600;
+        line-height: 1.1;
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+    }
+
+    .room-heat-temp {
+        font-size: 0.92rem;
+        font-weight: 700;
+        color: #f8fafc;
+    }
+
+    .room-heat-state-square {
+        width: 10px;
+        height: 10px;
+        border-radius: 2px;
+        border: 1px solid rgba(248, 250, 252, 0.75);
+        box-shadow: 0 0 0 1px rgba(15, 23, 42, 0.55);
+        display: inline-block;
+        flex: 0 0 auto;
+    }
+
+    .room-heat-meta {
+        font-size: 0.76rem;
+        opacity: 0.92;
+        line-height: 1.2;
+    }
+</style>
