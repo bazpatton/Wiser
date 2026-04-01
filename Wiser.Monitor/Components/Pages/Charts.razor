@@ -70,6 +70,31 @@
     </MudPaper>
 
     <MudPaper Class="pa-3 chart-card">
+        <MudText Typo="Typo.h6" Class="mb-2">
+            <i class="fa-solid fa-grip"></i> Current room temperatures and trend status
+        </MudText>
+        @if (_roomTiles.Count == 0)
+        {
+            <MudAlert Severity="Severity.Info" Dense="true">No heatmap data yet.</MudAlert>
+        }
+        else
+        {
+            <div class="room-heat-grid">
+                @foreach (var tile in _roomTiles)
+                {
+                    <div class="room-heat-tile" style="background-color:@tile.Color;">
+                        <div class="room-heat-name">@tile.Room</div>
+                        <div class="room-heat-temp">@tile.DisplayTemp</div>
+                        <div class="room-heat-meta">@tile.RangeText</div>
+                        <div class="room-heat-meta">@tile.StatusText</div>
+                        <div class="room-heat-meta">@tile.TrendText</div>
+                    </div>
+                }
+            </div>
+        }
+    </MudPaper>
+
+    <MudPaper Class="pa-3 chart-card">
         @if (!string.IsNullOrWhiteSpace(_error))
         {
             <MudAlert Severity="Severity.Error" Dense="true">@_error</MudAlert>
@@ -101,31 +126,6 @@
                     <text x="0" y="-2" text-anchor="middle" fill="#cbd5e1" style="font-size:10px">@path.LabelYValue</text>
                 </TooltipTemplate>
             </MudChart>
-        }
-    </MudPaper>
-
-    <MudPaper Class="pa-3 chart-card">
-        <MudText Typo="Typo.h6" Class="mb-2">
-            <i class="fa-solid fa-grip"></i> Current room temperatures
-        </MudText>
-        @if (_roomTiles.Count == 0)
-        {
-            <MudAlert Severity="Severity.Info" Dense="true">No heatmap data yet.</MudAlert>
-        }
-        else
-        {
-            <div class="room-heat-grid">
-                @foreach (var tile in _roomTiles)
-                {
-                    <div class="room-heat-tile" style="background-color:@tile.Color;">
-                        <div class="room-heat-name">@tile.Room</div>
-                        <div class="room-heat-temp">@tile.DisplayTemp</div>
-                        <div class="room-heat-meta">@tile.RangeText</div>
-                        <div class="room-heat-meta">@tile.StatusText</div>
-                        <div class="room-heat-meta">@tile.TrendText</div>
-                    </div>
-                }
-            </div>
         }
     </MudPaper>
 
