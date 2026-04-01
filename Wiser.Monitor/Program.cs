@@ -172,7 +172,8 @@ app.MapPost("/api/room/mode", async (RoomModeRequest body, WiserHubFetch hub, Mo
 app.MapGet("/api/daily-summary", (int? days, TemperatureStore store, MonitorOptions o) =>
 {
     var d = Math.Clamp(days ?? 14, 1, 90);
-    var rows = store.GetDailySummaries(d, Math.Max(10, o.IntervalSec));
+    var zone = TimeZoneResolver.Resolve(o.TimeZoneId);
+    var rows = store.GetDailySummaries(d, Math.Max(10, o.IntervalSec), zone);
     return Results.Json(new
     {
         days = rows,
@@ -202,7 +203,8 @@ app.MapGet("/api/data-quality-summary", (int? hours, TemperatureStore store) =>
 app.MapGet("/api/export/daily-summary.csv", (int? days, TemperatureStore store, MonitorOptions o) =>
 {
     var d = Math.Clamp(days ?? 14, 1, 366);
-    var rows = store.GetDailySummaries(d, Math.Max(10, o.IntervalSec))
+    var zone = TimeZoneResolver.Resolve(o.TimeZoneId);
+    var rows = store.GetDailySummaries(d, Math.Max(10, o.IntervalSec), zone)
         .OrderByDescending(static x => x.Date, StringComparer.Ordinal);
 
     var csv = new StringBuilder();
@@ -221,12 +223,13 @@ app.MapGet("/api/export/daily-summary.csv", (int? days, TemperatureStore store, 
     return Results.File(Encoding.UTF8.GetBytes(csv.ToString()), "text/csv; charset=utf-8", $"daily-summary-{d}d.csv");
 });
 
-app.MapGet("/api/export/room-trends.csv", (int? hours, TemperatureStore store) =>
+app.MapGet("/api/export/room-trends.csv", (int? hours, TemperatureStore store, MonitorOptions o) =>
 {
     var h = Math.Clamp(hours ?? 24, 1, 24 * 14);
     var since = DateTimeOffset.UtcNow.ToUnixTimeSeconds() - h * 3600L;
     var activity = store.GetRoomActivityMap();
     var (ignoreStart, ignoreEnd) = store.GetTrendIgnoreWindow();
+    var zone = TimeZoneResolver.Resolve(o.TimeZoneId);
     var rooms = store.ListRooms().OrderBy(x => x, StringComparer.OrdinalIgnoreCase).ToList();
 
     var csv = new StringBuilder();
@@ -241,7 +244,7 @@ app.MapGet("/api/export/room-trends.csv", (int? hours, TemperatureStore store) =
         var current = rows[^1].TempC;
         var isActive = !activity.TryGetValue(room, out var activeFlag) || activeFlag;
         var (rangeMin, rangeMax) = GetRecommendedTempRange(room, isActive);
-        var filtered = rows.Where(x => !IsWithinIgnoreWindow(x.Ts, ignoreStart, ignoreEnd)).ToList();
+        var filtered = rows.Where(x => !IsWithinIgnoreWindow(x.Ts, ignoreStart, ignoreEnd, zone)).ToList();
         if (filtered.Count == 0)
         {
             csv.Append(EscapeCsv(room)).Append(',')
@@ -385,12 +388,12 @@ static (double Min, double Max) GetRecommendedTempRange(string roomName, bool is
     return (baseRange.Item1 - inactiveOffsetC, baseRange.Item2 - inactiveOffsetC);
 }
 
-static bool IsWithinIgnoreWindow(long timestampUtc, TimeSpan ignoreStart, TimeSpan ignoreEnd)
+static bool IsWithinIgnoreWindow(long timestampUtc, TimeSpan ignoreStart, TimeSpan ignoreEnd, TimeZoneInfo zone)
 {
     if (ignoreStart == ignoreEnd)
         return false;
 
-    var localTod = DateTimeOffset.FromUnixTimeSeconds(timestampUtc).ToLocalTime().TimeOfDay;
+    var localTod = TimeZoneInfo.ConvertTime(DateTimeOffset.FromUnixTimeSeconds(timestampUtc), zone).TimeOfDay;
     if (ignoreStart < ignoreEnd)
         return localTod >= ignoreStart && localTod < ignoreEnd;
 

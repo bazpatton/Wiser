@@ -14,6 +14,7 @@ public sealed class MonitorOptions
     public double? OpenMeteoLat { get; set; }
     public double? OpenMeteoLon { get; set; }
     public string DataDir { get; set; } = "./data";
+    public string? TimeZoneId { get; set; }
 
     public bool UseHighAlert => TempAlertAboveC > 0;
     public bool UseLowAlert => TempAlertBelowC.HasValue;
@@ -76,6 +77,9 @@ public sealed class MonitorOptions
             OpenMeteoLat = lat,
             OpenMeteoLon = lon,
             DataDir = string.IsNullOrWhiteSpace(cfg["DATA_DIR"]) ? "./data" : cfg["DATA_DIR"]!.Trim(),
+            TimeZoneId = string.IsNullOrWhiteSpace(cfg["TIME_ZONE"])
+                ? (string.IsNullOrWhiteSpace(cfg["TZ"]) ? null : cfg["TZ"]!.Trim())
+                : cfg["TIME_ZONE"]!.Trim(),
         };
     }
 

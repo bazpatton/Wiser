@@ -232,14 +232,14 @@ public sealed class TemperatureStore
     /// <summary>
     /// Per local calendar day: simple HDD (15.5 °C base − mean outdoor) and heating-time proxy from poll counts × interval.
     /// </summary>
-    public IReadOnlyList<DailySummaryRow> GetDailySummaries(int days, int pollIntervalSec)
+    public IReadOnlyList<DailySummaryRow> GetDailySummaries(int days, int pollIntervalSec, TimeZoneInfo? zone = null)
     {
         days = Math.Clamp(days, 1, 366);
         var intervalMin = pollIntervalSec / 60.0;
         const double hddBaseC = 15.5;
         var list = new List<DailySummaryRow>();
-        var today = DateTime.Now.Date;
-        var localZone = TimeZoneInfo.Local;
+        var localZone = zone ?? TimeZoneInfo.Local;
+        var today = TimeZoneInfo.ConvertTime(DateTimeOffset.UtcNow, localZone).Date;
 
         lock (_gate)
         {

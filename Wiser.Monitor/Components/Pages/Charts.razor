@@ -146,7 +146,7 @@
                         var path = context.Segment;
                         var i = path.Index;
                         var when = i >= 0 && i < _pointTs.Length
-                            ? DateTimeOffset.FromUnixTimeSeconds(_pointTs[i]).ToLocalTime().ToString("g", CultureInfo.CurrentCulture)
+                            ? TimeZoneInfo.ConvertTime(DateTimeOffset.FromUnixTimeSeconds(_pointTs[i]), DisplayZone).ToString("g", CultureInfo.CurrentCulture)
                             : path.LabelXValue;
                     }
                     <rect x="-76" y="-30" width="152" height="34" rx="6" ry="6" fill="#0f172ae6" stroke="#334155" stroke-width="1" />
@@ -213,6 +213,7 @@
         : $"Last updated: {_lastRefreshAt.Value:HH:mm:ss} ({(int)Math.Max(0, (DateTimeOffset.Now - _lastRefreshAt.Value).TotalSeconds)}s ago)";
     private string DailySummaryCsvHref => "/api/export/daily-summary.csv?days=14";
     private string RoomTrendsCsvHref => $"/api/export/room-trends.csv?hours={_hours}";
+    private TimeZoneInfo DisplayZone => TimeZoneResolver.Resolve(Options.TimeZoneId);
 
     protected override async Task OnInitializedAsync()
     {
@@ -268,7 +269,7 @@
                 return Task.CompletedTask;
 
             _pointTs = roomRows.Select(static x => x.Ts).ToArray();
-            _labels = BuildSparseTimeLabels(_pointTs, _hours);
+            _labels = BuildSparseTimeLabels(_pointTs, _hours, DisplayZone);
             ApplyLineChartOptions(roomRows.Count);
 
             _series =
@@ -354,7 +355,7 @@
     /// <summary>
     /// Fewer x labels for long windows so MudChart does not draw overlapping timestamps. Tooltip still shows exact time.
     /// </summary>
-    private static string[] BuildSparseTimeLabels(IReadOnlyList<long> timestampsUtc, int hoursWindow)
+    private static string[] BuildSparseTimeLabels(IReadOnlyList<long> timestampsUtc, int hoursWindow, TimeZoneInfo zone)
     {
         var n = timestampsUtc.Count;
         if (n == 0)
@@ -384,7 +385,7 @@
         {
             var show = i == 0 || i == n - 1 || i % step == 0;
             labels[i] = show
-                ? DateTimeOffset.FromUnixTimeSeconds(timestampsUtc[i]).ToLocalTime().ToString(format, CultureInfo.CurrentCulture)
+                ? TimeZoneInfo.ConvertTime(DateTimeOffset.FromUnixTimeSeconds(timestampsUtc[i]), zone).ToString(format, CultureInfo.CurrentCulture)
                 : string.Empty;
         }
 
@@ -424,7 +425,7 @@
 
             var current = rows[^1].TempC;
             var trendRows = rows
-                .Where(x => !IsWithinIgnoreWindow(x.Ts, ignoreStart, ignoreEnd))
+                .Where(x => !IsWithinIgnoreWindow(x.Ts, ignoreStart, ignoreEnd, DisplayZone))
                 .ToList();
             if (trendRows.Count == 0)
             {
@@ -490,7 +491,7 @@
     {
         _dailyRows.Clear();
         _dailyRows.AddRange(
-            Store.GetDailySummaries(14, Math.Max(10, Options.IntervalSec))
+            Store.GetDailySummaries(14, Math.Max(10, Options.IntervalSec), DisplayZone)
                 .OrderByDescending(static x => x.Date, StringComparer.Ordinal));
     }
 
@@ -577,12 +578,12 @@
         return $"steady {trendDelta:+0.0;-0.0;0.0}C";
     }
 
-    private static bool IsWithinIgnoreWindow(long timestampUtc, TimeSpan ignoreStart, TimeSpan ignoreEnd)
+    private static bool IsWithinIgnoreWindow(long timestampUtc, TimeSpan ignoreStart, TimeSpan ignoreEnd, TimeZoneInfo zone)
     {
         if (ignoreStart == ignoreEnd)
             return false;
 
-        var localTod = DateTimeOffset.FromUnixTimeSeconds(timestampUtc).ToLocalTime().TimeOfDay;
+        var localTod = TimeZoneInfo.ConvertTime(DateTimeOffset.FromUnixTimeSeconds(timestampUtc), zone).TimeOfDay;
         if (ignoreStart < ignoreEnd)
             return localTod >= ignoreStart && localTod < ignoreEnd;
 

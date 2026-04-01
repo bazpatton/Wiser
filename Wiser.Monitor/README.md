@@ -12,6 +12,7 @@ The app **requires** `WISER_IP` and `WISER_SECRET` (same values as Wiser.Control
 cd Wiser.Monitor
 $env:WISER_IP="192.168.x.x"
 $env:WISER_SECRET="your-secret"
+$env:TIME_ZONE="Europe/London"
 $env:DATA_DIR=".\data"
 dotnet run
 ```
