@@ -732,8 +732,9 @@
                 });
             }
 
+            // Omit 0% so idle TRVs do not draw long lines on the bottom (only demand > 0 is plotted).
             var valvePairs = dedup
-                .Where(static r => r.PercentageDemand.HasValue)
+                .Where(static r => r.PercentageDemand is > 0)
                 .Select(r => (TsToHeatChartDateTime(r.Ts), (double)r.PercentageDemand!.Value))
                 .OrderBy(x => x.Item1)
                 .ToList();
