@@ -131,6 +131,41 @@
     </MudPaper>
 
     <MudPaper Class="pa-3 chart-card">
+        @if (!string.IsNullOrWhiteSpace(_error))
+        {
+            <MudAlert Severity="Severity.Error" Dense="true">@_error</MudAlert>
+        }
+        else if (_series.Count == 0)
+        {
+            <MudAlert Severity="Severity.Info" Dense="true">No chart data yet.</MudAlert>
+        }
+        else
+        {
+            <MudChart T="double"
+                      ChartType="ChartType.Line"
+                      ChartSeries="_series"
+                      ChartLabels="_labels"
+                      ChartOptions="_lineOptions"
+                      Width="100%"
+                      MatchBoundsToSize="true"
+                      Class="@ChartHostClass">
+                <TooltipTemplate>
+                    @{
+                        var path = context.Segment;
+                        var i = path.Index;
+                        var when = i >= 0 && i < _pointTs.Length
+                            ? TimeZoneInfo.ConvertTime(DateTimeOffset.FromUnixTimeSeconds(_pointTs[i]), DisplayZone).ToString("g", CultureInfo.CurrentCulture)
+                            : path.LabelXValue;
+                    }
+                    <rect x="-76" y="-30" width="152" height="34" rx="6" ry="6" fill="#0f172ae6" stroke="#334155" stroke-width="1" />
+                    <text x="0" y="-16" text-anchor="middle" fill="#f8fafc" style="font-size:11px;font-weight:600">@when</text>
+                    <text x="0" y="-2" text-anchor="middle" fill="#cbd5e1" style="font-size:10px">@path.LabelYValue</text>
+                </TooltipTemplate>
+            </MudChart>
+        }
+    </MudPaper>
+
+    <MudPaper Class="pa-3 chart-card">
         <MudText Typo="Typo.h6" Class="mb-2">
             <i class="fa-solid fa-calendar-check"></i> Comfort Compliance Timeline (7 days)
         </MudText>
@@ -187,41 +222,6 @@
                       Width="100%"
                       MatchBoundsToSize="true"
                       Class="mud-chart-responsive" />
-        }
-    </MudPaper>
-
-    <MudPaper Class="pa-3 chart-card">
-        @if (!string.IsNullOrWhiteSpace(_error))
-        {
-            <MudAlert Severity="Severity.Error" Dense="true">@_error</MudAlert>
-        }
-        else if (_series.Count == 0)
-        {
-            <MudAlert Severity="Severity.Info" Dense="true">No chart data yet.</MudAlert>
-        }
-        else
-        {
-            <MudChart T="double"
-                      ChartType="ChartType.Line"
-                      ChartSeries="_series"
-                      ChartLabels="_labels"
-                      ChartOptions="_lineOptions"
-                      Width="100%"
-                      MatchBoundsToSize="true"
-                      Class="@ChartHostClass">
-                <TooltipTemplate>
-                    @{
-                        var path = context.Segment;
-                        var i = path.Index;
-                        var when = i >= 0 && i < _pointTs.Length
-                            ? TimeZoneInfo.ConvertTime(DateTimeOffset.FromUnixTimeSeconds(_pointTs[i]), DisplayZone).ToString("g", CultureInfo.CurrentCulture)
-                            : path.LabelXValue;
-                    }
-                    <rect x="-76" y="-30" width="152" height="34" rx="6" ry="6" fill="#0f172ae6" stroke="#334155" stroke-width="1" />
-                    <text x="0" y="-16" text-anchor="middle" fill="#f8fafc" style="font-size:11px;font-weight:600">@when</text>
-                    <text x="0" y="-2" text-anchor="middle" fill="#cbd5e1" style="font-size:10px">@path.LabelYValue</text>
-                </TooltipTemplate>
-            </MudChart>
         }
     </MudPaper>
 
