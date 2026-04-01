@@ -111,9 +111,11 @@
                 @foreach (var tile in _roomTiles)
                 {
                     <div class="room-heat-tile" style="background-color:@tile.Color;">
-                        <div class="room-heat-name">@tile.Room</div>
-                        <div class="room-heat-temp">
+                        <div class="room-heat-name">
                             <span class="room-heat-state-square" style="background-color:@tile.CurrentStateColor;" title="@tile.CurrentStateText"></span>
+                            @tile.Room
+                        </div>
+                        <div class="room-heat-temp">
                             @tile.DisplayTemp
                         </div>
                         <div class="room-heat-meta">@tile.RangeText</div>
@@ -647,6 +649,9 @@
         font-size: 0.9rem;
         font-weight: 600;
         line-height: 1.1;
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
     }
 
     .room-heat-temp {
