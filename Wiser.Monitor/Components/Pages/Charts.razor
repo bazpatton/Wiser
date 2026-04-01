@@ -84,8 +84,16 @@
                 No qualifying rooms in the last 24 hours (no heating-active polls and no per-room demand), or no samples yet.
             </MudAlert>
         }
+        else if (!HeatCallingAnyRoomVisible)
+        {
+            <MudAlert Severity="Severity.Info" Dense="true" Class="mb-2">
+                All rooms are hidden. Tap a grey chip to show it again, or use <strong>Show all</strong>.
+            </MudAlert>
+            @HeatCallingRoomChipRow()
+        }
         else
         {
+            @HeatCallingRoomChipRow()
             @if (_heatCallingTempTsSeries.Count == 0)
             {
                 <MudAlert Severity="Severity.Info" Dense="true" Class="mb-3">
@@ -388,7 +396,7 @@
         InterpolationOption = InterpolationOption.Straight,
         ShowToolTips = true,
         TimeLabelFormat = "HH:mm",
-        TimeLabelSpacing = TimeSpan.FromMinutes(30),
+        TimeLabelSpacing = TimeSpan.FromHours(2),
         TooltipTimeLabelFormat = "g",
         XAxisTitle = "Time (local, last 24h)",
         YAxisTitle = "°C",
@@ -398,7 +406,7 @@
         InterpolationOption = InterpolationOption.Straight,
         ShowToolTips = true,
         TimeLabelFormat = "HH:mm",
-        TimeLabelSpacing = TimeSpan.FromMinutes(30),
+        TimeLabelSpacing = TimeSpan.FromHours(2),
         TooltipTimeLabelFormat = "g",
         XAxisTitle = "Time (local, last 24h)",
         YAxisTitle = "Valve %",
@@ -487,6 +495,7 @@
         _heatCallingValveTsSeries = [];
         _heatCallingHasValveSeries = false;
         _heatCallingHasAnyPlottedSeries = false;
+        _heatCallingRoomPickerNames = [];
         _roomTiles.Clear();
         _comfortComplianceLabels = [];
         _comfortComplianceSeries = [];
