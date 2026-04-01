@@ -106,7 +106,7 @@
 
     <MudPaper Class="pa-3 chart-card">
         <MudText Typo="Typo.h6" Class="mb-2">
-            <i class="fa-solid fa-grip"></i> Room temperature heatmap
+            <i class="fa-solid fa-grip"></i> Current room temperatures
         </MudText>
         @if (_heatmapSeries.Count == 0 || _heatmapLabels.Length == 0)
         {
@@ -120,7 +120,7 @@
                       ChartLabels="_heatmapLabels"
                       ChartOptions="_heatMapOptions"
                       Width="100%"
-                      Height="360px"
+                      Height="@HeatMapHeight"
                       MatchBoundsToSize="true"
                       Class="mud-chart-responsive" />
         }
@@ -173,9 +173,10 @@
     {
         EnableSmoothGradient = true,
         ShowToolTips = true,
-        ShowLabels = false,
+        ShowLabels = true,
         ShowLegendLabels = true,
         ValueFormatString = "0.0",
+        TooltipTitleFormat = "{{SERIES_NAME}}",
     };
 
     private string ChartHostClass => _hours >= 168
@@ -183,6 +184,7 @@
         : _hours > 24
             ? "mud-chart-responsive chart-range-medium"
             : "mud-chart-responsive";
+    private string HeatMapHeight => $"{Math.Clamp((_heatmapSeries.Count * 38) + 80, 220, 680)}px";
 
     protected override async Task OnInitializedAsync()
     {
@@ -280,7 +282,7 @@
                 }
             }
 
-            BuildRoomHeatMap(since);
+            BuildRoomHeatMap();
         }
         catch (Exception ex)
         {
@@ -353,54 +355,22 @@
         return labels;
     }
 
-    private void BuildRoomHeatMap(long sinceTs)
+    private void BuildRoomHeatMap()
     {
         if (_rooms.Count == 0)
             return;
 
-        var nowTs = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
-        var totalSeconds = Math.Max(1, nowTs - sinceTs);
-        var bucketCount = _hours switch
-        {
-            <= 12 => 12,
-            <= 24 => 24,
-            <= 48 => 24,
-            <= 96 => 32,
-            _ => 42,
-        };
-        var bucketSizeSec = Math.Max(1, totalSeconds / bucketCount);
-        var labelFormat = _hours > 24 ? "M/d HH:mm" : "HH:mm";
-
-        _heatmapLabels = Enumerable.Range(0, bucketCount)
-            .Select(i =>
-            {
-                var ts = sinceTs + (i * bucketSizeSec);
-                return DateTimeOffset.FromUnixTimeSeconds(ts).ToLocalTime().ToString(labelFormat, CultureInfo.CurrentCulture);
-            })
-            .ToArray();
-
+        var latestByRoom = Store.LatestByRoom();
+        _heatmapLabels = ["Current"];
         var allSeries = new List<ChartSeries<double>>(_rooms.Count);
         foreach (var room in _rooms)
         {
-            var rows = Store.SeriesRoom(room, sinceTs);
-            var sums = new double[bucketCount];
-            var counts = new int[bucketCount];
-
-            foreach (var row in rows)
-            {
-                var idx = (int)Math.Clamp((row.Ts - sinceTs) / bucketSizeSec, 0, bucketCount - 1);
-                sums[idx] += row.TempC;
-                counts[idx]++;
-            }
-
-            var data = new double[bucketCount];
-            for (var i = 0; i < bucketCount; i++)
-                data[i] = counts[i] > 0 ? sums[i] / counts[i] : double.NaN;
+            var temp = latestByRoom.TryGetValue(room, out var latest) ? latest.TempC : double.NaN;
 
             allSeries.Add(new ChartSeries<double>
             {
                 Name = room,
-                Data = data,
+                Data = new[] { temp },
             });
         }
 
