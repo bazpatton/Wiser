@@ -11,6 +11,9 @@ wiser-monitor/.venv/
 Wiser.Monitor/.env
 Wiser.Monitor/data/
 
+# Visual Studio / VS Code solution cache (local only)
+.vs/
+
 # Local build / tooling artifacts at repo root
 _bcPlatforms/
 _out_build_checkPlatforms/
