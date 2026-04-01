@@ -238,8 +238,13 @@ public static class HubDeviceParser
                 return roomForTrv;
         }
 
-        // Fallback convention: device id equals room id.
-        if (deviceId is int did && roomNameById.TryGetValue(did, out var byDeviceId))
+        // Conservative fallback: only use device-id == room-id for explicit room-linked sources.
+        var allowIdFallback = sourceKey.Equals("RoomStat", StringComparison.OrdinalIgnoreCase)
+            || sourceKey.Equals("SmartValve", StringComparison.OrdinalIgnoreCase)
+            || deviceType.Equals("TRV", StringComparison.OrdinalIgnoreCase)
+            || deviceType.Contains("sensor", StringComparison.OrdinalIgnoreCase)
+            || deviceType.Contains("stat", StringComparison.OrdinalIgnoreCase);
+        if (allowIdFallback && deviceId is int did && roomNameById.TryGetValue(did, out var byDeviceId))
             return byDeviceId;
 
         return null;
