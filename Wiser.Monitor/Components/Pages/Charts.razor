@@ -4,7 +4,6 @@
 
 @inject TemperatureStore Store
 @inject MonitorOptions Options
-@implements IAsyncDisposable
 
 <PageTitle>Wiser Monitor - Charts</PageTitle>
 
@@ -18,7 +17,7 @@
         </MudText>
         <MudStack Row="true" Spacing="1" Wrap="Wrap.Wrap" Class="mt-2">
             <MudChip T="string" Variant="Variant.Outlined" Color="Color.Warning">
-                Ignored readings (24h): @_qualityTotal24h
+                Dropped invalid readings (24h): @_qualityTotal24h
             </MudChip>
             @foreach (var rc in _qualityReasons24h)
             {
@@ -69,34 +68,14 @@
                              Class="touch-control" />
             </MudItem>
             <MudItem xs="12" md="2" Class="d-flex align-stretch">
-                <MudStack Row="true" Spacing="1" Wrap="Wrap.Wrap" Class="w-100">
-                    <MudCheckBox T="bool"
-                                 Label="Auto refresh"
-                                 Value="_autoRefreshEnabled"
-                                 ValueChanged="OnAutoRefreshChanged"
-                                 Class="touch-control" />
-                    <MudSelect T="int"
-                               Label="Interval"
-                               Value="_autoRefreshSec"
-                               ValueChanged="OnAutoRefreshSecondsChanged"
-                               Variant="Variant.Outlined"
-                               Dense="true"
-                               Margin="Margin.Dense"
-                               Class="touch-control"
-                               Disabled="@(!_autoRefreshEnabled)">
-                        <MudSelectItem Value="15">15s</MudSelectItem>
-                        <MudSelectItem Value="30">30s</MudSelectItem>
-                        <MudSelectItem Value="60">60s</MudSelectItem>
-                        <MudSelectItem Value="120">120s</MudSelectItem>
-                    </MudSelect>
-                    <MudButton Variant="Variant.Filled"
-                               Color="Color.Primary"
-                               StartIcon="@Icons.Material.Filled.Refresh"
-                               Class="touch-target charts-refresh-btn"
-                               OnClick="LoadChartAsync">
-                        Refresh
-                    </MudButton>
-                </MudStack>
+                <MudButton Variant="Variant.Filled"
+                           Color="Color.Primary"
+                           StartIcon="@Icons.Material.Filled.Refresh"
+                           FullWidth="true"
+                           Class="touch-target charts-refresh-btn"
+                           OnClick="LoadChartAsync">
+                    Refresh
+                </MudButton>
             </MudItem>
         </MudGrid>
         <MudStack Row="true" Spacing="1" Wrap="Wrap.Wrap" Class="mt-2">
@@ -209,11 +188,7 @@
     private int _hours = 24;
     private bool _includeOutdoor = true;
     private string? _error;
-    private bool _autoRefreshEnabled;
-    private int _autoRefreshSec = 30;
     private DateTimeOffset? _lastRefreshAt;
-    private CancellationTokenSource? _autoRefreshCts;
-    private Task? _autoRefreshTask;
     private int _qualityTotal24h;
     private List<DataQualityReasonCount> _qualityReasons24h = [];
 
@@ -272,47 +247,6 @@
     {
         _includeOutdoor = include;
         return LoadChartAsync();
-    }
-
-    private Task OnAutoRefreshChanged(bool enabled)
-    {
-        _autoRefreshEnabled = enabled;
-        ConfigureAutoRefresh();
-        return Task.CompletedTask;
-    }
-
-    private Task OnAutoRefreshSecondsChanged(int seconds)
-    {
-        _autoRefreshSec = seconds;
-        ConfigureAutoRefresh();
-        return Task.CompletedTask;
-    }
-
-    private void ConfigureAutoRefresh()
-    {
-        _autoRefreshCts?.Cancel();
-        _autoRefreshCts?.Dispose();
-        _autoRefreshCts = null;
-        _autoRefreshTask = null;
-
-        if (!_autoRefreshEnabled)
-            return;
-
-        _autoRefreshCts = new CancellationTokenSource();
-        var ct = _autoRefreshCts.Token;
-        _autoRefreshTask = Task.Run(async () =>
-        {
-            using var timer = new PeriodicTimer(TimeSpan.FromSeconds(Math.Max(10, _autoRefreshSec)));
-            try
-            {
-                while (await timer.WaitForNextTickAsync(ct))
-                    await InvokeAsync(LoadChartAsync);
-            }
-            catch (OperationCanceledException)
-            {
-                // expected on toggle/teardown
-            }
-        }, ct);
     }
 
     private Task LoadChartAsync()
@@ -656,13 +590,6 @@
         string TrendText,
         double? TrendDeltaC,
         int StatusRank);
-
-    public ValueTask DisposeAsync()
-    {
-        _autoRefreshCts?.Cancel();
-        _autoRefreshCts?.Dispose();
-        return ValueTask.CompletedTask;
-    }
 }
 
 <style>

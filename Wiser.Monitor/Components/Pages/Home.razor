@@ -52,7 +52,7 @@
         </MudText>
         <MudStack Row="true" Wrap="Wrap.Wrap" Spacing="1" Class="mt-2">
             <MudChip T="string" Variant="Variant.Outlined" Color="Color.Warning">
-                Ignored readings: @_qualityTotal24h
+                Dropped invalid readings: @_qualityTotal24h
             </MudChip>
             @foreach (var item in _qualityReasons24h)
             {
