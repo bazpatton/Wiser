@@ -352,6 +352,7 @@
             return;
 
         var activityMap = Store.GetRoomActivityMap();
+        var (ignoreStart, ignoreEnd) = Store.GetTrendIgnoreWindow();
         _roomTiles.Clear();
         var tiles = new List<RoomHeatTile>(_rooms.Count);
 
@@ -376,8 +377,27 @@
             }
 
             var current = rows[^1].TempC;
-            var average = rows.Average(static x => x.TempC);
-            var trendDelta = rows[^1].TempC - rows[0].TempC;
+            var trendRows = rows
+                .Where(x => !IsWithinIgnoreWindow(x.Ts, ignoreStart, ignoreEnd))
+                .ToList();
+            if (trendRows.Count == 0)
+            {
+                var (missingMin, missingMax) = GetRecommendedTempRange(room, isActive);
+                tiles.Add(new RoomHeatTile(
+                    room,
+                    current,
+                    $"{current:0.0}C",
+                    "#334155",
+                    $"Recommended {missingMin:0.#} - {missingMax:0.#}C",
+                    $"No trend data outside ignored window{(isActive ? string.Empty : ", inactive profile")}",
+                    $"Ignored {ignoreStart:hh\\:mm}-{ignoreEnd:hh\\:mm}",
+                    null,
+                    -1));
+                continue;
+            }
+
+            var average = trendRows.Average(static x => x.TempC);
+            var trendDelta = trendRows[^1].TempC - trendRows[0].TempC;
 
             var (rangeMin, rangeMax) = GetRecommendedTempRange(room, isActive);
             var status = average < rangeMin
@@ -500,6 +520,19 @@
         if (trendDelta < -0.4)
             return $"down {trendDelta:+0.0;-0.0;0.0}C";
         return $"steady {trendDelta:+0.0;-0.0;0.0}C";
+    }
+
+    private static bool IsWithinIgnoreWindow(long timestampUtc, TimeSpan ignoreStart, TimeSpan ignoreEnd)
+    {
+        if (ignoreStart == ignoreEnd)
+            return false;
+
+        var localTod = DateTimeOffset.FromUnixTimeSeconds(timestampUtc).ToLocalTime().TimeOfDay;
+        if (ignoreStart < ignoreEnd)
+            return localTod >= ignoreStart && localTod < ignoreEnd;
+
+        // Overnight window e.g. 22:00 -> 06:00
+        return localTod >= ignoreStart || localTod < ignoreEnd;
     }
 
     private sealed record RoomHeatTile(
