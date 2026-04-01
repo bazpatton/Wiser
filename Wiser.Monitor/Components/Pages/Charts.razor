@@ -403,7 +403,9 @@
     private void LoadDailyRows()
     {
         _dailyRows.Clear();
-        _dailyRows.AddRange(Store.GetDailySummaries(14, Math.Max(10, Options.IntervalSec)));
+        _dailyRows.AddRange(
+            Store.GetDailySummaries(14, Math.Max(10, Options.IntervalSec))
+                .OrderByDescending(static x => x.Date, StringComparer.Ordinal));
     }
 
     private static double?[] AlignOutdoor(long[] timestamps, IReadOnlyList<OutdoorSeriesRow> outdoor)
