@@ -550,6 +550,7 @@
                     _labels = BuildSparseTimeLabels(_pointTs, _hours, DisplayZone);
                     ApplyLineChartOptions(roomRows.Count);
 
+                    var targetChartValues = roomRows.Select(ChartTargetTempC).ToArray();
                     _series =
                     [
                         new ChartSeries<double>
@@ -557,12 +558,15 @@
                             Name = "Room °C",
                             Data = roomRows.Select(static x => x.TempC).ToArray(),
                         },
-                        new ChartSeries<double>
-                        {
-                            Name = "Heat target °C",
-                            Data = roomRows.Select(static x => x.SetpointC is { } sp ? WiserSetpointDisplay.ToDisplayTargetC(sp) : double.NaN).ToArray(),
-                        },
                     ];
+                    if (targetChartValues.Any(static v => !double.IsNaN(v)))
+                    {
+                        _series.Add(new ChartSeries<double>
+                        {
+                            Name = "Target °C",
+                            Data = targetChartValues,
+                        });
+                    }
 
                     if (roomRows.Any(x => x.PercentageDemand.HasValue))
                     {
@@ -680,6 +684,13 @@
         TimeZoneInfo.ConvertTime(DateTimeOffset.FromUnixTimeSeconds(tsUtc), DisplayZone).DateTime;
 
     private static bool IsPlausibleHeatChartTemp(double tempC) => tempC is > -45 and < 75;
+
+    /// <summary>Effective target: setpoint_c, else current_setpoint_c, else scheduled_setpoint_c; hub off (−20 °C) shown as 0.</summary>
+    private static double ChartTargetTempC(RoomSeriesRow x)
+    {
+        var sp = x.SetpointC ?? x.CurrentSetpointC ?? x.ScheduledSetpointC;
+        return sp is { } v ? WiserSetpointDisplay.ToDisplayTargetC(v) : double.NaN;
+    }
 
     /// <summary>
     /// Valve demand series: keep 0% samples between peaks, but omit leading idle before the first &gt;0
