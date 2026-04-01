@@ -234,6 +234,28 @@ app.MapPost("/api/room/boost", async (BoostRoomRequest body, WiserHubFetch hub, 
     }
 });
 
+app.MapPost("/api/room/cancel-override", async (CancelRoomOverrideRequest body, WiserHubFetch hub, MonitorOptions o, CancellationToken ct) =>
+{
+    if (!hubConfigured)
+    {
+        return Results.Json(
+            new { error = "Hub is not configured. Set WISER_IP and WISER_SECRET.", configuration_errors = hubConfigurationErrors },
+            statusCode: StatusCodes.Status503ServiceUnavailable);
+    }
+
+    if (body.room_id <= 0)
+        return Results.BadRequest(new { error = "invalid room_id" });
+    try
+    {
+        await hub.PatchRoomCancelTimedOverrideAsync(o, body.room_id, ct).ConfigureAwait(false);
+        return Results.Json(new { ok = true });
+    }
+    catch (Exception ex)
+    {
+        return Results.Json(new { error = ex.Message }, statusCode: StatusCodes.Status502BadGateway);
+    }
+});
+
 app.MapPost("/api/room/mode", async (RoomModeRequest body, WiserHubFetch hub, MonitorOptions o, CancellationToken ct) =>
 {
     if (!hubConfigured)
@@ -593,4 +615,5 @@ internal static class BoostPresets
 }
 
 internal sealed record BoostRoomRequest(int room_id, double temperature_c, int minutes);
+internal sealed record CancelRoomOverrideRequest(int room_id);
 internal sealed record RoomModeRequest(int room_id, string mode, double? temperature_c);

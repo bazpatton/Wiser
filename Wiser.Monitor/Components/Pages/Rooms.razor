@@ -139,6 +139,7 @@
                                     {
                                         <MudChip T="string"
                                                  Size="Size.Small"
+                                                 Icon="@Icons.Material.Filled.SensorsOff"
                                                  Color="Color.Warning"
                                                  Variant="Variant.Filled">
                                             Offline
@@ -146,16 +147,20 @@
                                     }
                                     <MudChip T="string"
                                              Size="Size.Small"
-                                             Color="@(room.HeatDemand != 0 ? Color.Error : Color.Info)"
-                                             Variant="Variant.Outlined">
+                                             Icon="@(room.HeatDemand != 0 ? Icons.Material.Filled.LocalFireDepartment : Icons.Material.Filled.AcUnit)"
+                                             Color="@(room.HeatDemand != 0 ? Color.Warning : Color.Info)"
+                                             Variant="@(room.HeatDemand != 0 ? Variant.Filled : Variant.Outlined)">
                                         @(room.HeatDemand != 0 ? "Calling heat" : "Idle")
                                     </MudChip>
                                 </MudStack>
                             </MudStack>
 
                             <MudStack Row="true" Spacing="2" AlignItems="AlignItems.Center" Wrap="Wrap.Wrap" Class="room-temp-row">
+                                <MudIcon Icon="@RoomClimateIcon(room)"
+                                         Class="@RoomClimateIconClass(room)"
+                                         Size="Size.Medium"
+                                         aria-hidden="true" />
                                 <MudText Typo="Typo.body1" Class="room-measured">
-                                    <span class="rad-icon" aria-hidden="true">@RadiatorGlyph(room.RadiatorState)</span>
                                     @if (IsOfflineTemperature(room.TempC))
                                     {
                                         <strong>Offline</strong><span class="mud-text-secondary"> (sensor value -327.68 °C)</span>
@@ -165,16 +170,36 @@
                                         <strong>@($"{room.TempC:F1}")</strong><span class="mud-text-secondary"> °C</span>
                                     }
                                 </MudText>
-                                <MudText Typo="Typo.body2" Class="mud-text-secondary">
+                                <MudText Typo="Typo.body2" Class="mud-text-secondary room-target-line">
+                                    <MudIcon Icon="@Icons.Material.Filled.DeviceThermostat" Class="room-inline-icon mud-text-secondary" Size="Size.Small" aria-hidden="true" />
                                     Target @(room.SetpointC is null ? "—" : $"{room.SetpointC:F1} °C")
-                                    · Valve @(room.PercentageDemand is null ? "—" : $"{room.PercentageDemand}%")
+                                    <span class="room-meta-sep" aria-hidden="true">·</span>
+                                    <MudIcon Icon="@Icons.Material.Filled.Tune" Class="room-inline-icon mud-text-secondary" Size="Size.Small" aria-hidden="true" />
+                                    Valve @(room.PercentageDemand is null ? "—" : $"{room.PercentageDemand}%")
                                 </MudText>
                             </MudStack>
 
                             @if (!string.IsNullOrWhiteSpace(FormatBoostSummary(room)))
                             {
-                                <MudAlert Severity="Severity.Info" Dense="true" Class="py-1">
-                                    @FormatBoostSummary(room)
+                                <MudAlert Severity="Severity.Info" Dense="true" Class="py-2 room-override-alert">
+                                    <MudStack Row="true"
+                                              Justify="Justify.SpaceBetween"
+                                              AlignItems="AlignItems.Center"
+                                              Wrap="Wrap.Wrap"
+                                              Spacing="2">
+                                        <MudText Typo="Typo.body2" Class="room-override-alert-text">
+                                            @FormatBoostSummary(room)
+                                        </MudText>
+                                        <MudButton Variant="Variant.Filled"
+                                                   Color="Color.Warning"
+                                                   Size="Size.Small"
+                                                   Class="touch-target"
+                                                   StartIcon="@Icons.Material.Filled.CancelScheduleSend"
+                                                   Disabled="@(room.Id <= 0 || _busyRoomId == room.Id)"
+                                                   OnClick="@(() => CancelTimedOverrideAsync(room))">
+                                            Cancel override
+                                        </MudButton>
+                                    </MudStack>
                                 </MudAlert>
                             }
 
@@ -186,36 +211,72 @@
                             }
 
                             <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center">
-                                <MudText Typo="Typo.caption" Class="mud-text-secondary">Mode</MudText>
-                                <MudMenu Label="@CurrentModeLabel(room)"
-                                         Variant="Variant.Outlined"
-                                         Size="Size.Small"
+                                <MudText Typo="Typo.caption" Class="mud-text-secondary room-section-label">
+                                    <MudIcon Icon="@Icons.Material.Filled.Tune" Class="room-inline-icon" Size="Size.Small" aria-hidden="true" />
+                                    Mode
+                                </MudText>
+                                <MudMenu AnchorOrigin="Origin.BottomRight"
+                                         TransformOrigin="Origin.TopRight"
                                          Dense="true"
-                                         Color="Color.Primary"
                                          Disabled="@(room.Id <= 0 || _busyRoomId == room.Id)">
-                                    <MudMenuItem OnClick="@(() => OnRoomModeSelectChanged(room, "auto"))">Auto — follow schedule</MudMenuItem>
-                                    <MudMenuItem OnClick="@(() => OnRoomModeSelectChanged(room, "manual"))">Manual — hold current target</MudMenuItem>
-                                    <MudMenuItem OnClick="@(() => OnRoomModeSelectChanged(room, "off"))">Off — heating off</MudMenuItem>
+                                    <ActivatorContent Context="modeMenu">
+                                        @* Custom activator must toggle the menu; see MudMenu ActivatorContent docs. *@
+                                        <MudButton Variant="Variant.Outlined"
+                                                   Color="Color.Primary"
+                                                   Size="Size.Small"
+                                                   Class="room-mode-activator"
+                                                   StartIcon="@ModeActivatorIcon(room)"
+                                                   EndIcon="@Icons.Material.Filled.ArrowDropDown"
+                                                   Disabled="@(room.Id <= 0 || _busyRoomId == room.Id)"
+                                                   OnClick="@(e => modeMenu.ToggleAsync(e))">
+                                            @CurrentModeLabel(room)
+                                        </MudButton>
+                                    </ActivatorContent>
+                                    <ChildContent>
+                                        <MudMenuItem Icon="@Icons.Material.Filled.CalendarMonth"
+                                                     IconColor="Color.Primary"
+                                                     OnClick="@(() => OnRoomModeSelectChanged(room, "auto"))">
+                                            Auto — follow schedule
+                                        </MudMenuItem>
+                                        <MudMenuItem Icon="@Icons.Material.Filled.Gesture"
+                                                     IconColor="Color.Primary"
+                                                     OnClick="@(() => OnRoomModeSelectChanged(room, "manual"))">
+                                            Manual — hold current target
+                                        </MudMenuItem>
+                                        <MudMenuItem Icon="@Icons.Material.Filled.PowerSettingsNew"
+                                                     IconColor="Color.Default"
+                                                     OnClick="@(() => OnRoomModeSelectChanged(room, "off"))">
+                                            Off — heating off
+                                        </MudMenuItem>
+                                    </ChildContent>
                                 </MudMenu>
                             </MudStack>
 
-                            <MudText Typo="Typo.caption" Class="mud-text-secondary">
+                            <MudText Typo="Typo.caption" Class="mud-text-secondary room-hub-mode-line">
+                                <MudIcon Icon="@Icons.Material.Filled.Hub" Class="room-inline-icon" Size="Size.Small" aria-hidden="true" />
                                 Hub mode: @(room.Mode ?? "—")
                             </MudText>
 
                             <MudDivider Class="my-1" />
-                            <MudText Typo="Typo.caption" Class="mud-text-secondary">Boost (timed)</MudText>
+                            <MudText Typo="Typo.caption" Class="mud-text-secondary room-section-label">
+                                <MudIcon Icon="@Icons.Material.Filled.Bolt" Class="room-inline-icon" Size="Size.Small" aria-hidden="true" />
+                                Boost (timed)
+                            </MudText>
                             <MudStack Row="true" Spacing="1" Wrap="Wrap.Wrap" Class="boost-button-row">
                                 @foreach (var preset in _boostPresets)
                                 {
                                     <MudTooltip Text="@($"Timed boost to {preset.TemperatureC:F0} °C for {preset.Minutes} minutes")">
                                         <MudButton Variant="Variant.Outlined"
-                                                   Color="Color.Error"
+                                                   Color="Color.Primary"
                                                    Size="Size.Small"
                                                    Class="boost-preset-btn touch-target"
+                                                   StartIcon="@BoostPresetIcon(preset)"
                                                    Disabled="@(room.Id <= 0 || _busyRoomId == room.Id)"
                                                    OnClick="@(() => ApplyBoostAsync(room, preset))">
-                                            @preset.Name · @($"{preset.TemperatureC:F0}°") / @preset.Minutes m
+                                            <span class="boost-preset-btn-text">
+                                                <span class="boost-preset-label">@preset.Name</span>
+                                                <span class="boost-preset-meta mud-text-secondary">@($"{preset.TemperatureC:F0}°") · @preset.Minutes min</span>
+                                            </span>
                                         </MudButton>
                                     </MudTooltip>
                                 }
@@ -419,10 +480,44 @@
         _heatOnlyFilter = heatOnly;
     }
 
-    private static string RadiatorGlyph(string radiatorState) =>
-        radiatorState.Equals("on", StringComparison.OrdinalIgnoreCase) ? "🔥"
-        : radiatorState.Equals("off", StringComparison.OrdinalIgnoreCase) ? "❄️"
-        : "—";
+    private static string RoomClimateIcon(HubLiveRoom room)
+    {
+        if (IsOfflineTemperature(room.TempC))
+            return Icons.Material.Filled.SensorsOff;
+        if (room.RadiatorState.Equals("on", StringComparison.OrdinalIgnoreCase))
+            return Icons.Material.Filled.LocalFireDepartment;
+        if (room.RadiatorState.Equals("off", StringComparison.OrdinalIgnoreCase))
+            return Icons.Material.Filled.AcUnit;
+        return Icons.Material.Filled.DeviceThermostat;
+    }
+
+    private static string RoomClimateIconClass(HubLiveRoom room)
+    {
+        if (IsOfflineTemperature(room.TempC))
+            return "room-climate-icon room-climate-icon--offline";
+        if (room.RadiatorState.Equals("on", StringComparison.OrdinalIgnoreCase))
+            return "room-climate-icon room-climate-icon--heat";
+        if (room.RadiatorState.Equals("off", StringComparison.OrdinalIgnoreCase))
+            return "room-climate-icon room-climate-icon--cool";
+        return "room-climate-icon";
+    }
+
+    private static string ModeActivatorIcon(HubLiveRoom room) =>
+        GetModeKey(room) switch
+        {
+            "auto" => Icons.Material.Filled.CalendarMonth,
+            "off" => Icons.Material.Filled.PowerSettingsNew,
+            _ => Icons.Material.Filled.TouchApp,
+        };
+
+    private static string BoostPresetIcon(BoostPresetInfo preset) =>
+        preset.Name.Equals("Quick", StringComparison.OrdinalIgnoreCase)
+            ? Icons.Material.Filled.FlashOn
+            : preset.Name.Equals("Comfort", StringComparison.OrdinalIgnoreCase)
+                ? Icons.Material.Filled.WbSunny
+                : preset.Name.Equals("Gentle", StringComparison.OrdinalIgnoreCase)
+                    ? Icons.Material.Filled.WaterDrop
+                    : Icons.Material.Filled.Bolt;
 
     private static bool IsOfflineTemperature(double tempC) =>
         Math.Abs(tempC - (-327.68)) < 0.001;
@@ -601,6 +696,33 @@
         {
             await Hub.PatchRoomBoostAsync(Options, room.Id, preset.TemperatureC, preset.Minutes, CancellationToken.None);
             _actionMessage = $"Boost applied to {room.Name}.";
+            Snackbar.Add(_actionMessage!, Severity.Success);
+            await RefreshAsync();
+        }
+        catch (Exception ex)
+        {
+            _actionError = true;
+            _actionMessage = $"Action failed: {ex.Message}";
+            Snackbar.Add(_actionMessage!, Severity.Error);
+        }
+        finally
+        {
+            _busyRoomId = null;
+        }
+    }
+
+    private async Task CancelTimedOverrideAsync(HubLiveRoom room)
+    {
+        if (!EnsureLiveRoom(room))
+            return;
+
+        _actionMessage = null;
+        _actionError = false;
+        _busyRoomId = room.Id;
+        try
+        {
+            await Hub.PatchRoomCancelTimedOverrideAsync(Options, room.Id, CancellationToken.None);
+            _actionMessage = $"Timed override cleared for {room.Name}; room is back on schedule.";
             Snackbar.Add(_actionMessage!, Severity.Success);
             await RefreshAsync();
         }

@@ -97,6 +97,22 @@ public sealed class WiserHubFetch(HttpClient http)
         await PatchRoomAsync(options, roomId, body, ct).ConfigureAwait(false);
     }
 
+    /// <summary>
+    /// Clears a timed <c>RequestOverride</c> (boost / “heat until”, etc.) and sets the room back to <c>Auto</c> so the schedule applies again.
+    /// Use when the hub still has an override while mode reads Auto (choosing Auto in the menu is a no-op).
+    /// </summary>
+    public async Task PatchRoomCancelTimedOverrideAsync(MonitorOptions options, int roomId, CancellationToken ct)
+    {
+        if (roomId <= 0)
+            throw new ArgumentOutOfRangeException(nameof(roomId));
+
+        await PatchRoomAsync(options, roomId, new
+        {
+            RequestOverride = new { Type = "None", DurationMinutes = 0, SetPoint = 0, Originator = "App" },
+        }, ct).ConfigureAwait(false);
+        await PatchRoomAsync(options, roomId, new { Mode = "Auto" }, ct).ConfigureAwait(false);
+    }
+
     public async Task PatchRoomModeAsync(MonitorOptions options, int roomId, string mode, double? manualTemperatureC, CancellationToken ct)
     {
         if (roomId <= 0)

@@ -2,8 +2,12 @@
 @implements IDisposable
 
 @inject NavigationManager Navigation
+@inject IJSRuntime JS
 
-<MudThemeProvider Theme="_theme" />
+<MudThemeProvider @ref="_themeProvider"
+                  Theme="_theme"
+                  @bind-IsDarkMode="_isDarkMode"
+                  ObserveSystemDarkModeChange="false" />
 <MudPopoverProvider />
 <MudDialogProvider />
 <MudSnackbarProvider />
@@ -28,6 +32,11 @@
             </MudStack>
         </MudHidden>
         <MudSpacer />
+        <MudIconButton Icon="@(_isDarkMode ? Icons.Material.Filled.LightMode : Icons.Material.Filled.DarkMode)"
+                       Color="Color.Inherit"
+                       Class="touch-target-icon"
+                       OnClick="ToggleDarkModeAsync"
+                       aria-label="@(_isDarkMode ? "Switch to light theme" : "Switch to dark theme")" />
         <MudText Typo="Typo.body2" Class="fa-header desktop-tagline">
             <i class="fa-solid fa-temperature-half" aria-hidden="true"></i>
             Heat hub dashboard
@@ -61,7 +70,12 @@
 </MudLayout>
 
 @code {
+    private const string ThemeStorageKey = "wiser-monitor-dark";
+
     private bool _drawerOpen;
+    private bool _isDarkMode;
+    private bool _themeHydrated;
+    private MudThemeProvider? _themeProvider;
 
     private readonly MudTheme _theme = new()
     {
@@ -74,6 +88,26 @@
             AppbarText = "#f8fafc",
             Surface = "#ffffff",
         },
+        PaletteDark = new PaletteDark
+        {
+            Primary = "#60a5fa",
+            Secondary = "#22d3ee",
+            Background = "#0f172a",
+            Surface = "#1e293b",
+            AppbarBackground = "#020617",
+            AppbarText = "#f1f5f9",
+            DrawerBackground = "#1e293b",
+            DrawerText = "#e2e8f0",
+            TextPrimary = "#f1f5f9",
+            TextSecondary = "#94a3b8",
+            TextDisabled = "#64748b",
+            ActionDefault = "#94a3b8",
+            Divider = "#334155",
+            LinesDefault = "#475569",
+            TableLines = "#334155",
+            TableHover = "rgba(148, 163, 184, 0.08)",
+            TableStriped = "rgba(148, 163, 184, 0.06)",
+        },
         LayoutProperties = new LayoutProperties
         {
             DrawerWidthLeft = "260px",
@@ -85,6 +119,30 @@
         Navigation.LocationChanged += HandleLocationChanged;
     }
 
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender || _themeHydrated || _themeProvider is null)
+            return;
+
+        try
+        {
+            var stored = await JS.InvokeAsync<string?>("localStorage.getItem", ThemeStorageKey);
+            if (stored == "1")
+                _isDarkMode = true;
+            else if (stored == "0")
+                _isDarkMode = false;
+            else
+                _isDarkMode = await _themeProvider.GetSystemDarkModeAsync();
+
+            _themeHydrated = true;
+            StateHasChanged();
+        }
+        catch
+        {
+            _themeHydrated = true;
+        }
+    }
+
     private void ToggleDrawer()
     {
         _drawerOpen = !_drawerOpen;
@@ -93,6 +151,19 @@
     private void CloseDrawer()
     {
         _drawerOpen = false;
+    }
+
+    private async Task ToggleDarkModeAsync()
+    {
+        _isDarkMode = !_isDarkMode;
+        try
+        {
+            await JS.InvokeVoidAsync("localStorage.setItem", ThemeStorageKey, _isDarkMode ? "1" : "0");
+        }
+        catch
+        {
+            // ignore (e.g. prerender without JS)
+        }
     }
 
     private void HandleLocationChanged(object? sender, LocationChangedEventArgs e)
