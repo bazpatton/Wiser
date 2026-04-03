@@ -99,6 +99,15 @@ public sealed class TemperatureStore
                         raw_value REAL
                     );
                     CREATE INDEX IF NOT EXISTS idx_data_quality_events_ts ON data_quality_events(ts);
+
+                    CREATE TABLE IF NOT EXISTS ntfy_notifications (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        sent_ts INTEGER NOT NULL,
+                        kind TEXT NOT NULL,
+                        title TEXT NOT NULL,
+                        message TEXT NOT NULL
+                    );
+                    CREATE INDEX IF NOT EXISTS idx_ntfy_notifications_sent_ts ON ntfy_notifications(sent_ts DESC);
                     """;
                 cmd.ExecuteNonQuery();
             }
@@ -659,6 +668,78 @@ public sealed class TemperatureStore
         }
     }
 
+    /// <summary>Total rows in ntfy_notifications (for app bar badge; not time-windowed).</summary>
+    public int CountNtfyNotifications()
+    {
+        lock (_gate)
+        {
+            using var c = Open();
+            using var cmd = c.CreateCommand();
+            cmd.CommandText = "SELECT COUNT(*) FROM ntfy_notifications";
+            return Convert.ToInt32((long)cmd.ExecuteScalar()!, CultureInfo.InvariantCulture);
+        }
+    }
+
+    public void RecordNtfyNotification(long sentTs, string kind, string title, string message)
+    {
+        kind = string.IsNullOrWhiteSpace(kind) ? "alert" : kind.Trim();
+        if (kind.Length > 64)
+            kind = kind[..64];
+        title = title ?? "";
+        if (title.Length > 500)
+            title = title[..500];
+        message ??= "";
+        if (message.Length > 4000)
+            message = message[..4000];
+
+        lock (_gate)
+        {
+            using var c = Open();
+            using var cmd = c.CreateCommand();
+            cmd.CommandText =
+                """
+                INSERT INTO ntfy_notifications (sent_ts, kind, title, message)
+                VALUES ($sent_ts, $kind, $title, $message)
+                """;
+            cmd.Parameters.AddWithValue("$sent_ts", sentTs);
+            cmd.Parameters.AddWithValue("$kind", kind);
+            cmd.Parameters.AddWithValue("$title", title);
+            cmd.Parameters.AddWithValue("$message", message);
+            cmd.ExecuteNonQuery();
+        }
+    }
+
+    public IReadOnlyList<NtfyNotificationRow> ListNtfyNotifications(int limit = 200)
+    {
+        limit = Math.Clamp(limit, 1, 500);
+        lock (_gate)
+        {
+            using var c = Open();
+            using var cmd = c.CreateCommand();
+            cmd.CommandText =
+                """
+                SELECT id, sent_ts, kind, title, message
+                FROM ntfy_notifications
+                ORDER BY sent_ts DESC, id DESC
+                LIMIT $limit
+                """;
+            cmd.Parameters.AddWithValue("$limit", limit);
+            using var r = cmd.ExecuteReader();
+            var list = new List<NtfyNotificationRow>();
+            while (r.Read())
+            {
+                list.Add(new NtfyNotificationRow(
+                    r.GetInt32(0),
+                    r.GetInt64(1),
+                    r.GetString(2),
+                    r.GetString(3),
+                    r.GetString(4)));
+            }
+
+            return list;
+        }
+    }
+
     public int CreateGasMeterReceipt(DateOnly entryDate, int volCredit, decimal amountGbp, string? ocrRawJson, string? sourceImagePath)
     {
         lock (_gate)
@@ -1214,3 +1295,5 @@ public sealed record GasMeterReadingRow(
     long ReadTs,
     long CreatedTs,
     long UpdatedTs);
+
+public sealed record NtfyNotificationRow(int Id, long SentTs, string Kind, string Title, string Message);

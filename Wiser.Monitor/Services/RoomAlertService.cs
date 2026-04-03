@@ -28,7 +28,8 @@ public sealed class RoomAlertService(NtfyClient ntfy, ILogger<RoomAlertService> 
                             topic,
                             "Temperature high",
                             $"{observedRoom} is {tempC:F1} °C — above {options.TempAlertAboveC:F1} °C",
-                            ct).ConfigureAwait(false);
+                            ct,
+                            kind: "temp_high").ConfigureAwait(false);
                     }
                     catch (Exception ex)
                     {
@@ -53,7 +54,8 @@ public sealed class RoomAlertService(NtfyClient ntfy, ILogger<RoomAlertService> 
                             topic,
                             "Temperature low",
                             $"{observedRoom} is {tempC:F1} °C — below {below:F1} °C",
-                            ct).ConfigureAwait(false);
+                            ct,
+                            kind: "temp_low").ConfigureAwait(false);
                     }
                     catch (Exception ex)
                     {

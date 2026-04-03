@@ -1,0 +1,54 @@
+@page "/notifications"
+@rendermode InteractiveServer
+@using System.Globalization
+
+@inject TemperatureStore Store
+
+<PageTitle>Wiser Monitor - Notifications</PageTitle>
+
+<MudStack Spacing="2">
+    <MudText Typo="Typo.h5">
+        <i class="fa-solid fa-bell"></i> ntfy notification history
+    </MudText>
+    <MudText Typo="Typo.body2" Class="mud-text-secondary">
+        Successful pushes to your configured ntfy topic (temperature alerts and gas meter reminders). Failed sends are not listed.
+    </MudText>
+
+    @if (_rows.Count == 0)
+    {
+        <MudAlert Severity="Severity.Info" Dense="true">No notifications recorded yet.</MudAlert>
+    }
+    else
+    {
+        <MudTable T="NtfyNotificationRow" Dense="true" Hover="true" Breakpoint="Breakpoint.Sm" Items="_rows">
+            <HeaderContent>
+                <MudTh>Sent (local)</MudTh>
+                <MudTh>Kind</MudTh>
+                <MudTh>Title</MudTh>
+                <MudTh>Message</MudTh>
+            </HeaderContent>
+            <RowTemplate>
+                <MudTd DataLabel="Sent">@FormatLocal(context.SentTs)</MudTd>
+                <MudTd DataLabel="Kind">@context.Kind</MudTd>
+                <MudTd DataLabel="Title">@context.Title</MudTd>
+                <MudTd DataLabel="Message" Style="white-space: pre-wrap; max-width: 28rem;">@context.Message</MudTd>
+            </RowTemplate>
+        </MudTable>
+    }
+</MudStack>
+
+@code {
+    private readonly List<NtfyNotificationRow> _rows = [];
+
+    protected override void OnInitialized()
+    {
+        _rows.Clear();
+        _rows.AddRange(Store.ListNtfyNotifications(200));
+    }
+
+    private static string FormatLocal(long sentTsUtc)
+    {
+        var local = DateTimeOffset.FromUnixTimeSeconds(sentTsUtc).ToLocalTime();
+        return local.ToString("g", CultureInfo.CurrentCulture);
+    }
+}

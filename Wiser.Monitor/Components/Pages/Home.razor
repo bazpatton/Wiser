@@ -5,6 +5,7 @@
 @inject MonitorState MonitorState
 @inject MonitorOptions Options
 @inject TemperatureStore Store
+@inject OutdoorWeatherClient OutdoorWeather
 
 <PageTitle>Wiser Monitor</PageTitle>
 
@@ -31,6 +32,37 @@
                 Settings
             </MudButton>
         </MudStack>
+    </MudPaper>
+
+    <MudPaper Class="pa-4 status-card">
+        <MudText Typo="Typo.h6">
+            <i class="fa-solid fa-cloud-sun"></i> Heating demand outlook (estimate)
+        </MudText>
+        <MudText Typo="Typo.caption" Class="mud-text-secondary d-block mt-1">
+            Compares last 7 local days of HDD (from stored outdoor samples) to the next 7 days from Open-Meteo forecast daily temperatures. Same 15.5 °C base as the daily summary. Not a bill forecast.
+        </MudText>
+        @if (Options.OpenMeteoLat is null || Options.OpenMeteoLon is null)
+        {
+            <MudText Typo="Typo.body2" Class="mt-2 mud-text-secondary">
+                Configure Open-Meteo latitude and longitude on Settings to enable this outlook.
+            </MudText>
+        }
+        else if (_outlookLoading)
+        {
+            <MudProgressLinear Indeterminate="true" Color="Color.Primary" Class="mt-3" />
+        }
+        else if (!string.IsNullOrWhiteSpace(_outlookError))
+        {
+            <MudAlert Severity="Severity.Warning" Dense="true" Class="mt-2">@_outlookError</MudAlert>
+        }
+        else
+        {
+            <MudText Typo="Typo.body1" Class="mt-2">@_outlookSummary</MudText>
+            @if (!string.IsNullOrWhiteSpace(_outlookDetail))
+            {
+                <MudText Typo="Typo.body2" Class="mt-2 mud-text-secondary">@_outlookDetail</MudText>
+            }
+        }
     </MudPaper>
 
     <MudPaper Class="pa-4 status-card">
@@ -132,9 +164,14 @@
     private List<DataQualityReasonCount> _qualityReasons24h = [];
     private readonly List<HomeRoomHeatTile> _homeRoomTiles = [];
 
+    private bool _outlookLoading;
+    private string? _outlookError;
+    private string _outlookSummary = "";
+    private string? _outlookDetail;
+
     private TimeZoneInfo DisplayZone => TimeZoneResolver.Resolve(Options.TimeZoneId);
 
-    protected override void OnInitialized()
+    protected override async Task OnInitializedAsync()
     {
         var (err, ok) = MonitorState.Snapshot();
         _lastError = err;
@@ -147,6 +184,84 @@
         _qualityTotal24h = quality.TotalIgnored;
         _qualityReasons24h = quality.ByReason.Take(4).ToList();
         BuildHomeRoomHeatMap();
+        await LoadHeatingOutlookAsync();
+    }
+
+    private async Task LoadHeatingOutlookAsync()
+    {
+        if (Options.OpenMeteoLat is not { } lat || Options.OpenMeteoLon is not { } lon)
+            return;
+
+        _outlookLoading = true;
+        _outlookError = null;
+        _outlookSummary = "";
+        _outlookDetail = null;
+
+        try
+        {
+            var daily = Store.GetDailySummaries(7, Math.Max(10, Options.IntervalSec), DisplayZone);
+            var hddValues = daily
+                .Where(d => d.Hdd is { } h && !double.IsNaN(h) && !double.IsInfinity(h))
+                .Select(d => d.Hdd!.Value)
+                .ToList();
+            var pastHddSum = hddValues.Count > 0 ? hddValues.Sum() : (double?)null;
+            var pastHeatMin = daily.Sum(d => d.HeatingActiveEstimateMin);
+
+            var outlook = await OutdoorWeather.GetSevenDayHddOutlookAsync(lat, lon, Options.TimeZoneId, CancellationToken.None)
+                .ConfigureAwait(false);
+
+            if (outlook is null)
+            {
+                _outlookError = "Could not load the 7-day weather outlook from Open-Meteo.";
+                return;
+            }
+
+            if (pastHddSum is null)
+            {
+                _outlookSummary =
+                    "There is not enough outdoor temperature history in the last 7 days to compare (HDD needs stored Open-Meteo samples). Once outdoor data accumulates, this card will compare past HDD to the forecast.";
+                _outlookDetail =
+                    $"Next 7 days (forecast HDD proxy total): {outlook.TotalHddProxy.ToString("0.0", CultureInfo.InvariantCulture)} degree-days. " +
+                    $"Last week heating-active estimate: {pastHeatMin.ToString("0", CultureInfo.InvariantCulture)} min.";
+                return;
+            }
+
+            var forecastSum = outlook.TotalHddProxy;
+            const double band = 0.15;
+            string verdict;
+            if (forecastSum > pastHddSum.Value * (1 + band))
+                verdict = "higher";
+            else if (forecastSum < pastHddSum.Value * (1 - band))
+                verdict = "lower";
+            else
+                verdict = "similar";
+
+            _outlookSummary = verdict switch
+            {
+                "higher" =>
+                    "Next week’s outlook suggests higher heating demand than last week, based on colder outdoor temperatures in the forecast.",
+                "lower" =>
+                    "Next week’s outlook suggests lower heating demand than last week, based on milder outdoor temperatures in the forecast.",
+                _ =>
+                    "Next week’s outlook suggests similar heating demand to last week, based on outdoor temperatures.",
+            };
+
+            var tMin = outlook.Days.Min(d => d.TempMinC);
+            var tMax = outlook.Days.Max(d => d.TempMaxC);
+            _outlookDetail =
+                $"Last 7 days: HDD total {pastHddSum.Value.ToString("0.0", CultureInfo.InvariantCulture)} (from recorded outdoor data), " +
+                $"heating-active estimate {pastHeatMin.ToString("0", CultureInfo.InvariantCulture)} min. " +
+                $"Forecast week: HDD proxy total {forecastSum.ToString("0.0", CultureInfo.InvariantCulture)}, " +
+                $"daily max/min span about {tMin.ToString("0", CultureInfo.InvariantCulture)}–{tMax.ToString("0", CultureInfo.InvariantCulture)} °C.";
+        }
+        catch (Exception ex)
+        {
+            _outlookError = $"Outlook unavailable: {ex.Message}";
+        }
+        finally
+        {
+            _outlookLoading = false;
+        }
     }
 
     private void BuildHomeRoomHeatMap()

@@ -76,7 +76,8 @@ public sealed class GasMeterReminderWorker(
                         "Time to record your gas meter reading. Open Wiser Monitor — Gas meter.",
                         ct,
                         tags: "fuelpump",
-                        priority: "high")
+                        priority: "high",
+                        kind: "gas_reminder")
                     .ConfigureAwait(false);
             }
             catch (Exception ex)

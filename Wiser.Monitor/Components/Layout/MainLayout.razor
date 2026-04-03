@@ -29,10 +29,14 @@
                 <MudButton Href="/schedules" Variant="Variant.Text" Color="Color.Inherit" StartIcon="@Icons.Material.Filled.CalendarMonth">Schedules</MudButton>
                 <MudButton Href="/gas-meter" Variant="Variant.Text" Color="Color.Inherit" StartIcon="@Icons.Material.Filled.LocalGasStation">Gas meter</MudButton>
                 <MudButton Href="/charts" Variant="Variant.Text" Color="Color.Inherit" StartIcon="@Icons.Material.Filled.ShowChart">Charts</MudButton>
+                <NotificationMenu />
                 <MudButton Href="/settings" Variant="Variant.Text" Color="Color.Inherit" StartIcon="@Icons.Material.Filled.Settings">Settings</MudButton>
             </MudStack>
         </MudHidden>
         <MudSpacer />
+        <MudHidden Breakpoint="Breakpoint.MdAndDown" Invert="true">
+            <NotificationMenu />
+        </MudHidden>
         <MudIconButton Icon="@(_isDarkMode ? Icons.Material.Filled.LightMode : Icons.Material.Filled.DarkMode)"
                        Color="Color.Inherit"
                        Class="touch-target-icon"
@@ -60,6 +64,7 @@
             <MudNavLink Href="/schedules" Icon="@Icons.Material.Filled.CalendarMonth" OnClick="@(() => CloseDrawer())">Schedules</MudNavLink>
             <MudNavLink Href="/gas-meter" Icon="@Icons.Material.Filled.LocalGasStation" OnClick="@(() => CloseDrawer())">Gas meter</MudNavLink>
             <MudNavLink Href="/charts" Icon="@Icons.Material.Filled.ShowChart" OnClick="@(() => CloseDrawer())">Charts</MudNavLink>
+            <MudNavLink Href="/notifications" Icon="@Icons.Material.Filled.Notifications" OnClick="@(() => CloseDrawer())">Notifications</MudNavLink>
             <MudNavLink Href="/settings" Icon="@Icons.Material.Filled.Settings" OnClick="@(() => CloseDrawer())">Settings</MudNavLink>
         </MudNavMenu>
     </MudDrawer>
