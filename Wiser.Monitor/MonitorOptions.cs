@@ -17,7 +17,7 @@ public sealed class MonitorOptions
     public string? TimeZoneId { get; set; }
     public string OcrPythonPath { get; set; } = "python3";
     public string? OcrScriptPath { get; set; }
-    public int OcrTimeoutSec { get; set; } = 30;
+    public int OcrTimeoutSec { get; set; } = 120;
 
     public bool UseHighAlert => TempAlertAboveC > 0;
     public bool UseLowAlert => TempAlertBelowC.HasValue;
@@ -87,7 +87,7 @@ public sealed class MonitorOptions
             OcrScriptPath = string.IsNullOrWhiteSpace(cfg["OCR_SCRIPT_PATH"]) ? null : cfg["OCR_SCRIPT_PATH"]!.Trim(),
             OcrTimeoutSec = int.TryParse(SanitizeNumericRaw(cfg["OCR_TIMEOUT_SEC"]), NumberStyles.Integer, CultureInfo.InvariantCulture, out var ocrTimeout)
                 ? Math.Clamp(ocrTimeout, 5, 180)
-                : 30,
+                : 120,
         };
     }
 

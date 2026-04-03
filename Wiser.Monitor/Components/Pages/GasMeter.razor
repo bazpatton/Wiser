@@ -33,7 +33,7 @@
             </MudButton>
             <InputFile id="@_fileInputId"
                        OnChange="OnReceiptFileChangedAsync"
-                       accept="image/*"
+                       accept="image/jpeg,image/png,image/webp"
                        capture="environment"
                        class="gas-meter-input-file-hidden" />
             <MudText Typo="Typo.body2" Class="mud-text-secondary">@_selectedFileLabel</MudText>
@@ -191,6 +191,15 @@
         var file = args.File;
         if (file is null)
             return;
+
+        var ext = Path.GetExtension(file.Name)?.ToLowerInvariant();
+        if (ext is not (".jpg" or ".jpeg" or ".png" or ".webp"))
+        {
+            Snackbar.Add("Unsupported image type. Please use JPG, PNG, or WEBP.", Severity.Warning);
+            _selectedImageBytes = null;
+            _selectedFileLabel = "No image selected.";
+            return;
+        }
 
         try
         {

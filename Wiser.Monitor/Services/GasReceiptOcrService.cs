@@ -51,7 +51,25 @@ public sealed class GasReceiptOcrService
 
             using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
             timeoutCts.CancelAfter(TimeSpan.FromSeconds(_options.OcrTimeoutSec));
-            await process.WaitForExitAsync(timeoutCts.Token).ConfigureAwait(false);
+            try
+            {
+                await process.WaitForExitAsync(timeoutCts.Token).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+                try
+                {
+                    if (!process.HasExited)
+                        process.Kill(entireProcessTree: true);
+                }
+                catch
+                {
+                    // Best effort only.
+                }
+
+                throw new InvalidOperationException(
+                    $"OCR timed out after {_options.OcrTimeoutSec} seconds. On first run, model download can take longer on Raspberry Pi. Increase OCR_TIMEOUT_SEC and try again.");
+            }
 
             var stdout = await stdoutTask.ConfigureAwait(false);
             var stderr = await stderrTask.ConfigureAwait(false);
@@ -67,6 +85,11 @@ public sealed class GasReceiptOcrService
             if (root.TryGetProperty("error", out var errorEl) && errorEl.ValueKind == JsonValueKind.String)
             {
                 var scriptError = errorEl.GetString() ?? "unknown OCR error";
+                if (scriptError.Contains("!ssize.empty()", StringComparison.OrdinalIgnoreCase)
+                    || scriptError.Contains("can't open/read file", StringComparison.OrdinalIgnoreCase))
+                {
+                    throw new InvalidOperationException("OCR could not read the image. Please upload a clear JPG/PNG/WEBP photo (HEIC is not supported).");
+                }
                 var extra = string.IsNullOrWhiteSpace(stderr) ? "" : $" ({stderr.Trim()})";
                 throw new InvalidOperationException($"OCR script error: {scriptError}{extra}");
             }
