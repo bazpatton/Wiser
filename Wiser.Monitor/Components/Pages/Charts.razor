@@ -442,7 +442,7 @@
                 <i class="fa-solid fa-fire-flame-curved"></i> Weekly estimated gas vs heating proxies
             </MudText>
             <MudText Typo="Typo.caption" Class="mud-text-secondary mb-2 d-block">
-                Gas cost is estimated from <strong>adjacent meter readings</strong> (raw integer delta) × unit price from the <strong>latest receipt only</strong> — historical tariffs are not applied.
+                Gas cost uses a <strong>prepayment (credit) meter</strong>: between two reads in time, <strong>credit used</strong> = older reading − newer reading (same raw scale as Vol Credit). That × unit price from the <strong>latest receipt only</strong> — historical tariffs are not applied. Top-ups (reading goes up) are skipped for spend.
                 Each interval is booked to the <strong>ISO week of the later reading</strong> (local time).
                 HDD needs <strong>Open-Meteo</strong> outdoor data (lat/lon in settings); otherwise HDD stays blank.
             </MudText>
@@ -800,7 +800,7 @@
         var readings = Store.ListGasMeterReadings();
         var asc = readings.OrderBy(static r => r.ReadTs).ToList();
         _gasWeekReadingPairs = asc.Count >= 2
-            ? Enumerable.Range(1, asc.Count - 1).Count(i => asc[i].ReadingValue - asc[i - 1].ReadingValue >= 0)
+            ? Enumerable.Range(1, asc.Count - 1).Count(i => asc[i - 1].ReadingValue - asc[i].ReadingValue > 0)
             : 0;
 
         var days = 7 * _gasWeeksToShow + 14;

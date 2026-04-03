@@ -642,32 +642,6 @@ public sealed class TemperatureStore
         }
     }
 
-    public int GetGasMeterDisplayDivisor()
-    {
-        lock (_gate)
-        {
-            using var c = Open();
-            using var cmd = c.CreateCommand();
-            cmd.CommandText =
-                "SELECT value FROM app_settings WHERE key = 'gas_meter_display_divisor' LIMIT 1";
-            var raw = cmd.ExecuteScalar() as string;
-            if (int.TryParse(raw, NumberStyles.Integer, CultureInfo.InvariantCulture, out var v))
-                return Math.Clamp(v, 1, 1_000_000);
-            return 1000;
-        }
-    }
-
-    public void SetGasMeterDisplayDivisor(int divisor)
-    {
-        divisor = Math.Clamp(divisor, 1, 1_000_000);
-        var ts = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
-        lock (_gate)
-        {
-            using var c = Open();
-            UpsertSetting(c, "gas_meter_display_divisor", divisor.ToString(CultureInfo.InvariantCulture), ts);
-        }
-    }
-
     /// <summary>Total rows in ntfy_notifications (for app bar badge; not time-windowed).</summary>
     public int CountNtfyNotifications()
     {

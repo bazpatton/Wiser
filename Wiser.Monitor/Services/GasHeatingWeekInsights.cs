@@ -29,14 +29,16 @@ public static class GasHeatingWeekInsights
         var readingsAsc = readingsAnyOrder.OrderBy(r => r.ReadTs).ToList();
         var gasByWeek = new Dictionary<(int Y, int W), decimal>();
 
+        // Prepayment meter: reading is remaining credit (falls when gas is used, rises on top-up).
+        // Consumption for interval prev -> curr (time ascending) = prev.ReadingValue - curr.ReadingValue.
         if (unitGbpPerVol is { } u && readingsAsc.Count >= 2)
         {
             for (var i = 1; i < readingsAsc.Count; i++)
             {
                 var prev = readingsAsc[i - 1];
                 var curr = readingsAsc[i];
-                var delta = curr.ReadingValue - prev.ReadingValue;
-                if (delta < 0)
+                var consumed = prev.ReadingValue - curr.ReadingValue;
+                if (consumed <= 0)
                     continue;
 
                 var local = TimeZoneInfo.ConvertTime(DateTimeOffset.FromUnixTimeSeconds(curr.ReadTs), zone);
@@ -45,7 +47,7 @@ public static class GasHeatingWeekInsights
                 var isoYear = ISOWeek.GetYear(dt);
                 var isoWeek = ISOWeek.GetWeekOfYear(dt);
                 var key = (isoYear, isoWeek);
-                gasByWeek[key] = gasByWeek.GetValueOrDefault(key) + delta * u;
+                gasByWeek[key] = gasByWeek.GetValueOrDefault(key) + consumed * u;
             }
         }
 

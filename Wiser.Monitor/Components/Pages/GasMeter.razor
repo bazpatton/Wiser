@@ -114,36 +114,19 @@
     </MudPaper>
 
     <MudPaper Class="pa-4 card-soft">
-        <MudText Typo="Typo.subtitle1" Class="mb-2">Current meter reading</MudText>
+        <MudText Typo="Typo.subtitle1" Class="mb-2">Current meter reading (credit remaining)</MudText>
         <MudGrid Spacing="2">
-            <MudItem xs="12" md="4">
+            <MudItem xs="12" md="6">
                 <MudTextField T="string"
                               Label="Reading (integer)"
                               @bind-Value="_meterReadingText"
                               Variant="Variant.Outlined"
-                              Margin="Margin.Dense" />
+                              Margin="Margin.Dense"
+                              HelperText="Prepayment meter: remaining credit in the same raw units as Vol Credit on your receipt. Credit goes down when you use gas and up when you top up." />
             </MudItem>
-            <MudItem xs="12" md="4">
-                <MudNumericField T="int"
-                                 Label="Display scale (÷ divisor)"
-                                 Value="_displayDivisor"
-                                 ValueChanged="OnDisplayDivisorChanged"
-                                 Min="1"
-                                 Max="1000000"
-                                 Variant="Variant.Outlined"
-                                 Margin="Margin.Dense"
-                                 HelperText="Stored value is still the raw integer; this only affects the display column." />
-            </MudItem>
-            <MudItem xs="12" md="4" Class="d-flex align-center flex-wrap" Style="gap: 8px;">
-                <MudButton Variant="Variant.Outlined"
-                           Color="Color.Primary"
-                           Size="Size.Small"
-                           Class="touch-target"
-                           OnClick="SaveDisplayDivisorAsync">
-                    Save scale
-                </MudButton>
+            <MudItem xs="12" md="6" Class="d-flex align-center">
                 <MudText Typo="Typo.caption" Class="mud-text-secondary">
-                    Read time is set when saving a reading.
+                    Read time is set when saving.
                 </MudText>
             </MudItem>
         </MudGrid>
@@ -159,7 +142,7 @@
             }
         </MudText>
         <MudText Typo="Typo.caption" Class="mud-text-secondary mt-1">
-            <strong>Usage</strong> is the raw integer change vs the <strong>previous</strong> read in time (row above is newer). The register should usually go <strong>up</strong>; if the newer raw reading is lower, usage/cost are not applied (fix a typo or entry order). <strong>Estimated cost</strong> = raw usage × (Amount ÷ Vol Credit from the latest receipt). Tiny usage (e.g. +1 raw) can be a fraction of a penny — we show up to 4 decimal places when needed. The <strong>Display reading</strong> column is cosmetic (reading ÷ divisor).
+            <strong>Usage</strong> is <strong>credit consumed</strong> since the previous read in time: <strong>older reading − newer reading</strong> (table row above is newer). If the reading <strong>went up</strong> between reads, that is a <strong>top-up</strong> (no running cost on that interval). <strong>Estimated cost</strong> = credit used (raw) × (Amount ÷ Vol Credit from the latest receipt). Small amounts may show up to 4 decimal places.
         </MudText>
 
         <MudStack Row="true" Spacing="1" Class="mt-3" Wrap="Wrap.Wrap">
@@ -192,16 +175,14 @@
             <MudTable T="GasMeterReadingRow" Dense="true" Hover="true" Breakpoint="Breakpoint.Sm" Items="_meterReadings">
                 <HeaderContent>
                     <MudTh>Read datetime</MudTh>
-                    <MudTh>Reading</MudTh>
-                    <MudTh>Display reading</MudTh>
+                    <MudTh>Credit remaining</MudTh>
                     <MudTh>Usage</MudTh>
                     <MudTh>Estimated cost</MudTh>
                     <MudTh>Actions</MudTh>
                 </HeaderContent>
                 <RowTemplate>
                     <MudTd DataLabel="Read datetime">@FormatLocalDateTime(context.ReadTs)</MudTd>
-                    <MudTd DataLabel="Reading">@context.ReadingValue</MudTd>
-                    <MudTd DataLabel="Display reading">@FormatDisplayReading(context)</MudTd>
+                    <MudTd DataLabel="Credit remaining">@context.ReadingValue</MudTd>
                     <MudTd DataLabel="Usage">
                         <MudTooltip Text="@GetUsageTooltip(context)">
                             <span>@FormatUsage(context)</span>
@@ -307,27 +288,12 @@
     private string _meterReadingText = "";
     private int? _meterReadingEditingId;
     private bool _meterReadingSaveBusy;
-    private int _displayDivisor = 1000;
 
     protected override Task OnInitializedAsync()
     {
-        _displayDivisor = Store.GetGasMeterDisplayDivisor();
         LoadRows();
         LoadMeterReadings();
         ApplyQuickEntryDefaults();
-        return Task.CompletedTask;
-    }
-
-    private void OnDisplayDivisorChanged(int value)
-    {
-        _displayDivisor = Math.Clamp(value, 1, 1_000_000);
-    }
-
-    private Task SaveDisplayDivisorAsync()
-    {
-        Store.SetGasMeterDisplayDivisor(_displayDivisor);
-        _displayDivisor = Store.GetGasMeterDisplayDivisor();
-        Snackbar.Add("Display scale saved.", Severity.Success);
         return Task.CompletedTask;
     }
 
@@ -603,36 +569,41 @@
         return latestReceipt.AmountGbp / latestReceipt.VolCredit;
     }
 
-    /// <summary>Compare this read to the next row in the table (chronologically older). Same raw scale as Vol Credit.</summary>
-    private IntervalVersusOlder? GetIntervalVersusOlderRead(GasMeterReadingRow row)
+    /// <summary>
+    /// Prepayment meter: row at idx is newer in time than idx+1. Credit consumed = olderCredit − newerCredit (positive = gas used).
+    /// </summary>
+    private CreditInterval? GetCreditIntervalVersusOlderRead(GasMeterReadingRow row)
     {
         var idx = _meterReadings.FindIndex(x => x.Id == row.Id);
         if (idx < 0 || idx + 1 >= _meterReadings.Count)
             return null;
 
-        var olderReading = _meterReadings[idx + 1].ReadingValue;
-        var rawDelta = row.ReadingValue - olderReading;
-        return new IntervalVersusOlder(rawDelta);
+        var olderCredit = _meterReadings[idx + 1].ReadingValue;
+        var newerCredit = row.ReadingValue;
+        return new CreditInterval(olderCredit - newerCredit);
     }
 
     private string FormatUsage(GasMeterReadingRow row)
     {
-        if (GetIntervalVersusOlderRead(row) is not { RawDelta: var d })
+        if (GetCreditIntervalVersusOlderRead(row) is not { ConsumedOrTopUpRaw: var d })
             return "—";
 
-        if (d < 0)
-            return $"{d} raw";
+        if (d > 0)
+            return d.ToString(CultureInfo.InvariantCulture);
 
-        return d.ToString(CultureInfo.InvariantCulture);
+        if (d < 0)
+            return $"Top-up +{-d} raw";
+
+        return "0";
     }
 
     private string FormatEstimatedCost(GasMeterReadingRow row)
     {
-        if (GetIntervalVersusOlderRead(row) is not { RawDelta: var d })
+        if (GetCreditIntervalVersusOlderRead(row) is not { ConsumedOrTopUpRaw: var d })
             return "—";
 
         var unitCost = GetUnitCostPerVolume();
-        if (unitCost is null || d < 0)
+        if (unitCost is null || d <= 0)
             return "—";
 
         var total = d * unitCost.Value;
@@ -650,40 +621,39 @@
 
     private string GetUsageTooltip(GasMeterReadingRow row)
     {
-        if (GetIntervalVersusOlderRead(row) is not { RawDelta: var d })
-            return "No older reading to compare (or this is the oldest row). Usage is shown on rows that have a previous read in time.";
+        if (GetCreditIntervalVersusOlderRead(row) is not { ConsumedOrTopUpRaw: var d })
+            return "No older reading to compare (or this is the oldest row).";
+
+        if (d > 0)
+            return $"Credit used since previous read: {d} raw (older remaining − this read), same scale as Vol Credit.";
 
         if (d < 0)
-            return $"Newer raw reading is lower than the previous ({d}). Correct the digits so the meter goes up when you use gas, then cost will calculate.";
+            return $"Credit increased by {-d} raw (top-up). Estimated running cost applies only when credit goes down.";
 
-        return $"Raw usage since previous read: {d} (same integer units as Vol Credit on the receipt).";
+        return "No change vs previous read.";
     }
 
     private string GetCostTooltip(GasMeterReadingRow row)
     {
-        if (GetIntervalVersusOlderRead(row) is not { RawDelta: var d })
+        if (GetCreditIntervalVersusOlderRead(row) is not { ConsumedOrTopUpRaw: var d })
             return "Add a receipt and ensure there is a previous reading to compare.";
 
         var unitCost = GetUnitCostPerVolume();
         if (unitCost is null)
             return "Add a receipt with Vol Credit and Amount.";
 
-        if (d < 0)
-            return "Cost is not estimated when the reading drops; fix the raw values first.";
+        if (d <= 0)
+            return d < 0
+                ? "Top-up: you already paid on the purchase; no consumption cost for this interval."
+                : "No credit consumed since the previous read.";
 
         var total = d * unitCost.Value;
         var per100 = unitCost.Value * 100m;
-        return $"Raw usage {d} × (GBP {per100.ToString("0.000", CultureInfo.InvariantCulture)} per 100 vol) = GBP {FormatGbpForSmallAmounts(total)}.";
+        return $"Credit used {d} raw × (GBP {per100.ToString("0.000", CultureInfo.InvariantCulture)} per 100 vol) = GBP {FormatGbpForSmallAmounts(total)}.";
     }
 
-    private readonly record struct IntervalVersusOlder(int RawDelta);
-
-    private string FormatDisplayReading(GasMeterReadingRow row)
-    {
-        var d = Math.Max(1, _displayDivisor);
-        var v = row.ReadingValue / (decimal)d;
-        return v.ToString("0.000", CultureInfo.InvariantCulture);
-    }
+    /// <param name="ConsumedOrTopUpRaw">Positive = credit consumed (gas used); negative = top-up magnitude as negative.</param>
+    private readonly record struct CreditInterval(int ConsumedOrTopUpRaw);
 
     private static string FormatReceiptUnitCost(GasMeterReceiptRow row)
     {
