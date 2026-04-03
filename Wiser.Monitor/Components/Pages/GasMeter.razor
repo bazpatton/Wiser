@@ -142,7 +142,7 @@
             }
         </MudText>
         <MudText Typo="Typo.caption" Class="mud-text-secondary mt-1">
-            <strong>Usage</strong> is <strong>credit consumed</strong> since the previous read in time: <strong>older reading − newer reading</strong> (table row above is newer). If the reading <strong>went up</strong> between reads, that is a <strong>top-up</strong> (no running cost on that interval). <strong>Estimated cost</strong> = credit used (raw) × (Amount ÷ Vol Credit from the latest receipt). Small amounts may show up to 4 decimal places.
+            <strong>Usage</strong> is <strong>credit consumed</strong> since the previous read in time: <strong>older reading − newer reading</strong> (table row above is newer). If the reading <strong>went up</strong> between reads, that is a <strong>top-up</strong> (no running cost on that interval). <strong>Estimated cost</strong> = credit used (raw) × <strong>100</strong> × (Amount ÷ Vol Credit from the latest receipt), so raw ticks match receipt scale. Small amounts may show up to 4 decimal places.
         </MudText>
 
         <MudStack Row="true" Spacing="1" Class="mt-3" Wrap="Wrap.Wrap">
@@ -606,7 +606,7 @@
         if (unitCost is null || d <= 0)
             return "—";
 
-        var total = d * unitCost.Value;
+        var total = d * unitCost.Value * GasCreditMeterPricing.RawConsumptionToVolCreditUnits;
         return $"GBP {FormatGbpForSmallAmounts(total)}";
     }
 
@@ -647,9 +647,9 @@
                 ? "Top-up: you already paid on the purchase; no consumption cost for this interval."
                 : "No credit consumed since the previous read.";
 
-        var total = d * unitCost.Value;
+        var total = d * unitCost.Value * GasCreditMeterPricing.RawConsumptionToVolCreditUnits;
         var per100 = unitCost.Value * 100m;
-        return $"Credit used {d} raw × (GBP {per100.ToString("0.000", CultureInfo.InvariantCulture)} per 100 vol) = GBP {FormatGbpForSmallAmounts(total)}.";
+        return $"Credit used {d} raw × {GasCreditMeterPricing.RawConsumptionToVolCreditUnits.ToString("0", CultureInfo.InvariantCulture)} (to Vol Credit scale) × (GBP {per100.ToString("0.000", CultureInfo.InvariantCulture)} per 100 vol) = GBP {FormatGbpForSmallAmounts(total)}.";
     }
 
     /// <param name="ConsumedOrTopUpRaw">Positive = credit consumed (gas used); negative = top-up magnitude as negative.</param>

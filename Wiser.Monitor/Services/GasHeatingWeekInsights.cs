@@ -47,7 +47,8 @@ public static class GasHeatingWeekInsights
                 var isoYear = ISOWeek.GetYear(dt);
                 var isoWeek = ISOWeek.GetWeekOfYear(dt);
                 var key = (isoYear, isoWeek);
-                gasByWeek[key] = gasByWeek.GetValueOrDefault(key) + consumed * u;
+                gasByWeek[key] = gasByWeek.GetValueOrDefault(key) +
+                    consumed * u * GasCreditMeterPricing.RawConsumptionToVolCreditUnits;
             }
         }
 
