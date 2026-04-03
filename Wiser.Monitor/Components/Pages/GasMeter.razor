@@ -223,12 +223,14 @@
                     <MudTh>Date</MudTh>
                     <MudTh>Vol Credit</MudTh>
                     <MudTh>Amount</MudTh>
+                    <MudTh>Cost per unit</MudTh>
                     <MudTh>Actions</MudTh>
                 </HeaderContent>
                 <RowTemplate>
                     <MudTd DataLabel="Date">@context.EntryDate.ToString("dd/MM/yy", CultureInfo.InvariantCulture)</MudTd>
                     <MudTd DataLabel="Vol Credit">@context.VolCredit</MudTd>
                     <MudTd DataLabel="Amount">GBP @context.AmountGbp.ToString("0.00", CultureInfo.InvariantCulture)</MudTd>
+                    <MudTd DataLabel="Cost per unit">@FormatReceiptUnitCost(context)</MudTd>
                     <MudTd DataLabel="Actions">
                         <MudStack Row="true" Spacing="1">
                             <MudButton Variant="Variant.Text"
@@ -581,5 +583,13 @@
 
         var total = usage.Value * unitCost.Value;
         return $"GBP {total.ToString("0.00", CultureInfo.InvariantCulture)}";
+    }
+
+    private static string FormatReceiptUnitCost(GasMeterReceiptRow row)
+    {
+        if (row.VolCredit <= 0)
+            return "—";
+        var unit = row.AmountGbp / row.VolCredit;
+        return $"GBP {unit.ToString("0.000", CultureInfo.InvariantCulture)}";
     }
 }
