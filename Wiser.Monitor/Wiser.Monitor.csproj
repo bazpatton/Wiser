@@ -17,10 +17,4 @@
     <PackageReference Include="Microsoft.VisualStudio.Azure.Containers.Tools.Targets" Version="1.23.0" />
   </ItemGroup>
 
-  <ItemGroup>
-    <None Include="scripts\gas_receipt_ocr.py" CopyToOutputDirectory="PreserveNewest" />
-    <None Include="scripts\gas_receipt_ocr_lib.py" CopyToOutputDirectory="PreserveNewest" />
-    <None Include="scripts\ocr_worker.py" CopyToOutputDirectory="PreserveNewest" />
-  </ItemGroup>
-
 </Project>

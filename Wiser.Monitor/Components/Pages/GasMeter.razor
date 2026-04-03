@@ -1,10 +1,8 @@
 @page "/gas-meter"
 @rendermode InteractiveServer
 @using System.Globalization
-@using Microsoft.AspNetCore.Components.Forms
 
 @inject TemperatureStore Store
-@inject GasReceiptOcrService Ocr
 @inject ISnackbar Snackbar
 @inject IDialogService DialogService
 
@@ -16,52 +14,15 @@
             <i class="fa-solid fa-fire-flame-curved"></i> Gas meter receipts
         </MudText>
         <MudText Typo="Typo.body2" Class="mt-1">
-            Capture a receipt photo, scan key values, verify before save, and correct or delete entries later if needed.
+            Enter receipt details manually, save, and correct or delete entries later if needed.
         </MudText>
     </MudPaper>
 
     <MudPaper Class="pa-4 card-soft">
-        <MudText Typo="Typo.subtitle1" Class="mb-2">1) Capture and scan</MudText>
-        <MudStack Row="true" Spacing="2" AlignItems="AlignItems.Center" Wrap="Wrap.Wrap">
-            <MudButton Variant="Variant.Outlined"
-                       HtmlTag="label"
-                       for="@_fileInputId"
-                       Color="Color.Primary"
-                       StartIcon="@Icons.Material.Filled.PhotoCamera"
-                       Class="touch-target">
-                Open camera / choose image
-            </MudButton>
-            <InputFile id="@_fileInputId"
-                       OnChange="OnReceiptFileChangedAsync"
-                       accept="image/jpeg,image/png,image/webp"
-                       capture="environment"
-                       class="gas-meter-input-file-hidden" />
-            <MudText Typo="Typo.body2" Class="mud-text-secondary">@_selectedFileLabel</MudText>
-        </MudStack>
-
-        <MudStack Row="true" Class="mt-3" Wrap="Wrap.Wrap">
-            <MudButton Variant="Variant.Filled"
-                       Color="Color.Secondary"
-                       Disabled="@_scanBusy"
-                       StartIcon="@Icons.Material.Filled.DocumentScanner"
-                       Class="touch-target"
-                       OnClick="ScanAsync">
-                @(_scanBusy ? "Scanning..." : "Scan image")
-            </MudButton>
-        </MudStack>
-
-        @if (!string.IsNullOrWhiteSpace(_rawOcrText))
-        {
-            <MudExpansionPanels Class="mt-3">
-                <MudExpansionPanel Text="OCR text preview">
-                    <MudText Typo="Typo.body2" Style="white-space: pre-wrap;">@_rawOcrText</MudText>
-                </MudExpansionPanel>
-            </MudExpansionPanels>
-        }
-    </MudPaper>
-
-    <MudPaper Class="pa-4 card-soft">
-        <MudText Typo="Typo.subtitle1" Class="mb-2">2) Verify and save</MudText>
+        <MudText Typo="Typo.subtitle1" Class="mb-2">Add or edit receipt</MudText>
+        <MudText Typo="Typo.body2" Class="mud-text-secondary mb-2">
+            Vol Credit, amount (GBP), and date from your prepayment receipt.
+        </MudText>
         <MudGrid Spacing="2">
             <MudItem xs="12" md="4">
                 <MudTextField T="string"
@@ -85,13 +46,6 @@
                               Margin="Margin.Dense" />
             </MudItem>
         </MudGrid>
-
-        @if (_ocrConfidence is not null)
-        {
-            <MudText Typo="Typo.caption" Class="mud-text-secondary mt-2">
-                OCR confidence: @_ocrConfidence.Value.ToString("0.00", CultureInfo.InvariantCulture)
-            </MudText>
-        }
 
         <MudStack Row="true" Spacing="1" Class="mt-3" Wrap="Wrap.Wrap">
             <MudButton Variant="Variant.Filled"
@@ -220,7 +174,7 @@
         <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center" Wrap="Wrap.Wrap" Class="mb-2">
             <MudText Typo="Typo.subtitle1">Saved entries</MudText>
             <MudText Typo="Typo.caption" Class="mud-text-secondary">
-                Ordered by scanned receipt date (most recent first)
+                Ordered by receipt date (most recent first)
             </MudText>
         </MudStack>
 
@@ -268,22 +222,14 @@
 </MudStack>
 
 @code {
-    private readonly string _fileInputId = $"gas-receipt-{Guid.NewGuid():N}";
     private readonly List<GasMeterReceiptRow> _receipts = [];
     private readonly List<GasMeterReadingRow> _meterReadings = [];
-
-    private byte[]? _selectedImageBytes;
-    private string _selectedFileLabel = "No image selected.";
-    private string? _rawOcrJson;
-    private string? _rawOcrText;
-    private double? _ocrConfidence;
 
     private string _volCreditText = "";
     private string _amountText = "";
     private string _entryDateText = "";
 
     private int? _editingId;
-    private bool _scanBusy;
     private bool _saveBusy;
     private string _meterReadingText = "";
     private int? _meterReadingEditingId;
@@ -295,66 +241,6 @@
         LoadMeterReadings();
         ApplyQuickEntryDefaults();
         return Task.CompletedTask;
-    }
-
-    private async Task OnReceiptFileChangedAsync(InputFileChangeEventArgs args)
-    {
-        var file = args.File;
-        if (file is null)
-            return;
-
-        var ext = Path.GetExtension(file.Name)?.ToLowerInvariant();
-        if (ext is not (".jpg" or ".jpeg" or ".png" or ".webp"))
-        {
-            Snackbar.Add("Unsupported image type. Please use JPG, PNG, or WEBP.", Severity.Warning);
-            _selectedImageBytes = null;
-            _selectedFileLabel = "No image selected.";
-            return;
-        }
-
-        try
-        {
-            await using var stream = file.OpenReadStream(10_000_000);
-            using var ms = new MemoryStream();
-            await stream.CopyToAsync(ms);
-            _selectedImageBytes = ms.ToArray();
-            _selectedFileLabel = file.Name;
-            Snackbar.Add($"Loaded image: {file.Name}", Severity.Info);
-        }
-        catch (Exception ex)
-        {
-            Snackbar.Add($"Could not read image: {ex.Message}", Severity.Error);
-        }
-    }
-
-    private async Task ScanAsync()
-    {
-        if (_selectedImageBytes is null || _selectedImageBytes.Length == 0)
-        {
-            Snackbar.Add("Select an image first.", Severity.Warning);
-            return;
-        }
-
-        _scanBusy = true;
-        try
-        {
-            var result = await Ocr.ScanAsync(_selectedImageBytes, _selectedFileLabel, CancellationToken.None);
-            _volCreditText = result.VolCredit?.ToString(CultureInfo.InvariantCulture) ?? "";
-            _amountText = result.AmountGbp?.ToString("0.00", CultureInfo.InvariantCulture) ?? "";
-            _entryDateText = result.EntryDate?.ToString("dd/MM/yy", CultureInfo.InvariantCulture) ?? "";
-            _rawOcrText = result.RawText;
-            _rawOcrJson = result.RawJson;
-            _ocrConfidence = result.Confidence;
-            Snackbar.Add("Scan complete. Verify the values before saving.", Severity.Success);
-        }
-        catch (Exception ex)
-        {
-            Snackbar.Add($"OCR failed: {ex.Message}", Severity.Error);
-        }
-        finally
-        {
-            _scanBusy = false;
-        }
     }
 
     private Task SaveAsync()
@@ -392,7 +278,7 @@
             }
             else
             {
-                Store.CreateGasMeterReceipt(entryDate, volCredit, amount, _rawOcrJson, null);
+                Store.CreateGasMeterReceipt(entryDate, volCredit, amount, null, null);
                 Snackbar.Add("Entry saved.", Severity.Success);
             }
 
@@ -413,9 +299,6 @@
         _volCreditText = row.VolCredit.ToString(CultureInfo.InvariantCulture);
         _amountText = row.AmountGbp.ToString("0.00", CultureInfo.InvariantCulture);
         _entryDateText = row.EntryDate.ToString("dd/MM/yy", CultureInfo.InvariantCulture);
-        _rawOcrJson = row.OcrRawJson;
-        _rawOcrText = null;
-        _ocrConfidence = null;
     }
 
     private async Task DeleteAsync(GasMeterReceiptRow row)
@@ -454,9 +337,6 @@
         _volCreditText = latest is null ? "" : latest.VolCredit.ToString(CultureInfo.InvariantCulture);
         _amountText = latest is null ? "" : latest.AmountGbp.ToString("0.00", CultureInfo.InvariantCulture);
         _entryDateText = DateOnly.FromDateTime(DateTime.Now).ToString("dd/MM/yy", CultureInfo.InvariantCulture);
-        _rawOcrJson = null;
-        _rawOcrText = null;
-        _ocrConfidence = null;
     }
 
     private Task SaveMeterReadingAsync()

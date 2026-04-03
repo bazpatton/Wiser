@@ -8,8 +8,6 @@ services:
     environment:
       DATA_DIR: /data
       TIME_ZONE: "${TIME_ZONE:-Europe/London}"
-      OCR_PYTHON_PATH: "${OCR_PYTHON_PATH:-/opt/ocr-venv/bin/python}"
-      EASYOCR_MODULE_PATH: /data/easyocr
     volumes:
       - wiser_monitor_data:/data
     restart: unless-stopped

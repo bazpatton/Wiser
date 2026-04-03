@@ -15,23 +15,6 @@ public sealed class MonitorOptions
     public double? OpenMeteoLon { get; set; }
     public string DataDir { get; set; } = "./data";
     public string? TimeZoneId { get; set; }
-    public string OcrPythonPath { get; set; } = "python3";
-    public string? OcrScriptPath { get; set; }
-    public int OcrTimeoutSec { get; set; } = 120;
-
-    /// <summary>
-    /// When true, scans use a persistent Python EasyOCR worker (HTTP) so models load once. When false, each scan spawns <c>gas_receipt_ocr.py</c> (slow).
-    /// </summary>
-    public bool OcrPersistentWorker { get; set; } = true;
-
-    /// <summary>Base URL of the OCR worker (e.g. http://127.0.0.1:8765). Used when <see cref="OcrPersistentWorker"/> is true.</summary>
-    public string? OcrWorkerBaseUrl { get; set; }
-
-    /// <summary>When true with <see cref="OcrPersistentWorker"/>, the app spawns uvicorn for <c>ocr_worker.py</c> on startup.</summary>
-    public bool OcrWorkerAutoStart { get; set; } = true;
-
-    /// <summary>Max seconds to wait for the worker /health after process start (first EasyOCR model load).</summary>
-    public int OcrWorkerStartupTimeoutSec { get; set; } = 180;
 
     public bool UseHighAlert => TempAlertAboveC > 0;
     public bool UseLowAlert => TempAlertBelowC.HasValue;
@@ -97,50 +80,7 @@ public sealed class MonitorOptions
             TimeZoneId = string.IsNullOrWhiteSpace(cfg["TIME_ZONE"])
                 ? (string.IsNullOrWhiteSpace(cfg["TZ"]) ? null : cfg["TZ"]!.Trim())
                 : cfg["TIME_ZONE"]!.Trim(),
-            OcrPythonPath = string.IsNullOrWhiteSpace(cfg["OCR_PYTHON_PATH"]) ? "python3" : cfg["OCR_PYTHON_PATH"]!.Trim(),
-            OcrScriptPath = string.IsNullOrWhiteSpace(cfg["OCR_SCRIPT_PATH"]) ? null : cfg["OCR_SCRIPT_PATH"]!.Trim(),
-            OcrTimeoutSec = int.TryParse(SanitizeNumericRaw(cfg["OCR_TIMEOUT_SEC"]), NumberStyles.Integer, CultureInfo.InvariantCulture, out var ocrTimeout)
-                ? Math.Clamp(ocrTimeout, 5, 180)
-                : 120,
-            OcrPersistentWorker = ParseEnvBool(cfg["OCR_PERSISTENT_WORKER"], defaultValue: true),
-            OcrWorkerBaseUrl = ResolveOcrWorkerUrl(cfg),
-            OcrWorkerAutoStart = ParseEnvBool(cfg["OCR_WORKER_AUTO_START"], defaultValue: true),
-            OcrWorkerStartupTimeoutSec = int.TryParse(
-                    SanitizeNumericRaw(cfg["OCR_WORKER_STARTUP_TIMEOUT_SEC"]),
-                    NumberStyles.Integer,
-                    CultureInfo.InvariantCulture,
-                    out var ocrStart)
-                ? Math.Clamp(ocrStart, 30, 600)
-                : 180,
         };
-    }
-
-    private static string? ResolveOcrWorkerUrl(IConfiguration cfg)
-    {
-        if (!ParseEnvBool(cfg["OCR_PERSISTENT_WORKER"], defaultValue: true))
-            return null;
-        var raw = cfg["OCR_WORKER_URL"]?.Trim();
-        if (!string.IsNullOrWhiteSpace(raw))
-            return raw;
-        return "http://127.0.0.1:8765";
-    }
-
-    private static bool ParseEnvBool(string? raw, bool defaultValue)
-    {
-        if (string.IsNullOrWhiteSpace(raw))
-            return defaultValue;
-        var s = raw.Trim();
-        if (string.Equals(s, "0", StringComparison.OrdinalIgnoreCase)
-            || string.Equals(s, "false", StringComparison.OrdinalIgnoreCase)
-            || string.Equals(s, "no", StringComparison.OrdinalIgnoreCase)
-            || string.Equals(s, "off", StringComparison.OrdinalIgnoreCase))
-            return false;
-        if (string.Equals(s, "1", StringComparison.OrdinalIgnoreCase)
-            || string.Equals(s, "true", StringComparison.OrdinalIgnoreCase)
-            || string.Equals(s, "yes", StringComparison.OrdinalIgnoreCase)
-            || string.Equals(s, "on", StringComparison.OrdinalIgnoreCase))
-            return true;
-        return defaultValue;
     }
 
     public IReadOnlyList<string> Validate()

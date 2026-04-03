@@ -48,24 +48,12 @@ foreach (var err in valErrors.Except(hubConfigurationErrors))
 builder.Services.AddSingleton(monitorOptions);
 builder.Services.AddSingleton<TemperatureStore>();
 builder.Services.AddSingleton<MonitorState>();
-builder.Services.AddHttpClient("GasReceiptOcr", (sp, client) =>
-{
-    var o = sp.GetRequiredService<MonitorOptions>();
-    if (o.OcrPersistentWorker && !string.IsNullOrWhiteSpace(o.OcrWorkerBaseUrl))
-    {
-        client.BaseAddress = new Uri(o.OcrWorkerBaseUrl.TrimEnd('/') + "/");
-        client.Timeout = TimeSpan.FromSeconds(Math.Clamp(o.OcrTimeoutSec, 15, 180));
-    }
-});
-builder.Services.AddSingleton<GasReceiptOcrService>();
 builder.Services.AddHttpClient<WiserHubFetch>(c => c.Timeout = TimeSpan.FromSeconds(15));
 builder.Services.AddHttpClient<OutdoorWeatherClient>(c => c.Timeout = TimeSpan.FromSeconds(20));
 builder.Services.AddHttpClient<NtfyClient>(c => c.Timeout = TimeSpan.FromSeconds(15));
 builder.Services.AddSingleton<RoomAlertService>();
 builder.Services.AddScoped<RoomsLiveDataCache>();
 builder.Services.AddSingleton<ApiRoomsNamesCache>();
-if (monitorOptions.OcrPersistentWorker && monitorOptions.OcrWorkerAutoStart)
-    builder.Services.AddHostedService<OcrWorkerHostedService>();
 if (hubConfigured)
     builder.Services.AddHostedService<WiserPollWorker>();
 builder.Services.AddHostedService<GasMeterReminderWorker>();
@@ -91,14 +79,6 @@ app.MapGet("/api/health", (MonitorState state, MonitorOptions o) =>
         alerts_enabled = o.AlertsEnabled,
         outdoor_enabled = o.OpenMeteoLat is not null,
     });
-});
-
-app.MapGet("/api/ocr-health", async (GasReceiptOcrService ocr, CancellationToken ct) =>
-{
-    var (ok, detail) = await ocr.CheckReadinessAsync(ct).ConfigureAwait(false);
-    return ok
-        ? Results.Json(new { ok = true, detail })
-        : Results.Json(new { ok = false, detail }, statusCode: StatusCodes.Status503ServiceUnavailable);
 });
 
 app.MapGet("/api/rooms", (TemperatureStore store, MonitorState state, ApiRoomsNamesCache roomsNamesCache) =>
@@ -383,36 +363,6 @@ app.MapGet("/api/data-quality-summary", (int? hours, TemperatureStore store) =>
     var summary = store.GetDataQualitySummary(h);
     return Results.Json(summary);
 });
-
-app.MapPost("/api/gas-meter/scan", async (IFormFile file, GasReceiptOcrService ocr, CancellationToken ct) =>
-{
-    if (file is null || file.Length <= 0)
-        return Results.BadRequest(new { error = "file is required" });
-    if (file.Length > 10_000_000)
-        return Results.BadRequest(new { error = "file exceeds 10MB limit" });
-
-    await using var stream = file.OpenReadStream();
-    using var ms = new MemoryStream();
-    await stream.CopyToAsync(ms, ct).ConfigureAwait(false);
-
-    try
-    {
-        var result = await ocr.ScanAsync(ms.ToArray(), file.FileName, ct).ConfigureAwait(false);
-        return Results.Json(new
-        {
-            vol_credit = result.VolCredit,
-            amount_gbp = result.AmountGbp,
-            entry_date = result.EntryDate?.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
-            confidence = result.Confidence,
-            raw_text = result.RawText,
-            raw_json = result.RawJson,
-        });
-    }
-    catch (Exception ex)
-    {
-        return Results.Json(new { error = ex.Message }, statusCode: StatusCodes.Status502BadGateway);
-    }
-}).DisableAntiforgery();
 
 app.MapGet("/api/gas-meter", (TemperatureStore store) =>
 {
