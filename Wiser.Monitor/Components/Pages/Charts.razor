@@ -435,6 +435,73 @@
         </MudDataGrid>
     </MudPaper>
     </MudTabPanel>
+
+    <MudTabPanel Text="Gas vs heating" Icon="@Icons.Material.Filled.LocalFireDepartment">
+        <MudPaper Class="pa-4 table-card">
+            <MudText Typo="Typo.h6" Class="mb-2">
+                <i class="fa-solid fa-fire-flame-curved"></i> Weekly estimated gas vs heating proxies
+            </MudText>
+            <MudText Typo="Typo.caption" Class="mud-text-secondary mb-2 d-block">
+                Gas cost is estimated from <strong>adjacent meter readings</strong> (raw integer delta) × unit price from the <strong>latest receipt only</strong> — historical tariffs are not applied.
+                Each interval is booked to the <strong>ISO week of the later reading</strong> (local time).
+                HDD needs <strong>Open-Meteo</strong> outdoor data (lat/lon in settings); otherwise HDD stays blank.
+            </MudText>
+            <MudGrid Spacing="2" Class="mb-3">
+                <MudItem xs="12" sm="6" md="4">
+                    <MudSelect T="int"
+                               Label="Weeks to show"
+                               Value="_gasWeeksToShow"
+                               ValueChanged="OnGasWeeksChanged"
+                               Variant="Variant.Outlined"
+                               Dense="true"
+                               Margin="Margin.Dense"
+                               Class="touch-control">
+                        @for (var w = 4; w <= 16; w++)
+                        {
+                            <MudSelectItem Value="@w">@w weeks</MudSelectItem>
+                        }
+                    </MudSelect>
+                </MudItem>
+            </MudGrid>
+            @if (!_gasWeekHasReceipt)
+            {
+                <MudAlert Severity="Severity.Info" Dense="true" Class="mb-2">
+                    Add a gas receipt with Vol Credit and Amount on the Gas meter page to estimate weekly spend.
+                </MudAlert>
+            }
+            @if (_gasWeekReadingPairs < 1)
+            {
+                <MudAlert Severity="Severity.Warning" Dense="true" Class="mb-2">
+                    At least two meter readings are needed to attribute gas use to weeks.
+                </MudAlert>
+            }
+            @if (_gasWeekRows.Count == 0)
+            {
+                <MudAlert Severity="Severity.Info" Dense="true">No weekly rows to show.</MudAlert>
+            }
+            else
+            {
+                <MudTable T="GasWeekInsightRow" Dense="true" Hover="true" Breakpoint="Breakpoint.Sm" Items="_gasWeekRows">
+                    <HeaderContent>
+                        <MudTh>Week</MudTh>
+                        <MudTh Class="text-right">Est. gas (GBP)</MudTh>
+                        <MudTh Class="text-right">HDD Σ</MudTh>
+                        <MudTh Class="text-right">Heat est. (min)</MudTh>
+                        <MudTh>Note</MudTh>
+                    </HeaderContent>
+                    <RowTemplate>
+                        <MudTd DataLabel="Week">@context.WeekLabel</MudTd>
+                        <MudTd DataLabel="Est. gas" Class="text-right">@FmtGasGbp(context.EstimatedGasGbp)</MudTd>
+                        <MudTd DataLabel="HDD" Class="text-right">@FmtOpt(context.HddSum)</MudTd>
+                        <MudTd DataLabel="Heat min" Class="text-right">@Fmt(context.HeatMinutesSum)</MudTd>
+                        <MudTd DataLabel="Note">
+                            <MudText Typo="Typo.body2">@context.Narrative</MudText>
+                        </MudTd>
+                    </RowTemplate>
+                </MudTable>
+            }
+        </MudPaper>
+    </MudTabPanel>
     </MudTabs>
 </MudStack>
 
@@ -490,6 +557,10 @@
     };
     private readonly List<RoomHeatTile> _roomTiles = [];
     private readonly List<DailySummaryRow> _dailyRows = [];
+    private readonly List<GasWeekInsightRow> _gasWeekRows = [];
+    private int _gasWeeksToShow = 8;
+    private bool _gasWeekHasReceipt;
+    private int _gasWeekReadingPairs;
     private string[] _comfortComplianceLabels = [];
     private List<ChartSeries<double>> _comfortComplianceSeries = [];
     private string[] _currentDeviationLabels = [];
@@ -626,6 +697,7 @@
         try
         {
             LoadRooms();
+            LoadGasWeekInsights();
 
             var since24h = DateTimeOffset.UtcNow.ToUnixTimeSeconds() - (HeatCallingTrendHours * 3600L);
             BuildHeatCallingRoomsTimeseries(since24h);
@@ -710,6 +782,36 @@
 
         return Task.CompletedTask;
     }
+
+    private Task OnGasWeeksChanged(int weeks)
+    {
+        _gasWeeksToShow = weeks;
+        LoadGasWeekInsights();
+        StateHasChanged();
+        return Task.CompletedTask;
+    }
+
+    private void LoadGasWeekInsights()
+    {
+        var receipts = Store.ListGasMeterReceipts();
+        var latestReceipt = receipts.FirstOrDefault();
+        _gasWeekHasReceipt = latestReceipt is { VolCredit: > 0 };
+
+        var readings = Store.ListGasMeterReadings();
+        var asc = readings.OrderBy(static r => r.ReadTs).ToList();
+        _gasWeekReadingPairs = asc.Count >= 2
+            ? Enumerable.Range(1, asc.Count - 1).Count(i => asc[i].ReadingValue - asc[i - 1].ReadingValue >= 0)
+            : 0;
+
+        var days = 7 * _gasWeeksToShow + 14;
+        var daily = Store.GetDailySummaries(days, Math.Max(10, Options.IntervalSec), DisplayZone);
+
+        _gasWeekRows.Clear();
+        _gasWeekRows.AddRange(GasHeatingWeekInsights.Build(readings, latestReceipt, daily, DisplayZone, _gasWeeksToShow));
+    }
+
+    private static string FmtGasGbp(decimal gbp) =>
+        gbp <= 0 ? "—" : $"£{gbp.ToString("0.00", CultureInfo.InvariantCulture)}";
 
     private void LoadDataQualitySummary()
     {

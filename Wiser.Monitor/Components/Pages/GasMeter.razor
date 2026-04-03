@@ -123,9 +123,27 @@
                               Variant="Variant.Outlined"
                               Margin="Margin.Dense" />
             </MudItem>
-            <MudItem xs="12" md="8" Class="d-flex align-center">
+            <MudItem xs="12" md="4">
+                <MudNumericField T="int"
+                                 Label="Display scale (÷ divisor)"
+                                 Value="_displayDivisor"
+                                 ValueChanged="OnDisplayDivisorChanged"
+                                 Min="1"
+                                 Max="1000000"
+                                 Variant="Variant.Outlined"
+                                 Margin="Margin.Dense"
+                                 HelperText="Stored value is still the raw integer; this only affects the display column." />
+            </MudItem>
+            <MudItem xs="12" md="4" Class="d-flex align-center flex-wrap" Style="gap: 8px;">
+                <MudButton Variant="Variant.Outlined"
+                           Color="Color.Primary"
+                           Size="Size.Small"
+                           Class="touch-target"
+                           OnClick="SaveDisplayDivisorAsync">
+                    Save scale
+                </MudButton>
                 <MudText Typo="Typo.caption" Class="mud-text-secondary">
-                    Read time is auto-assigned to the current datetime when saving.
+                    Read time is set when saving a reading.
                 </MudText>
             </MudItem>
         </MudGrid>
@@ -139,6 +157,9 @@
             {
                 <span>Add at least one receipt with Vol Credit + Amount to calculate cost.</span>
             }
+        </MudText>
+        <MudText Typo="Typo.caption" Class="mud-text-secondary mt-1">
+            <strong>Estimated cost</strong> uses the <strong>raw integer</strong> difference between readings × that rate (same units as Vol Credit on the receipt). The <strong>Display reading</strong> column is cosmetic (reading ÷ divisor), e.g. ÷1000 when the meter shows cubic metres with three decimals behind the register.
         </MudText>
 
         <MudStack Row="true" Spacing="1" Class="mt-3" Wrap="Wrap.Wrap">
@@ -172,6 +193,7 @@
                 <HeaderContent>
                     <MudTh>Read datetime</MudTh>
                     <MudTh>Reading</MudTh>
+                    <MudTh>Display reading</MudTh>
                     <MudTh>Usage</MudTh>
                     <MudTh>Estimated cost</MudTh>
                     <MudTh>Actions</MudTh>
@@ -179,6 +201,7 @@
                 <RowTemplate>
                     <MudTd DataLabel="Read datetime">@FormatLocalDateTime(context.ReadTs)</MudTd>
                     <MudTd DataLabel="Reading">@context.ReadingValue</MudTd>
+                    <MudTd DataLabel="Display reading">@FormatDisplayReading(context)</MudTd>
                     <MudTd DataLabel="Usage">@FormatUsage(context)</MudTd>
                     <MudTd DataLabel="Estimated cost">@FormatEstimatedCost(context)</MudTd>
                     <MudTd DataLabel="Actions">
@@ -276,12 +299,27 @@
     private string _meterReadingText = "";
     private int? _meterReadingEditingId;
     private bool _meterReadingSaveBusy;
+    private int _displayDivisor = 1000;
 
     protected override Task OnInitializedAsync()
     {
+        _displayDivisor = Store.GetGasMeterDisplayDivisor();
         LoadRows();
         LoadMeterReadings();
         ApplyQuickEntryDefaults();
+        return Task.CompletedTask;
+    }
+
+    private void OnDisplayDivisorChanged(int value)
+    {
+        _displayDivisor = Math.Clamp(value, 1, 1_000_000);
+    }
+
+    private Task SaveDisplayDivisorAsync()
+    {
+        Store.SetGasMeterDisplayDivisor(_displayDivisor);
+        _displayDivisor = Store.GetGasMeterDisplayDivisor();
+        Snackbar.Add("Display scale saved.", Severity.Success);
         return Task.CompletedTask;
     }
 
@@ -583,6 +621,13 @@
 
         var total = usage.Value * unitCost.Value;
         return $"GBP {total.ToString("0.00", CultureInfo.InvariantCulture)}";
+    }
+
+    private string FormatDisplayReading(GasMeterReadingRow row)
+    {
+        var d = Math.Max(1, _displayDivisor);
+        var v = row.ReadingValue / (decimal)d;
+        return v.ToString("0.000", CultureInfo.InvariantCulture);
     }
 
     private static string FormatReceiptUnitCost(GasMeterReceiptRow row)
