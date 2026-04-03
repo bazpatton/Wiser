@@ -129,6 +129,17 @@
                 </MudText>
             </MudItem>
         </MudGrid>
+        <MudText Typo="Typo.caption" Class="mud-text-secondary mt-1">
+            Cost rate from latest receipt:
+            @if (GetUnitCostPerVolume() is decimal unitCost)
+            {
+                <span>GBP @unitCost.ToString("0.000", CultureInfo.InvariantCulture) per volume unit</span>
+            }
+            else
+            {
+                <span>Add at least one receipt with Vol Credit + Amount to calculate cost.</span>
+            }
+        </MudText>
 
         <MudStack Row="true" Spacing="1" Class="mt-3" Wrap="Wrap.Wrap">
             <MudButton Variant="Variant.Filled"
@@ -161,11 +172,15 @@
                 <HeaderContent>
                     <MudTh>Read datetime</MudTh>
                     <MudTh>Reading</MudTh>
+                    <MudTh>Usage</MudTh>
+                    <MudTh>Estimated cost</MudTh>
                     <MudTh>Actions</MudTh>
                 </HeaderContent>
                 <RowTemplate>
                     <MudTd DataLabel="Read datetime">@FormatLocalDateTime(context.ReadTs)</MudTd>
                     <MudTd DataLabel="Reading">@context.ReadingValue</MudTd>
+                    <MudTd DataLabel="Usage">@FormatUsage(context)</MudTd>
+                    <MudTd DataLabel="Estimated cost">@FormatEstimatedCost(context)</MudTd>
                     <MudTd DataLabel="Actions">
                         <MudStack Row="true" Spacing="1">
                             <MudButton Variant="Variant.Text"
@@ -530,5 +545,41 @@
     private static string FormatLocalDateTime(long ts)
     {
         return DateTimeOffset.FromUnixTimeSeconds(ts).ToLocalTime().ToString("dd/MM/yy HH:mm", CultureInfo.InvariantCulture);
+    }
+
+    private decimal? GetUnitCostPerVolume()
+    {
+        var latestReceipt = _receipts.FirstOrDefault();
+        if (latestReceipt is null || latestReceipt.VolCredit <= 0)
+            return null;
+        return latestReceipt.AmountGbp / latestReceipt.VolCredit;
+    }
+
+    private int? GetUsageSincePrevious(GasMeterReadingRow row)
+    {
+        var idx = _meterReadings.FindIndex(x => x.Id == row.Id);
+        if (idx < 0 || idx + 1 >= _meterReadings.Count)
+            return null;
+
+        var previous = _meterReadings[idx + 1];
+        var usage = row.ReadingValue - previous.ReadingValue;
+        return usage >= 0 ? usage : null;
+    }
+
+    private string FormatUsage(GasMeterReadingRow row)
+    {
+        var usage = GetUsageSincePrevious(row);
+        return usage is null ? "—" : usage.Value.ToString(CultureInfo.InvariantCulture);
+    }
+
+    private string FormatEstimatedCost(GasMeterReadingRow row)
+    {
+        var usage = GetUsageSincePrevious(row);
+        var unitCost = GetUnitCostPerVolume();
+        if (usage is null || unitCost is null)
+            return "—";
+
+        var total = usage.Value * unitCost.Value;
+        return $"GBP {total.ToString("0.00", CultureInfo.InvariantCulture)}";
     }
 }
