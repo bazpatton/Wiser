@@ -48,6 +48,15 @@ foreach (var err in valErrors.Except(hubConfigurationErrors))
 builder.Services.AddSingleton(monitorOptions);
 builder.Services.AddSingleton<TemperatureStore>();
 builder.Services.AddSingleton<MonitorState>();
+builder.Services.AddHttpClient("GasReceiptOcr", (sp, client) =>
+{
+    var o = sp.GetRequiredService<MonitorOptions>();
+    if (o.OcrPersistentWorker && !string.IsNullOrWhiteSpace(o.OcrWorkerBaseUrl))
+    {
+        client.BaseAddress = new Uri(o.OcrWorkerBaseUrl.TrimEnd('/') + "/");
+        client.Timeout = TimeSpan.FromSeconds(Math.Clamp(o.OcrTimeoutSec, 15, 180));
+    }
+});
 builder.Services.AddSingleton<GasReceiptOcrService>();
 builder.Services.AddHttpClient<WiserHubFetch>(c => c.Timeout = TimeSpan.FromSeconds(15));
 builder.Services.AddHttpClient<OutdoorWeatherClient>(c => c.Timeout = TimeSpan.FromSeconds(20));
@@ -55,6 +64,8 @@ builder.Services.AddHttpClient<NtfyClient>(c => c.Timeout = TimeSpan.FromSeconds
 builder.Services.AddSingleton<RoomAlertService>();
 builder.Services.AddScoped<RoomsLiveDataCache>();
 builder.Services.AddSingleton<ApiRoomsNamesCache>();
+if (monitorOptions.OcrPersistentWorker && monitorOptions.OcrWorkerAutoStart)
+    builder.Services.AddHostedService<OcrWorkerHostedService>();
 if (hubConfigured)
     builder.Services.AddHostedService<WiserPollWorker>();
 builder.Services.AddHostedService<GasMeterReminderWorker>();
