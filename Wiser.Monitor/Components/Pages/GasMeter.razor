@@ -42,7 +42,7 @@
         <MudStack Row="true" Class="mt-3" Wrap="Wrap.Wrap">
             <MudButton Variant="Variant.Filled"
                        Color="Color.Secondary"
-                       Disabled="@(_scanBusy || _selectedImageBytes is null)"
+                       Disabled="@_scanBusy"
                        StartIcon="@Icons.Material.Filled.DocumentScanner"
                        Class="touch-target"
                        OnClick="ScanAsync">

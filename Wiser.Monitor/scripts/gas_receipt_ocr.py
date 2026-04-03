@@ -46,7 +46,7 @@ def main():
         return 3
 
     try:
-        reader = easyocr.Reader(["en"], gpu=False)
+        reader = easyocr.Reader(["en"], gpu=False, verbose=False)
         lines = reader.readtext(image_path, detail=1, paragraph=False)
     except Exception as ex:
         print(json.dumps({"error": f"easyocr read failed: {ex}"}))

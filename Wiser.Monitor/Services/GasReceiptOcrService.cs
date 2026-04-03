@@ -56,17 +56,27 @@ public sealed class GasReceiptOcrService
             var stdout = await stdoutTask.ConfigureAwait(false);
             var stderr = await stderrTask.ConfigureAwait(false);
 
-            if (process.ExitCode != 0)
-            {
-                var detail = string.IsNullOrWhiteSpace(stderr) ? stdout : stderr;
-                throw new InvalidOperationException($"OCR process failed: {detail.Trim()}");
-            }
-
             if (string.IsNullOrWhiteSpace(stdout))
-                throw new InvalidOperationException("OCR process returned no output.");
+            {
+                var detail = string.IsNullOrWhiteSpace(stderr) ? $"exit code {process.ExitCode}" : stderr.Trim();
+                throw new InvalidOperationException($"OCR process returned no output: {detail}");
+            }
 
             using var doc = JsonDocument.Parse(stdout);
             var root = doc.RootElement;
+            if (root.TryGetProperty("error", out var errorEl) && errorEl.ValueKind == JsonValueKind.String)
+            {
+                var scriptError = errorEl.GetString() ?? "unknown OCR error";
+                var extra = string.IsNullOrWhiteSpace(stderr) ? "" : $" ({stderr.Trim()})";
+                throw new InvalidOperationException($"OCR script error: {scriptError}{extra}");
+            }
+
+            if (process.ExitCode != 0)
+            {
+                // Some OCR stacks emit warnings on stderr; if we already parsed valid JSON without an error field,
+                // continue instead of failing on noisy non-zero exits.
+            }
+
             var rawText = root.TryGetProperty("raw_text", out var rawTextEl) && rawTextEl.ValueKind == JsonValueKind.String
                 ? rawTextEl.GetString()
                 : null;
