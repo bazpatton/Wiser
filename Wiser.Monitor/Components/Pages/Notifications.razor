@@ -3,6 +3,8 @@
 @using System.Globalization
 
 @inject TemperatureStore Store
+@inject IDialogService DialogService
+@inject ISnackbar Snackbar
 
 <PageTitle>Wiser Monitor - Notifications</PageTitle>
 
@@ -26,12 +28,21 @@
                 <MudTh>Kind</MudTh>
                 <MudTh>Title</MudTh>
                 <MudTh>Message</MudTh>
+                <MudTh Style="width: 3rem;"></MudTh>
             </HeaderContent>
             <RowTemplate>
                 <MudTd DataLabel="Sent">@FormatLocal(context.SentTs)</MudTd>
                 <MudTd DataLabel="Kind">@context.Kind</MudTd>
                 <MudTd DataLabel="Title">@context.Title</MudTd>
                 <MudTd DataLabel="Message" Style="white-space: pre-wrap; max-width: 28rem;">@context.Message</MudTd>
+                <MudTd DataLabel="">
+                    <MudIconButton Icon="@Icons.Material.Filled.DeleteOutline"
+                                   Color="Color.Default"
+                                   Size="Size.Small"
+                                   title="Delete this notification"
+                                   aria-label="Delete notification"
+                                   OnClick="@(() => DeleteRowAsync(context))" />
+                </MudTd>
             </RowTemplate>
         </MudTable>
     }
@@ -43,13 +54,36 @@
     protected override void OnInitialized()
     {
         Store.MarkNtfyNotificationsViewedNow();
-        _rows.Clear();
-        _rows.AddRange(Store.ListNtfyNotifications(200));
+        ReloadRows();
     }
 
     private static string FormatLocal(long sentTsUtc)
     {
         var local = DateTimeOffset.FromUnixTimeSeconds(sentTsUtc).ToLocalTime();
         return local.ToString("g", CultureInfo.CurrentCulture);
+    }
+
+    private async Task DeleteRowAsync(NtfyNotificationRow row)
+    {
+        var confirm = await DialogService.ShowMessageBoxAsync(
+            "Delete notification?",
+            $"Remove the entry sent {FormatLocal(row.SentTs)} ({row.Kind})? This cannot be undone.",
+            yesText: "Delete",
+            noText: null,
+            cancelText: "Cancel");
+        if (confirm is not true)
+            return;
+
+        if (Store.DeleteNtfyNotification(row.Id))
+        {
+            ReloadRows();
+            Snackbar.Add("Notification removed.", Severity.Success);
+        }
+    }
+
+    private void ReloadRows()
+    {
+        _rows.Clear();
+        _rows.AddRange(Store.ListNtfyNotifications(200));
     }
 }

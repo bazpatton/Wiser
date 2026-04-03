@@ -846,6 +846,22 @@ public sealed class TemperatureStore
         }
     }
 
+    /// <summary>Removes one ntfy history row by primary key. Returns true if a row was deleted.</summary>
+    public bool DeleteNtfyNotification(int id)
+    {
+        if (id <= 0)
+            return false;
+
+        lock (_gate)
+        {
+            using var c = Open();
+            using var cmd = c.CreateCommand();
+            cmd.CommandText = "DELETE FROM ntfy_notifications WHERE id = $id";
+            cmd.Parameters.AddWithValue("$id", id);
+            return cmd.ExecuteNonQuery() > 0;
+        }
+    }
+
     public int CreateGasMeterReceipt(DateOnly entryDate, int volCredit, decimal amountGbp, string? ocrRawJson, string? sourceImagePath)
     {
         lock (_gate)
