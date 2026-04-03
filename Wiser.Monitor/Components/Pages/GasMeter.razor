@@ -114,6 +114,82 @@
     </MudPaper>
 
     <MudPaper Class="pa-4 card-soft">
+        <MudText Typo="Typo.subtitle1" Class="mb-2">Current meter reading</MudText>
+        <MudGrid Spacing="2">
+            <MudItem xs="12" md="4">
+                <MudTextField T="string"
+                              Label="Reading (integer)"
+                              @bind-Value="_meterReadingText"
+                              Variant="Variant.Outlined"
+                              Margin="Margin.Dense" />
+            </MudItem>
+            <MudItem xs="12" md="8" Class="d-flex align-center">
+                <MudText Typo="Typo.caption" Class="mud-text-secondary">
+                    Read time is auto-assigned to the current datetime when saving.
+                </MudText>
+            </MudItem>
+        </MudGrid>
+
+        <MudStack Row="true" Spacing="1" Class="mt-3" Wrap="Wrap.Wrap">
+            <MudButton Variant="Variant.Filled"
+                       Color="Color.Primary"
+                       Disabled="@_meterReadingSaveBusy"
+                       StartIcon="@Icons.Material.Filled.Save"
+                       Class="touch-target"
+                       OnClick="SaveMeterReadingAsync">
+                @(_meterReadingEditingId is null ? "Save reading" : "Update reading")
+            </MudButton>
+            <MudButton Variant="Variant.Outlined"
+                       Color="Color.Default"
+                       Disabled="@_meterReadingSaveBusy"
+                       StartIcon="@Icons.Material.Filled.Clear"
+                       Class="touch-target"
+                       OnClick="ClearMeterReadingEditor">
+                Clear
+            </MudButton>
+        </MudStack>
+
+        <MudDivider Class="my-3" />
+
+        @if (_meterReadings.Count == 0)
+        {
+            <MudAlert Severity="Severity.Info" Dense="true">No meter readings yet.</MudAlert>
+        }
+        else
+        {
+            <MudTable T="GasMeterReadingRow" Dense="true" Hover="true" Breakpoint="Breakpoint.Sm" Items="_meterReadings">
+                <HeaderContent>
+                    <MudTh>Read datetime</MudTh>
+                    <MudTh>Reading</MudTh>
+                    <MudTh>Actions</MudTh>
+                </HeaderContent>
+                <RowTemplate>
+                    <MudTd DataLabel="Read datetime">@FormatLocalDateTime(context.ReadTs)</MudTd>
+                    <MudTd DataLabel="Reading">@context.ReadingValue</MudTd>
+                    <MudTd DataLabel="Actions">
+                        <MudStack Row="true" Spacing="1">
+                            <MudButton Variant="Variant.Text"
+                                       Size="Size.Small"
+                                       Color="Color.Primary"
+                                       StartIcon="@Icons.Material.Filled.Edit"
+                                       OnClick="@(() => StartEditMeterReading(context))">
+                                Edit
+                            </MudButton>
+                            <MudButton Variant="Variant.Text"
+                                       Size="Size.Small"
+                                       Color="Color.Error"
+                                       StartIcon="@Icons.Material.Filled.Delete"
+                                       OnClick="@(() => DeleteMeterReadingAsync(context))">
+                                Delete
+                            </MudButton>
+                        </MudStack>
+                    </MudTd>
+                </RowTemplate>
+            </MudTable>
+        }
+    </MudPaper>
+
+    <MudPaper Class="pa-4 card-soft">
         <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center" Wrap="Wrap.Wrap" Class="mb-2">
             <MudText Typo="Typo.subtitle1">Saved entries</MudText>
             <MudText Typo="Typo.caption" Class="mud-text-secondary">
@@ -165,6 +241,7 @@
 @code {
     private readonly string _fileInputId = $"gas-receipt-{Guid.NewGuid():N}";
     private readonly List<GasMeterReceiptRow> _receipts = [];
+    private readonly List<GasMeterReadingRow> _meterReadings = [];
 
     private byte[]? _selectedImageBytes;
     private string _selectedFileLabel = "No image selected.";
@@ -179,10 +256,14 @@
     private int? _editingId;
     private bool _scanBusy;
     private bool _saveBusy;
+    private string _meterReadingText = "";
+    private int? _meterReadingEditingId;
+    private bool _meterReadingSaveBusy;
 
     protected override Task OnInitializedAsync()
     {
         LoadRows();
+        LoadMeterReadings();
         ApplyQuickEntryDefaults();
         return Task.CompletedTask;
     }
@@ -349,10 +430,90 @@
         _ocrConfidence = null;
     }
 
+    private Task SaveMeterReadingAsync()
+    {
+        if (!int.TryParse(_meterReadingText, NumberStyles.Integer, CultureInfo.InvariantCulture, out var readingValue))
+        {
+            Snackbar.Add("Reading must be a valid integer.", Severity.Warning);
+            return Task.CompletedTask;
+        }
+
+        _meterReadingSaveBusy = true;
+        try
+        {
+            if (_meterReadingEditingId is int id)
+            {
+                if (!Store.UpdateGasMeterReading(id, readingValue))
+                {
+                    Snackbar.Add("Could not update reading (not found).", Severity.Error);
+                    return Task.CompletedTask;
+                }
+
+                Snackbar.Add("Meter reading updated.", Severity.Success);
+            }
+            else
+            {
+                Store.CreateGasMeterReading(readingValue);
+                Snackbar.Add("Meter reading saved.", Severity.Success);
+            }
+
+            LoadMeterReadings();
+            ClearMeterReadingEditor();
+        }
+        finally
+        {
+            _meterReadingSaveBusy = false;
+        }
+
+        return Task.CompletedTask;
+    }
+
+    private void StartEditMeterReading(GasMeterReadingRow row)
+    {
+        _meterReadingEditingId = row.Id;
+        _meterReadingText = row.ReadingValue.ToString(CultureInfo.InvariantCulture);
+    }
+
+    private async Task DeleteMeterReadingAsync(GasMeterReadingRow row)
+    {
+        var confirm = await DialogService.ShowMessageBoxAsync(
+            "Delete meter reading?",
+            $"Delete meter reading {row.ReadingValue} from {FormatLocalDateTime(row.ReadTs)}?",
+            yesText: "Delete",
+            noText: null,
+            cancelText: "Cancel");
+        if (confirm is not true)
+            return;
+
+        var ok = Store.DeleteGasMeterReading(row.Id);
+        if (ok)
+        {
+            LoadMeterReadings();
+            ClearMeterReadingEditor();
+            Snackbar.Add("Meter reading deleted.", Severity.Success);
+        }
+        else
+        {
+            Snackbar.Add("Could not delete reading (not found).", Severity.Error);
+        }
+    }
+
+    private void ClearMeterReadingEditor()
+    {
+        _meterReadingEditingId = null;
+        _meterReadingText = "";
+    }
+
     private void LoadRows()
     {
         _receipts.Clear();
         _receipts.AddRange(Store.ListGasMeterReceipts());
+    }
+
+    private void LoadMeterReadings()
+    {
+        _meterReadings.Clear();
+        _meterReadings.AddRange(Store.ListGasMeterReadings());
     }
 
     private static bool TryParseDate(string? text, out DateOnly date)
@@ -364,5 +525,10 @@
         if (DateOnly.TryParseExact(text, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out date))
             return true;
         return false;
+    }
+
+    private static string FormatLocalDateTime(long ts)
+    {
+        return DateTimeOffset.FromUnixTimeSeconds(ts).ToLocalTime().ToString("dd/MM/yy HH:mm", CultureInfo.InvariantCulture);
     }
 }

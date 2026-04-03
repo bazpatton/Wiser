@@ -80,6 +80,15 @@ public sealed class TemperatureStore
                     );
                     CREATE INDEX IF NOT EXISTS idx_gas_meter_receipts_entry_date ON gas_meter_receipts(entry_date DESC, id DESC);
 
+                    CREATE TABLE IF NOT EXISTS gas_meter_readings (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        reading_value INTEGER NOT NULL,
+                        read_ts INTEGER NOT NULL,
+                        created_ts INTEGER NOT NULL,
+                        updated_ts INTEGER NOT NULL
+                    );
+                    CREATE INDEX IF NOT EXISTS idx_gas_meter_readings_read_ts ON gas_meter_readings(read_ts DESC, id DESC);
+
                     CREATE TABLE IF NOT EXISTS data_quality_events (
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
                         ts INTEGER NOT NULL,
@@ -588,6 +597,122 @@ public sealed class TemperatureStore
         }
     }
 
+    public int CreateGasMeterReading(int readingValue)
+    {
+        lock (_gate)
+        {
+            using var c = Open();
+            using var cmd = c.CreateCommand();
+            var now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+            cmd.CommandText =
+                """
+                INSERT INTO gas_meter_readings (reading_value, read_ts, created_ts, updated_ts)
+                VALUES ($reading_value, $read_ts, $created_ts, $updated_ts);
+                SELECT last_insert_rowid();
+                """;
+            cmd.Parameters.AddWithValue("$reading_value", readingValue);
+            cmd.Parameters.AddWithValue("$read_ts", now);
+            cmd.Parameters.AddWithValue("$created_ts", now);
+            cmd.Parameters.AddWithValue("$updated_ts", now);
+            return Convert.ToInt32((long)cmd.ExecuteScalar()!, CultureInfo.InvariantCulture);
+        }
+    }
+
+    public IReadOnlyList<GasMeterReadingRow> ListGasMeterReadings()
+    {
+        lock (_gate)
+        {
+            using var c = Open();
+            using var cmd = c.CreateCommand();
+            cmd.CommandText =
+                """
+                SELECT id, reading_value, read_ts, created_ts, updated_ts
+                FROM gas_meter_readings
+                ORDER BY read_ts DESC, id DESC
+                """;
+            using var r = cmd.ExecuteReader();
+            var list = new List<GasMeterReadingRow>();
+            while (r.Read())
+                list.Add(new GasMeterReadingRow(
+                    r.GetInt32(0),
+                    r.GetInt32(1),
+                    r.GetInt64(2),
+                    r.GetInt64(3),
+                    r.GetInt64(4)));
+            return list;
+        }
+    }
+
+    public GasMeterReadingRow? GetGasMeterReading(int id)
+    {
+        if (id <= 0)
+            return null;
+
+        lock (_gate)
+        {
+            using var c = Open();
+            using var cmd = c.CreateCommand();
+            cmd.CommandText =
+                """
+                SELECT id, reading_value, read_ts, created_ts, updated_ts
+                FROM gas_meter_readings
+                WHERE id = $id
+                LIMIT 1
+                """;
+            cmd.Parameters.AddWithValue("$id", id);
+            using var r = cmd.ExecuteReader();
+            if (!r.Read())
+                return null;
+            return new GasMeterReadingRow(
+                r.GetInt32(0),
+                r.GetInt32(1),
+                r.GetInt64(2),
+                r.GetInt64(3),
+                r.GetInt64(4));
+        }
+    }
+
+    public bool UpdateGasMeterReading(int id, int readingValue)
+    {
+        if (id <= 0)
+            return false;
+
+        lock (_gate)
+        {
+            using var c = Open();
+            using var cmd = c.CreateCommand();
+            var now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+            cmd.CommandText =
+                """
+                UPDATE gas_meter_readings
+                SET reading_value = $reading_value,
+                    read_ts = $read_ts,
+                    updated_ts = $updated_ts
+                WHERE id = $id
+                """;
+            cmd.Parameters.AddWithValue("$reading_value", readingValue);
+            cmd.Parameters.AddWithValue("$read_ts", now);
+            cmd.Parameters.AddWithValue("$updated_ts", now);
+            cmd.Parameters.AddWithValue("$id", id);
+            return cmd.ExecuteNonQuery() > 0;
+        }
+    }
+
+    public bool DeleteGasMeterReading(int id)
+    {
+        if (id <= 0)
+            return false;
+
+        lock (_gate)
+        {
+            using var c = Open();
+            using var cmd = c.CreateCommand();
+            cmd.CommandText = "DELETE FROM gas_meter_readings WHERE id = $id";
+            cmd.Parameters.AddWithValue("$id", id);
+            return cmd.ExecuteNonQuery() > 0;
+        }
+    }
+
     private static GasMeterReceiptRow ReadGasMeterReceipt(SqliteDataReader r)
     {
         var entryDateText = r.GetString(1);
@@ -910,3 +1035,10 @@ public sealed record GasMeterReceiptRow(
     long UpdatedTs,
     string? OcrRawJson,
     string? SourceImagePath);
+
+public sealed record GasMeterReadingRow(
+    int Id,
+    int ReadingValue,
+    long ReadTs,
+    long CreatedTs,
+    long UpdatedTs);
