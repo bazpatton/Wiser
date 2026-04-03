@@ -159,7 +159,7 @@
             }
         </MudText>
         <MudText Typo="Typo.caption" Class="mud-text-secondary mt-1">
-            <strong>Estimated cost</strong> uses the <strong>raw integer</strong> difference between readings × that rate (same units as Vol Credit on the receipt). The <strong>Display reading</strong> column is cosmetic (reading ÷ divisor), e.g. ÷1000 when the meter shows cubic metres with three decimals behind the register.
+            <strong>Usage</strong> is the raw integer change vs the <strong>previous</strong> read in time (row above is newer). The register should usually go <strong>up</strong>; if the newer raw reading is lower, usage/cost are not applied (fix a typo or entry order). <strong>Estimated cost</strong> = raw usage × (Amount ÷ Vol Credit from the latest receipt). Tiny usage (e.g. +1 raw) can be a fraction of a penny — we show up to 4 decimal places when needed. The <strong>Display reading</strong> column is cosmetic (reading ÷ divisor).
         </MudText>
 
         <MudStack Row="true" Spacing="1" Class="mt-3" Wrap="Wrap.Wrap">
@@ -202,8 +202,16 @@
                     <MudTd DataLabel="Read datetime">@FormatLocalDateTime(context.ReadTs)</MudTd>
                     <MudTd DataLabel="Reading">@context.ReadingValue</MudTd>
                     <MudTd DataLabel="Display reading">@FormatDisplayReading(context)</MudTd>
-                    <MudTd DataLabel="Usage">@FormatUsage(context)</MudTd>
-                    <MudTd DataLabel="Estimated cost">@FormatEstimatedCost(context)</MudTd>
+                    <MudTd DataLabel="Usage">
+                        <MudTooltip Text="@GetUsageTooltip(context)">
+                            <span>@FormatUsage(context)</span>
+                        </MudTooltip>
+                    </MudTd>
+                    <MudTd DataLabel="Estimated cost">
+                        <MudTooltip Text="@GetCostTooltip(context)">
+                            <span>@FormatEstimatedCost(context)</span>
+                        </MudTooltip>
+                    </MudTd>
                     <MudTd DataLabel="Actions">
                         <MudStack Row="true" Spacing="1">
                             <MudButton Variant="Variant.Text"
@@ -595,33 +603,80 @@
         return latestReceipt.AmountGbp / latestReceipt.VolCredit;
     }
 
-    private int? GetUsageSincePrevious(GasMeterReadingRow row)
+    /// <summary>Compare this read to the next row in the table (chronologically older). Same raw scale as Vol Credit.</summary>
+    private IntervalVersusOlder? GetIntervalVersusOlderRead(GasMeterReadingRow row)
     {
         var idx = _meterReadings.FindIndex(x => x.Id == row.Id);
         if (idx < 0 || idx + 1 >= _meterReadings.Count)
             return null;
 
-        var previous = _meterReadings[idx + 1];
-        var usage = row.ReadingValue - previous.ReadingValue;
-        return usage >= 0 ? usage : null;
+        var olderReading = _meterReadings[idx + 1].ReadingValue;
+        var rawDelta = row.ReadingValue - olderReading;
+        return new IntervalVersusOlder(rawDelta);
     }
 
     private string FormatUsage(GasMeterReadingRow row)
     {
-        var usage = GetUsageSincePrevious(row);
-        return usage is null ? "—" : usage.Value.ToString(CultureInfo.InvariantCulture);
+        if (GetIntervalVersusOlderRead(row) is not { RawDelta: var d })
+            return "—";
+
+        if (d < 0)
+            return $"{d} raw";
+
+        return d.ToString(CultureInfo.InvariantCulture);
     }
 
     private string FormatEstimatedCost(GasMeterReadingRow row)
     {
-        var usage = GetUsageSincePrevious(row);
-        var unitCost = GetUnitCostPerVolume();
-        if (usage is null || unitCost is null)
+        if (GetIntervalVersusOlderRead(row) is not { RawDelta: var d })
             return "—";
 
-        var total = usage.Value * unitCost.Value;
-        return $"GBP {total.ToString("0.00", CultureInfo.InvariantCulture)}";
+        var unitCost = GetUnitCostPerVolume();
+        if (unitCost is null || d < 0)
+            return "—";
+
+        var total = d * unitCost.Value;
+        return $"GBP {FormatGbpForSmallAmounts(total)}";
     }
+
+    private static string FormatGbpForSmallAmounts(decimal gbp)
+    {
+        if (gbp >= 0.01m)
+            return gbp.ToString("0.00", CultureInfo.InvariantCulture);
+        if (gbp > 0m)
+            return gbp.ToString("0.0000", CultureInfo.InvariantCulture);
+        return "0.00";
+    }
+
+    private string GetUsageTooltip(GasMeterReadingRow row)
+    {
+        if (GetIntervalVersusOlderRead(row) is not { RawDelta: var d })
+            return "No older reading to compare (or this is the oldest row). Usage is shown on rows that have a previous read in time.";
+
+        if (d < 0)
+            return $"Newer raw reading is lower than the previous ({d}). Correct the digits so the meter goes up when you use gas, then cost will calculate.";
+
+        return $"Raw usage since previous read: {d} (same integer units as Vol Credit on the receipt).";
+    }
+
+    private string GetCostTooltip(GasMeterReadingRow row)
+    {
+        if (GetIntervalVersusOlderRead(row) is not { RawDelta: var d })
+            return "Add a receipt and ensure there is a previous reading to compare.";
+
+        var unitCost = GetUnitCostPerVolume();
+        if (unitCost is null)
+            return "Add a receipt with Vol Credit and Amount.";
+
+        if (d < 0)
+            return "Cost is not estimated when the reading drops; fix the raw values first.";
+
+        var total = d * unitCost.Value;
+        var per100 = unitCost.Value * 100m;
+        return $"Raw usage {d} × (GBP {per100.ToString("0.000", CultureInfo.InvariantCulture)} per 100 vol) = GBP {FormatGbpForSmallAmounts(total)}.";
+    }
+
+    private readonly record struct IntervalVersusOlder(int RawDelta);
 
     private string FormatDisplayReading(GasMeterReadingRow row)
     {
