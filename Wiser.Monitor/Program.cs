@@ -57,6 +57,7 @@ builder.Services.AddScoped<RoomsLiveDataCache>();
 builder.Services.AddSingleton<ApiRoomsNamesCache>();
 if (hubConfigured)
     builder.Services.AddHostedService<WiserPollWorker>();
+builder.Services.AddHostedService<GasMeterReminderWorker>();
 
 var app = builder.Build();
 

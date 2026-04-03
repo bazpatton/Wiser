@@ -1,5 +1,6 @@
 using Microsoft.Data.Sqlite;
 using System.Globalization;
+using System.Text.Json;
 using Wiser.Monitor;
 
 namespace Wiser.Monitor.Services;
@@ -486,6 +487,149 @@ public sealed class TemperatureStore
             using var c = Open();
             UpsertSetting(c, "trend_ignore_start", startMinutes.ToString(System.Globalization.CultureInfo.InvariantCulture), ts);
             UpsertSetting(c, "trend_ignore_end", endMinutes.ToString(System.Globalization.CultureInfo.InvariantCulture), ts);
+        }
+    }
+
+    public GasMeterReminderSettings GetGasMeterReminderSettings()
+    {
+        lock (_gate)
+        {
+            using var c = Open();
+            var enabled = false;
+            var timesCsv = "";
+            using (var cmd = c.CreateCommand())
+            {
+                cmd.CommandText =
+                    """
+                    SELECT key, value FROM app_settings
+                    WHERE key IN ('gas_meter_reminder_enabled', 'gas_meter_reminder_times')
+                    """;
+                using var r = cmd.ExecuteReader();
+                while (r.Read())
+                {
+                    var key = r.GetString(0);
+                    var value = r.GetString(1);
+                    if (key == "gas_meter_reminder_enabled")
+                        enabled = value == "1";
+                    else if (key == "gas_meter_reminder_times")
+                        timesCsv = value;
+                }
+            }
+
+            return new GasMeterReminderSettings(enabled, ParseGasMeterReminderTimes(timesCsv));
+        }
+    }
+
+    public void SetGasMeterReminderSettings(bool enabled, IReadOnlyList<TimeSpan> times)
+    {
+        var normalized = times
+            .Select(t => TimeSpan.FromMinutes(Math.Clamp((int)t.TotalMinutes, 0, 1439)))
+            .Distinct()
+            .OrderBy(t => t.TotalMinutes)
+            .ToList();
+
+        var parts = normalized.Select(t => $"{t.Hours:D2}:{t.Minutes:D2}");
+        var timesCsv = string.Join(",", parts);
+        var ts = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+
+        lock (_gate)
+        {
+            using var c = Open();
+            UpsertSetting(c, "gas_meter_reminder_enabled", enabled ? "1" : "0", ts);
+            UpsertSetting(c, "gas_meter_reminder_times", timesCsv, ts);
+        }
+    }
+
+    public IReadOnlyDictionary<int, DateOnly> GetGasMeterReminderLastSent()
+    {
+        lock (_gate)
+        {
+            using var c = Open();
+            using var cmd = c.CreateCommand();
+            cmd.CommandText =
+                "SELECT value FROM app_settings WHERE key = 'gas_meter_reminder_last_sent' LIMIT 1";
+            var raw = cmd.ExecuteScalar() as string;
+            return ParseReminderLastSentJson(raw);
+        }
+    }
+
+    public void SetGasMeterReminderLastSent(int minutesSinceMidnight, DateOnly localDate)
+    {
+        minutesSinceMidnight = Math.Clamp(minutesSinceMidnight, 0, 1439);
+
+        lock (_gate)
+        {
+            using var c = Open();
+            string? raw = null;
+            using (var readCmd = c.CreateCommand())
+            {
+                readCmd.CommandText =
+                    "SELECT value FROM app_settings WHERE key = 'gas_meter_reminder_last_sent' LIMIT 1";
+                raw = readCmd.ExecuteScalar() as string;
+            }
+
+            var map = new Dictionary<int, DateOnly>(ParseReminderLastSentJson(raw));
+            map[minutesSinceMidnight] = localDate;
+            var json = JsonSerializer.Serialize(
+                map.ToDictionary(kv => kv.Key.ToString(CultureInfo.InvariantCulture), kv => kv.Value.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)));
+            UpsertSetting(c, "gas_meter_reminder_last_sent", json, DateTimeOffset.UtcNow.ToUnixTimeSeconds());
+        }
+    }
+
+    private static IReadOnlyList<TimeSpan> ParseGasMeterReminderTimes(string? csv)
+    {
+        if (string.IsNullOrWhiteSpace(csv))
+            return [];
+
+        var list = new List<TimeSpan>();
+        foreach (var part in csv.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            if (TryParseReminderTime(part, out var t))
+                list.Add(t);
+        }
+
+        return list
+            .Select(t => TimeSpan.FromMinutes(Math.Clamp((int)t.TotalMinutes, 0, 1439)))
+            .Distinct()
+            .OrderBy(t => t.TotalMinutes)
+            .ToList();
+    }
+
+    private static bool TryParseReminderTime(string text, out TimeSpan value)
+    {
+        value = default;
+        if (TimeSpan.TryParseExact(text, @"hh\:mm", CultureInfo.InvariantCulture, out value))
+            return true;
+        if (TimeSpan.TryParseExact(text, @"h\:mm", CultureInfo.InvariantCulture, out value))
+            return true;
+        return false;
+    }
+
+    private static Dictionary<int, DateOnly> ParseReminderLastSentJson(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json))
+            return new Dictionary<int, DateOnly>();
+
+        try
+        {
+            var doc = JsonDocument.Parse(json);
+            var map = new Dictionary<int, DateOnly>();
+            foreach (var p in doc.RootElement.EnumerateObject())
+            {
+                if (!int.TryParse(p.Name, NumberStyles.Integer, CultureInfo.InvariantCulture, out var minuteKey))
+                    continue;
+                minuteKey = Math.Clamp(minuteKey, 0, 1439);
+                if (p.Value.ValueKind != JsonValueKind.String)
+                    continue;
+                if (DateOnly.TryParseExact(p.Value.GetString(), "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var d))
+                    map[minuteKey] = d;
+            }
+
+            return map;
+        }
+        catch
+        {
+            return new Dictionary<int, DateOnly>();
         }
     }
 
@@ -1025,6 +1169,8 @@ public sealed record DataQualitySummary(
 public sealed record DataQualityReasonCount(string Reason, int Count);
 public sealed record DataQualitySourceCount(string Source, int Count);
 public sealed record DataQualityRoomCount(string Room, int Count);
+
+public sealed record GasMeterReminderSettings(bool Enabled, IReadOnlyList<TimeSpan> Times);
 
 public sealed record GasMeterReceiptRow(
     int Id,

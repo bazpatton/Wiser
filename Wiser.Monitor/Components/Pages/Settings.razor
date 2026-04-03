@@ -3,6 +3,7 @@
 @using System.Globalization
 
 @inject TemperatureStore Store
+@inject MonitorOptions Options
 @inject ISnackbar Snackbar
 
 <PageTitle>Wiser Monitor - Settings</PageTitle>
@@ -44,6 +45,34 @@
                 </MudText>
             </MudItem>
         </MudGrid>
+
+        <MudDivider Class="my-3" />
+
+        <MudText Typo="Typo.subtitle1" Class="mb-2">Gas meter reading reminders (ntfy)</MudText>
+        <MudText Typo="Typo.body2" Class="mud-text-secondary mb-2">
+            Get a phone notification at chosen local times to record your gas meter. Uses the same
+            <strong>ntfy</strong> topic as temperature alerts.
+        </MudText>
+        @if (string.IsNullOrWhiteSpace(Options.NtfyTopic))
+        {
+            <MudAlert Severity="Severity.Warning" Dense="true" Class="mb-2">
+                Set <code>NTFY_TOPIC</code> in your environment (or .env for Docker) so ntfy can deliver notifications.
+            </MudAlert>
+        }
+        <MudStack Spacing="2">
+            <MudSwitch T="bool"
+                       @bind-Value="_gasReminderEnabled"
+                       Color="Color.Primary"
+                       Class="touch-control"
+                       Label="Enable daily reminders" />
+            <MudTextField T="string"
+                          Label="Reminder times (local)"
+                          @bind-Value="_gasReminderTimesText"
+                          Placeholder="09:00, 20:00"
+                          Variant="Variant.Outlined"
+                          Margin="Margin.Dense"
+                          HelperText="Comma-separated HH:mm, 24-hour. Uses TIME_ZONE from your environment / Docker." />
+        </MudStack>
 
         <MudDivider Class="my-3" />
 
@@ -94,6 +123,8 @@
     private readonly List<RoomActivitySetting> _rooms = [];
     private string _ignoreStartText = "00:00";
     private string _ignoreEndText = "07:00";
+    private bool _gasReminderEnabled;
+    private string _gasReminderTimesText = "";
 
     protected override Task OnInitializedAsync() => LoadAsync();
 
@@ -105,6 +136,11 @@
         var (ignoreStart, ignoreEnd) = Store.GetTrendIgnoreWindow();
         _ignoreStartText = ignoreStart.ToString(@"hh\:mm", CultureInfo.InvariantCulture);
         _ignoreEndText = ignoreEnd.ToString(@"hh\:mm", CultureInfo.InvariantCulture);
+        var gr = Store.GetGasMeterReminderSettings();
+        _gasReminderEnabled = gr.Enabled;
+        _gasReminderTimesText = string.Join(
+            ", ",
+            gr.Times.Select(t => $"{t.Hours:D2}:{t.Minutes:D2}"));
         foreach (var room in rooms)
             _rooms.Add(new RoomActivitySetting(room, !activity.TryGetValue(room, out var isActive) || isActive));
         return Task.CompletedTask;
@@ -118,10 +154,17 @@
             return Task.CompletedTask;
         }
 
+        if (!TryParseGasReminderTimes(_gasReminderTimesText, out var reminderTimes))
+        {
+            Snackbar.Add("Gas reminder times: use comma-separated HH:mm (e.g. 09:00, 20:30).", Severity.Warning);
+            return Task.CompletedTask;
+        }
+
         foreach (var room in _rooms)
             Store.SetRoomActive(room.Room, room.IsActive);
         Store.SetTrendIgnoreWindow(ignoreStart, ignoreEnd);
-        Snackbar.Add("Room activity settings saved.", Severity.Success);
+        Store.SetGasMeterReminderSettings(_gasReminderEnabled, reminderTimes);
+        Snackbar.Add("Settings saved.", Severity.Success);
         return Task.CompletedTask;
     }
 
@@ -145,6 +188,23 @@
             return true;
         value = default;
         return false;
+    }
+
+    private static bool TryParseGasReminderTimes(string? text, out List<TimeSpan> times)
+    {
+        times = [];
+        if (string.IsNullOrWhiteSpace(text))
+            return true;
+
+        foreach (var part in text.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            if (!TryParseTime(part, out var t))
+                return false;
+            times.Add(TimeSpan.FromMinutes(Math.Clamp((int)t.TotalMinutes, 0, 1439)));
+        }
+
+        times = times.Distinct().OrderBy(x => x.TotalMinutes).ToList();
+        return true;
     }
 
     private sealed class RoomActivitySetting
