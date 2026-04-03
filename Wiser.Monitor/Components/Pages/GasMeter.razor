@@ -133,7 +133,7 @@
             Cost rate from latest receipt:
             @if (GetUnitCostPerVolume() is decimal unitCost)
             {
-                <span>GBP @unitCost.ToString("0.000", CultureInfo.InvariantCulture) per volume unit</span>
+                <span>GBP @((unitCost * 100m).ToString("0.000", CultureInfo.InvariantCulture)) per 100 volume units</span>
             }
             else
             {
@@ -223,7 +223,7 @@
                     <MudTh>Date</MudTh>
                     <MudTh>Vol Credit</MudTh>
                     <MudTh>Amount</MudTh>
-                    <MudTh>Cost per unit</MudTh>
+                    <MudTh>Cost per unit x100</MudTh>
                     <MudTh>Actions</MudTh>
                 </HeaderContent>
                 <RowTemplate>
@@ -589,7 +589,7 @@
     {
         if (row.VolCredit <= 0)
             return "—";
-        var unit = row.AmountGbp / row.VolCredit;
+        var unit = (row.AmountGbp / row.VolCredit) * 100m;
         return $"GBP {unit.ToString("0.000", CultureInfo.InvariantCulture)}";
     }
 }
