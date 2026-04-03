@@ -6,6 +6,7 @@
 @inject MonitorOptions Options
 @inject TemperatureStore Store
 @inject OutdoorWeatherClient OutdoorWeather
+@inject WiserHubFetch Hub
 
 <PageTitle>Wiser Monitor</PageTitle>
 
@@ -83,6 +84,50 @@
             {
                 <MudText Typo="Typo.body2" Class="mt-2 mud-text-secondary">@_outlookDetail</MudText>
             }
+        }
+    </MudPaper>
+
+    <MudPaper Class="pa-4 status-card">
+        <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center" Wrap="Wrap.Wrap">
+            <MudText Typo="Typo.h6">
+                <i class="fa-solid fa-piggy-bank"></i> Save on heating - schedule ideas
+            </MudText>
+            <MudButton Href="/settings"
+                       Variant="Variant.Text"
+                       Color="Color.Primary"
+                       StartIcon="@Icons.Material.Filled.Tune">
+                Customize routine
+            </MudButton>
+        </MudStack>
+        <MudText Typo="Typo.caption" Class="mud-text-secondary d-block mt-1">
+            Suggestions are heuristics from your routine profile, recent heating activity, forecast context, and schedule mapping when hub data is available.
+        </MudText>
+        @if (_savingsSuggestions.Count == 0)
+        {
+            <MudAlert Severity="Severity.Info" Dense="true" Class="mt-2">No suggestions yet.</MudAlert>
+        }
+        else
+        {
+            <MudStack Spacing="1" Class="mt-2">
+                @foreach (var tip in _savingsSuggestions)
+                {
+                    <MudAlert Severity="@(tip.Level == HeatingSavingsSuggestionLevel.Warning ? Severity.Warning : Severity.Info)"
+                              Dense="true">
+                        <div class="d-flex flex-wrap align-center" style="gap: 10px;">
+                            <MudText Typo="Typo.body2" Class="flex-grow-1">
+                                <strong>@tip.Title:</strong> @tip.Body
+                            </MudText>
+                            <MudButton Href="@tip.ActionHref"
+                                       Variant="Variant.Text"
+                                       Size="Size.Small"
+                                       Color="Color.Primary"
+                                       EndIcon="@Icons.Material.Filled.OpenInNew">
+                                @tip.ActionText
+                            </MudButton>
+                        </div>
+                    </MudAlert>
+                }
+            </MudStack>
         }
     </MudPaper>
 
@@ -189,6 +234,9 @@
     private string? _outlookError;
     private string _outlookSummary = "";
     private string? _outlookDetail;
+    private readonly List<HeatingSavingsSuggestion> _savingsSuggestions = [];
+    private double? _outlookPastWeekHddSum;
+    private double? _outlookForecastWeekHddSum;
 
     private string? _gasMeterReadingBannerText;
 
@@ -209,6 +257,7 @@
         BuildHomeRoomHeatMap();
         UpdateGasMeterReadingBanner();
         await LoadHeatingOutlookAsync();
+        await LoadSavingsSuggestionsAsync();
     }
 
     private void UpdateGasMeterReadingBanner()
@@ -237,6 +286,8 @@
 
     private async Task LoadHeatingOutlookAsync()
     {
+        _outlookPastWeekHddSum = null;
+        _outlookForecastWeekHddSum = null;
         if (Options.OpenMeteoLat is not { } lat || Options.OpenMeteoLon is not { } lon)
             return;
 
@@ -253,6 +304,7 @@
                 .Select(d => d.Hdd!.Value)
                 .ToList();
             var pastHddSum = hddValues.Count > 0 ? hddValues.Sum() : (double?)null;
+            _outlookPastWeekHddSum = pastHddSum;
             var pastHeatMin = daily.Sum(d => d.HeatingActiveEstimateMin);
 
             var outlook = await OutdoorWeather.GetSevenDayHddOutlookAsync(lat, lon, Options.TimeZoneId, CancellationToken.None)
@@ -275,6 +327,7 @@
             }
 
             var forecastSum = outlook.TotalHddProxy;
+            _outlookForecastWeekHddSum = forecastSum;
             const double band = 0.15;
             string verdict;
             if (forecastSum > pastHddSum.Value * (1 + band))
@@ -310,6 +363,39 @@
         {
             _outlookLoading = false;
         }
+    }
+
+    private async Task LoadSavingsSuggestionsAsync()
+    {
+        var profile = Store.GetHeatingSavingsProfile();
+        var daily14 = Store.GetDailySummaries(14, Math.Max(10, Options.IntervalSec), DisplayZone);
+
+        HubScheduleSavingsHints? hubHints = null;
+        if (!string.IsNullOrWhiteSpace(Options.WiserIp)
+            && Options.WiserIp != "192.168.x.x"
+            && !string.IsNullOrWhiteSpace(Options.WiserSecret)
+            && Options.WiserSecret != "your-secret-here")
+        {
+            try
+            {
+                using var doc = await Hub.FetchDomainDocumentAsync(Options, CancellationToken.None).ConfigureAwait(false);
+                hubHints = HubSchedulesParser.AnalyzeSavingsHints(doc);
+            }
+            catch
+            {
+                // Hub might be offline/degraded; skip hub-specific hints.
+            }
+        }
+
+        var tips = HeatingSavingsSuggestionBuilder.Build(new HeatingSavingsSuggestionContext(
+            profile,
+            daily14,
+            Options.OpenMeteoLat is not null && Options.OpenMeteoLon is not null,
+            _outlookPastWeekHddSum,
+            _outlookForecastWeekHddSum,
+            hubHints));
+        _savingsSuggestions.Clear();
+        _savingsSuggestions.AddRange(tips);
     }
 
     private void BuildHomeRoomHeatMap()

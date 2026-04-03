@@ -556,6 +556,32 @@ public sealed class TemperatureStore
         }
     }
 
+    public HeatingSavingsProfile GetHeatingSavingsProfile()
+    {
+        lock (_gate)
+        {
+            using var c = Open();
+            using var cmd = c.CreateCommand();
+            cmd.CommandText =
+                "SELECT value FROM app_settings WHERE key = 'heating_savings_profile_v1' LIMIT 1";
+            var raw = cmd.ExecuteScalar() as string;
+            return ParseHeatingSavingsProfile(raw);
+        }
+    }
+
+    public HeatingSavingsProfile SaveHeatingSavingsProfile(HeatingSavingsProfile profile)
+    {
+        var normalized = NormalizeHeatingSavingsProfile(profile, DateTimeOffset.UtcNow.ToUnixTimeSeconds());
+        var json = JsonSerializer.Serialize(normalized);
+        lock (_gate)
+        {
+            using var c = Open();
+            UpsertSetting(c, "heating_savings_profile_v1", json, normalized.UpdatedTs);
+        }
+
+        return normalized;
+    }
+
     public IReadOnlyDictionary<int, DateOnly> GetGasMeterReminderLastSent()
     {
         lock (_gate)
@@ -647,6 +673,42 @@ public sealed class TemperatureStore
         {
             return new Dictionary<int, DateOnly>();
         }
+    }
+
+    private static HeatingSavingsProfile ParseHeatingSavingsProfile(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json))
+            return HeatingSavingsProfile.Default;
+
+        try
+        {
+            var parsed = JsonSerializer.Deserialize<HeatingSavingsProfile>(json);
+            return NormalizeHeatingSavingsProfile(parsed ?? HeatingSavingsProfile.Default, parsed?.UpdatedTs ?? 0);
+        }
+        catch
+        {
+            return HeatingSavingsProfile.Default;
+        }
+    }
+
+    private static HeatingSavingsProfile NormalizeHeatingSavingsProfile(HeatingSavingsProfile profile, long updatedTs)
+    {
+        var rooms = (profile.PriorityRooms ?? [])
+            .Where(r => !string.IsNullOrWhiteSpace(r))
+            .Select(r => r.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(r => r, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        return profile with
+        {
+            WeekdayAwayStartMin = Math.Clamp(profile.WeekdayAwayStartMin, 0, 1439),
+            WeekdayAwayEndMin = Math.Clamp(profile.WeekdayAwayEndMin, 0, 1439),
+            WeekendAwayStartMin = Math.Clamp(profile.WeekendAwayStartMin, 0, 1439),
+            WeekendAwayEndMin = Math.Clamp(profile.WeekendAwayEndMin, 0, 1439),
+            PriorityRooms = rooms,
+            UpdatedTs = updatedTs,
+        };
     }
 
     /// <summary>Total rows in ntfy_notifications.</summary>

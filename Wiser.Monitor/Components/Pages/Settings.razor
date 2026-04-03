@@ -76,7 +76,68 @@
 
         <MudDivider Class="my-3" />
 
+        <MudText Typo="Typo.subtitle1" Class="mb-2">Heating routine (for Home savings suggestions)</MudText>
+        <MudText Typo="Typo.body2" Class="mud-text-secondary mb-2">
+            Tell the app when you are usually out so Home can suggest schedule tweaks that may reduce heating costs.
+        </MudText>
+        <MudGrid Spacing="2">
+            <MudItem xs="12" md="6">
+                <MudSwitch T="bool"
+                           @bind-Value="_weekdayDaytimeAway"
+                           Color="Color.Primary"
+                           Class="touch-control"
+                           Label="Weekdays: usually away in daytime" />
+                <MudStack Row="true" Spacing="2" Class="mt-1">
+                    <MudTextField T="string"
+                                  Label="Weekday away start"
+                                  @bind-Value="_weekdayAwayStartText"
+                                  InputType="InputType.Time"
+                                  Variant="Variant.Outlined"
+                                  Margin="Margin.Dense" />
+                    <MudTextField T="string"
+                                  Label="Weekday away end"
+                                  @bind-Value="_weekdayAwayEndText"
+                                  InputType="InputType.Time"
+                                  Variant="Variant.Outlined"
+                                  Margin="Margin.Dense" />
+                </MudStack>
+            </MudItem>
+            <MudItem xs="12" md="6">
+                <MudSwitch T="bool"
+                           @bind-Value="_weekendDaytimeAway"
+                           Color="Color.Primary"
+                           Class="touch-control"
+                           Label="Weekends: usually away in daytime" />
+                <MudStack Row="true" Spacing="2" Class="mt-1">
+                    <MudTextField T="string"
+                                  Label="Weekend away start"
+                                  @bind-Value="_weekendAwayStartText"
+                                  InputType="InputType.Time"
+                                  Variant="Variant.Outlined"
+                                  Margin="Margin.Dense" />
+                    <MudTextField T="string"
+                                  Label="Weekend away end"
+                                  @bind-Value="_weekendAwayEndText"
+                                  InputType="InputType.Time"
+                                  Variant="Variant.Outlined"
+                                  Margin="Margin.Dense" />
+                </MudStack>
+            </MudItem>
+            <MudItem xs="12">
+                <MudSwitch T="bool"
+                           @bind-Value="_nightSetbackOk"
+                           Color="Color.Primary"
+                           Class="touch-control"
+                           Label="Comfort setting: small night setback is acceptable" />
+            </MudItem>
+        </MudGrid>
+
+        <MudDivider Class="my-3" />
+
         <MudText Typo="Typo.subtitle1" Class="mb-2">Room activity profile</MudText>
+        <MudText Typo="Typo.body2" Class="mud-text-secondary mb-2">
+            Active affects chart recommendation ranges. Priority marks rooms where comfort matters most for schedule suggestions.
+        </MudText>
         @if (_rooms.Count == 0)
         {
             <MudAlert Severity="Severity.Info" Dense="true">No rooms available yet.</MudAlert>
@@ -87,6 +148,7 @@
                 <HeaderContent>
                     <MudTh>Room</MudTh>
                     <MudTh>Active</MudTh>
+                    <MudTh>Priority</MudTh>
                     <MudTh>Status</MudTh>
                 </HeaderContent>
                 <RowTemplate>
@@ -96,6 +158,12 @@
                                    Value="@context.IsActive"
                                    ValueChanged="@((value) => context.IsActive = value)"
                                    Color="Color.Primary" />
+                    </MudTd>
+                    <MudTd DataLabel="Priority">
+                        <MudSwitch T="bool"
+                                   Value="@context.IsPriority"
+                                   ValueChanged="@((value) => context.IsPriority = value)"
+                                   Color="Color.Secondary" />
                     </MudTd>
                     <MudTd DataLabel="Status">@(context.IsActive ? "Active" : "Inactive")</MudTd>
                 </RowTemplate>
@@ -125,6 +193,13 @@
     private string _ignoreEndText = "07:00";
     private bool _gasReminderEnabled;
     private string _gasReminderTimesText = "";
+    private bool _weekdayDaytimeAway;
+    private string _weekdayAwayStartText = "09:00";
+    private string _weekdayAwayEndText = "17:00";
+    private bool _weekendDaytimeAway;
+    private string _weekendAwayStartText = "10:00";
+    private string _weekendAwayEndText = "16:00";
+    private bool _nightSetbackOk = true;
 
     protected override Task OnInitializedAsync() => LoadAsync();
 
@@ -141,8 +216,20 @@
         _gasReminderTimesText = string.Join(
             ", ",
             gr.Times.Select(t => $"{t.Hours:D2}:{t.Minutes:D2}"));
+        var profile = Store.GetHeatingSavingsProfile();
+        _weekdayDaytimeAway = profile.WeekdayDaytimeAway;
+        _weekdayAwayStartText = ToHm(profile.WeekdayAwayStartMin);
+        _weekdayAwayEndText = ToHm(profile.WeekdayAwayEndMin);
+        _weekendDaytimeAway = profile.WeekendDaytimeAway;
+        _weekendAwayStartText = ToHm(profile.WeekendAwayStartMin);
+        _weekendAwayEndText = ToHm(profile.WeekendAwayEndMin);
+        _nightSetbackOk = profile.NightSetbackOk;
+        var prioritySet = profile.PriorityRooms.ToHashSet(StringComparer.OrdinalIgnoreCase);
         foreach (var room in rooms)
-            _rooms.Add(new RoomActivitySetting(room, !activity.TryGetValue(room, out var isActive) || isActive));
+            _rooms.Add(new RoomActivitySetting(
+                room,
+                !activity.TryGetValue(room, out var isActive) || isActive,
+                prioritySet.Contains(room)));
         return Task.CompletedTask;
     }
 
@@ -159,13 +246,39 @@
             Snackbar.Add("Gas reminder times: use comma-separated HH:mm (e.g. 09:00, 20:30).", Severity.Warning);
             return Task.CompletedTask;
         }
+        if (!TryParseTime(_weekdayAwayStartText, out var weekdayStart) ||
+            !TryParseTime(_weekdayAwayEndText, out var weekdayEnd) ||
+            !TryParseTime(_weekendAwayStartText, out var weekendStart) ||
+            !TryParseTime(_weekendAwayEndText, out var weekendEnd))
+        {
+            Snackbar.Add("Heating routine times: use HH:mm (e.g. 09:00).", Severity.Warning);
+            return Task.CompletedTask;
+        }
 
         foreach (var room in _rooms)
             Store.SetRoomActive(room.Room, room.IsActive);
         Store.SetTrendIgnoreWindow(ignoreStart, ignoreEnd);
         Store.SetGasMeterReminderSettings(_gasReminderEnabled, reminderTimes);
+        var priorityRooms = _rooms.Where(r => r.IsPriority).Select(r => r.Room).ToList();
+        Store.SaveHeatingSavingsProfile(new HeatingSavingsProfile(
+            _weekdayDaytimeAway,
+            Math.Clamp((int)weekdayStart.TotalMinutes, 0, 1439),
+            Math.Clamp((int)weekdayEnd.TotalMinutes, 0, 1439),
+            _weekendDaytimeAway,
+            Math.Clamp((int)weekendStart.TotalMinutes, 0, 1439),
+            Math.Clamp((int)weekendEnd.TotalMinutes, 0, 1439),
+            _nightSetbackOk,
+            priorityRooms,
+            0));
         Snackbar.Add("Settings saved.", Severity.Success);
         return Task.CompletedTask;
+    }
+
+    private static string ToHm(int totalMinutes)
+    {
+        totalMinutes = Math.Clamp(totalMinutes, 0, 1439);
+        var ts = TimeSpan.FromMinutes(totalMinutes);
+        return $"{ts.Hours:D2}:{ts.Minutes:D2}";
     }
 
     private Task OnIgnoreStartChanged(string value)
@@ -209,13 +322,15 @@
 
     private sealed class RoomActivitySetting
     {
-        public RoomActivitySetting(string room, bool isActive)
+        public RoomActivitySetting(string room, bool isActive, bool isPriority)
         {
             Room = room;
             IsActive = isActive;
+            IsPriority = isPriority;
         }
 
         public string Room { get; }
         public bool IsActive { get; set; }
+        public bool IsPriority { get; set; }
     }
 }

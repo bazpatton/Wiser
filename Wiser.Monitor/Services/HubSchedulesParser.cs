@@ -18,6 +18,11 @@ public sealed record HubSchedulesOverview(
     IReadOnlyList<HubRoomScheduleRow> RoomRows,
     IReadOnlyList<HubScheduleProgram> Programs);
 
+public sealed record HubScheduleSavingsHints(
+    int RoomsWithoutUserProgram,
+    int RoomsOnUserProgram,
+    int MaxUserProgramSetpointTenths);
+
 public static class HubSchedulesParser
 {
     private static readonly string[] DayNames =
@@ -77,6 +82,36 @@ public static class HubSchedulesParser
         }
 
         return new HubSchedulesOverview(clockHint, roomRows, programs);
+    }
+
+    public static HubScheduleSavingsHints AnalyzeSavingsHints(JsonDocument domain)
+    {
+        var root = domain.RootElement;
+        var schedules = ParseSchedules(root);
+        var rooms = ParseRooms(root);
+
+        var roomsWithoutProgram = rooms.Count(r =>
+            !HubScheduleIdPolicy.IsUserProgramScheduleId(r.ScheduleId) || !schedules.ContainsKey(r.ScheduleId));
+        var roomsOnProgram = Math.Max(0, rooms.Count - roomsWithoutProgram);
+
+        var maxTenths = int.MinValue;
+        foreach (var schedule in schedules.Values)
+        {
+            foreach (var day in DayNames)
+            {
+                var points = schedule.OrderedPoints(day);
+                if (points.Count == 0)
+                    continue;
+                var dayMax = points.Max(static p => p.DegreesC);
+                if (dayMax > maxTenths)
+                    maxTenths = dayMax;
+            }
+        }
+
+        return new HubScheduleSavingsHints(
+            roomsWithoutProgram,
+            roomsOnProgram,
+            maxTenths == int.MinValue ? -1 : maxTenths);
     }
 
     private static string BuildClockHint(JsonElement? system)
