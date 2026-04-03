@@ -1,4 +1,5 @@
 using Microsoft.Data.Sqlite;
+using System.Globalization;
 using Wiser.Monitor;
 
 namespace Wiser.Monitor.Services;
@@ -66,6 +67,18 @@ public sealed class TemperatureStore
                         value TEXT NOT NULL,
                         updated_ts INTEGER NOT NULL
                     );
+
+                    CREATE TABLE IF NOT EXISTS gas_meter_receipts (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        entry_date TEXT NOT NULL,
+                        vol_credit INTEGER NOT NULL,
+                        amount_gbp REAL NOT NULL,
+                        created_ts INTEGER NOT NULL,
+                        updated_ts INTEGER NOT NULL,
+                        ocr_raw_json TEXT,
+                        source_image_path TEXT
+                    );
+                    CREATE INDEX IF NOT EXISTS idx_gas_meter_receipts_entry_date ON gas_meter_receipts(entry_date DESC, id DESC);
 
                     CREATE TABLE IF NOT EXISTS data_quality_events (
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -467,6 +480,132 @@ public sealed class TemperatureStore
         }
     }
 
+    public int CreateGasMeterReceipt(DateOnly entryDate, int volCredit, decimal amountGbp, string? ocrRawJson, string? sourceImagePath)
+    {
+        lock (_gate)
+        {
+            using var c = Open();
+            using var cmd = c.CreateCommand();
+            var now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+            cmd.CommandText =
+                """
+                INSERT INTO gas_meter_receipts (entry_date, vol_credit, amount_gbp, created_ts, updated_ts, ocr_raw_json, source_image_path)
+                VALUES ($entry_date, $vol_credit, $amount_gbp, $created_ts, $updated_ts, $ocr_raw_json, $source_image_path);
+                SELECT last_insert_rowid();
+                """;
+            cmd.Parameters.AddWithValue("$entry_date", entryDate.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture));
+            cmd.Parameters.AddWithValue("$vol_credit", volCredit);
+            cmd.Parameters.AddWithValue("$amount_gbp", Convert.ToDouble(amountGbp, CultureInfo.InvariantCulture));
+            cmd.Parameters.AddWithValue("$created_ts", now);
+            cmd.Parameters.AddWithValue("$updated_ts", now);
+            cmd.Parameters.AddWithValue("$ocr_raw_json", string.IsNullOrWhiteSpace(ocrRawJson) ? (object)DBNull.Value : ocrRawJson);
+            cmd.Parameters.AddWithValue("$source_image_path", string.IsNullOrWhiteSpace(sourceImagePath) ? (object)DBNull.Value : sourceImagePath);
+            return Convert.ToInt32((long)cmd.ExecuteScalar()!, CultureInfo.InvariantCulture);
+        }
+    }
+
+    public IReadOnlyList<GasMeterReceiptRow> ListGasMeterReceipts()
+    {
+        lock (_gate)
+        {
+            using var c = Open();
+            using var cmd = c.CreateCommand();
+            cmd.CommandText =
+                """
+                SELECT id, entry_date, vol_credit, amount_gbp, created_ts, updated_ts, ocr_raw_json, source_image_path
+                FROM gas_meter_receipts
+                ORDER BY entry_date DESC, id DESC
+                """;
+            using var r = cmd.ExecuteReader();
+            var list = new List<GasMeterReceiptRow>();
+            while (r.Read())
+                list.Add(ReadGasMeterReceipt(r));
+            return list;
+        }
+    }
+
+    public GasMeterReceiptRow? GetGasMeterReceipt(int id)
+    {
+        if (id <= 0)
+            return null;
+
+        lock (_gate)
+        {
+            using var c = Open();
+            using var cmd = c.CreateCommand();
+            cmd.CommandText =
+                """
+                SELECT id, entry_date, vol_credit, amount_gbp, created_ts, updated_ts, ocr_raw_json, source_image_path
+                FROM gas_meter_receipts
+                WHERE id = $id
+                LIMIT 1
+                """;
+            cmd.Parameters.AddWithValue("$id", id);
+            using var r = cmd.ExecuteReader();
+            return r.Read() ? ReadGasMeterReceipt(r) : null;
+        }
+    }
+
+    public bool UpdateGasMeterReceipt(int id, DateOnly entryDate, int volCredit, decimal amountGbp)
+    {
+        if (id <= 0)
+            return false;
+
+        lock (_gate)
+        {
+            using var c = Open();
+            using var cmd = c.CreateCommand();
+            cmd.CommandText =
+                """
+                UPDATE gas_meter_receipts
+                SET entry_date = $entry_date,
+                    vol_credit = $vol_credit,
+                    amount_gbp = $amount_gbp,
+                    updated_ts = $updated_ts
+                WHERE id = $id
+                """;
+            cmd.Parameters.AddWithValue("$entry_date", entryDate.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture));
+            cmd.Parameters.AddWithValue("$vol_credit", volCredit);
+            cmd.Parameters.AddWithValue("$amount_gbp", Convert.ToDouble(amountGbp, CultureInfo.InvariantCulture));
+            cmd.Parameters.AddWithValue("$updated_ts", DateTimeOffset.UtcNow.ToUnixTimeSeconds());
+            cmd.Parameters.AddWithValue("$id", id);
+            return cmd.ExecuteNonQuery() > 0;
+        }
+    }
+
+    public bool DeleteGasMeterReceipt(int id)
+    {
+        if (id <= 0)
+            return false;
+
+        lock (_gate)
+        {
+            using var c = Open();
+            using var cmd = c.CreateCommand();
+            cmd.CommandText = "DELETE FROM gas_meter_receipts WHERE id = $id";
+            cmd.Parameters.AddWithValue("$id", id);
+            return cmd.ExecuteNonQuery() > 0;
+        }
+    }
+
+    private static GasMeterReceiptRow ReadGasMeterReceipt(SqliteDataReader r)
+    {
+        var entryDateText = r.GetString(1);
+        var entryDate = DateOnly.TryParseExact(entryDateText, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var parsed)
+            ? parsed
+            : DateOnly.FromDateTime(DateTime.UtcNow.Date);
+
+        return new GasMeterReceiptRow(
+            r.GetInt32(0),
+            entryDate,
+            r.GetInt32(2),
+            Convert.ToDecimal(r.GetDouble(3), CultureInfo.InvariantCulture),
+            r.GetInt64(4),
+            r.GetInt64(5),
+            r.IsDBNull(6) ? null : r.GetString(6),
+            r.IsDBNull(7) ? null : r.GetString(7));
+    }
+
     private static void UpsertSetting(SqliteConnection c, string key, string value, long updatedTs)
     {
         using var cmd = c.CreateCommand();
@@ -761,3 +900,13 @@ public sealed record DataQualitySummary(
 public sealed record DataQualityReasonCount(string Reason, int Count);
 public sealed record DataQualitySourceCount(string Source, int Count);
 public sealed record DataQualityRoomCount(string Room, int Count);
+
+public sealed record GasMeterReceiptRow(
+    int Id,
+    DateOnly EntryDate,
+    int VolCredit,
+    decimal AmountGbp,
+    long CreatedTs,
+    long UpdatedTs,
+    string? OcrRawJson,
+    string? SourceImagePath);

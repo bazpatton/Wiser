@@ -48,6 +48,7 @@ foreach (var err in valErrors.Except(hubConfigurationErrors))
 builder.Services.AddSingleton(monitorOptions);
 builder.Services.AddSingleton<MonitorState>();
 builder.Services.AddSingleton<TemperatureStore>();
+builder.Services.AddSingleton<GasReceiptOcrService>();
 builder.Services.AddHttpClient<WiserHubFetch>(c => c.Timeout = TimeSpan.FromSeconds(15));
 builder.Services.AddHttpClient<OutdoorWeatherClient>(c => c.Timeout = TimeSpan.FromSeconds(20));
 builder.Services.AddHttpClient<NtfyClient>(c => c.Timeout = TimeSpan.FromSeconds(15));
@@ -78,6 +79,14 @@ app.MapGet("/api/health", (MonitorState state, MonitorOptions o) =>
         alerts_enabled = o.AlertsEnabled,
         outdoor_enabled = o.OpenMeteoLat is not null,
     });
+});
+
+app.MapGet("/api/ocr-health", async (GasReceiptOcrService ocr, CancellationToken ct) =>
+{
+    var (ok, detail) = await ocr.CheckReadinessAsync(ct).ConfigureAwait(false);
+    return ok
+        ? Results.Json(new { ok = true, detail })
+        : Results.Json(new { ok = false, detail }, statusCode: StatusCodes.Status503ServiceUnavailable);
 });
 
 app.MapGet("/api/rooms", (TemperatureStore store, MonitorState state, ApiRoomsNamesCache roomsNamesCache) =>
@@ -363,6 +372,76 @@ app.MapGet("/api/data-quality-summary", (int? hours, TemperatureStore store) =>
     return Results.Json(summary);
 });
 
+app.MapPost("/api/gas-meter/scan", async (IFormFile file, GasReceiptOcrService ocr, CancellationToken ct) =>
+{
+    if (file is null || file.Length <= 0)
+        return Results.BadRequest(new { error = "file is required" });
+    if (file.Length > 10_000_000)
+        return Results.BadRequest(new { error = "file exceeds 10MB limit" });
+
+    await using var stream = file.OpenReadStream();
+    using var ms = new MemoryStream();
+    await stream.CopyToAsync(ms, ct).ConfigureAwait(false);
+
+    try
+    {
+        var result = await ocr.ScanAsync(ms.ToArray(), file.FileName, ct).ConfigureAwait(false);
+        return Results.Json(new
+        {
+            vol_credit = result.VolCredit,
+            amount_gbp = result.AmountGbp,
+            entry_date = result.EntryDate?.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
+            confidence = result.Confidence,
+            raw_text = result.RawText,
+            raw_json = result.RawJson,
+        });
+    }
+    catch (Exception ex)
+    {
+        return Results.Json(new { error = ex.Message }, statusCode: StatusCodes.Status502BadGateway);
+    }
+}).DisableAntiforgery();
+
+app.MapGet("/api/gas-meter", (TemperatureStore store) =>
+{
+    return Results.Json(new { rows = store.ListGasMeterReceipts() });
+});
+
+app.MapPost("/api/gas-meter", (GasMeterCreateRequest body, TemperatureStore store) =>
+{
+    if (!TryParseEntryDate(body.entry_date, out var entryDate))
+        return Results.BadRequest(new { error = "entry_date must be dd/MM/yy, dd/MM/yyyy, or yyyy-MM-dd" });
+    if (body.vol_credit <= 0)
+        return Results.BadRequest(new { error = "vol_credit must be greater than 0" });
+    if (body.amount_gbp <= 0)
+        return Results.BadRequest(new { error = "amount_gbp must be greater than 0" });
+
+    var id = store.CreateGasMeterReceipt(entryDate, body.vol_credit, body.amount_gbp, body.ocr_raw_json, body.source_image_path);
+    var row = store.GetGasMeterReceipt(id);
+    return Results.Json(new { ok = true, row });
+});
+
+app.MapPut("/api/gas-meter/{id:int}", (int id, GasMeterUpdateRequest body, TemperatureStore store) =>
+{
+    if (!TryParseEntryDate(body.entry_date, out var entryDate))
+        return Results.BadRequest(new { error = "entry_date must be dd/MM/yy, dd/MM/yyyy, or yyyy-MM-dd" });
+    if (body.vol_credit <= 0)
+        return Results.BadRequest(new { error = "vol_credit must be greater than 0" });
+    if (body.amount_gbp <= 0)
+        return Results.BadRequest(new { error = "amount_gbp must be greater than 0" });
+
+    var ok = store.UpdateGasMeterReceipt(id, entryDate, body.vol_credit, body.amount_gbp);
+    if (!ok)
+        return Results.NotFound(new { error = "not found" });
+    return Results.Json(new { ok = true, row = store.GetGasMeterReceipt(id) });
+});
+
+app.MapDelete("/api/gas-meter/{id:int}", (int id, TemperatureStore store) =>
+{
+    var ok = store.DeleteGasMeterReceipt(id);
+    return ok ? Results.Json(new { ok = true }) : Results.NotFound(new { error = "not found" });
+});
+
 app.MapGet("/api/export/daily-summary.csv", (int? days, TemperatureStore store, MonitorOptions o) =>
 {
     var d = Math.Clamp(days ?? 14, 1, 366);
@@ -595,6 +674,17 @@ static bool IsWithinIgnoreWindow(long timestampUtc, TimeSpan ignoreStart, TimeSp
     return localTod >= ignoreStart || localTod < ignoreEnd;
 }
 
+static bool TryParseEntryDate(string? text, out DateOnly date)
+{
+    if (DateOnly.TryParseExact(text, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out date))
+        return true;
+    if (DateOnly.TryParseExact(text, "dd/MM/yy", CultureInfo.InvariantCulture, DateTimeStyles.None, out date))
+        return true;
+    if (DateOnly.TryParseExact(text, "dd/MM/yyyy", CultureInfo.InvariantCulture, DateTimeStyles.None, out date))
+        return true;
+    return false;
+}
+
 internal sealed record SeriesRoomRowDto(
     long Ts,
     double TempC,
@@ -621,3 +711,5 @@ internal static class BoostPresets
 internal sealed record BoostRoomRequest(int room_id, double temperature_c, int minutes);
 internal sealed record CancelRoomOverrideRequest(int room_id);
 internal sealed record RoomModeRequest(int room_id, string mode, double? temperature_c);
+internal sealed record GasMeterCreateRequest(int vol_credit, decimal amount_gbp, string entry_date, string? ocr_raw_json, string? source_image_path);
+internal sealed record GasMeterUpdateRequest(int vol_credit, decimal amount_gbp, string entry_date);

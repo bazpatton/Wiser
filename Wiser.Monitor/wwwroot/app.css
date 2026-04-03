@@ -399,3 +399,11 @@
     overflow: hidden;
     opacity: 0;
 }
+
+.gas-meter-page .gas-meter-input-file-hidden {
+    position: absolute;
+    width: 0;
+    height: 0;
+    overflow: hidden;
+    opacity: 0;
+}

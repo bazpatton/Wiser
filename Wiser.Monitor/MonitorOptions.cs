@@ -15,6 +15,9 @@ public sealed class MonitorOptions
     public double? OpenMeteoLon { get; set; }
     public string DataDir { get; set; } = "./data";
     public string? TimeZoneId { get; set; }
+    public string OcrPythonPath { get; set; } = "python3";
+    public string? OcrScriptPath { get; set; }
+    public int OcrTimeoutSec { get; set; } = 30;
 
     public bool UseHighAlert => TempAlertAboveC > 0;
     public bool UseLowAlert => TempAlertBelowC.HasValue;
@@ -80,6 +83,11 @@ public sealed class MonitorOptions
             TimeZoneId = string.IsNullOrWhiteSpace(cfg["TIME_ZONE"])
                 ? (string.IsNullOrWhiteSpace(cfg["TZ"]) ? null : cfg["TZ"]!.Trim())
                 : cfg["TIME_ZONE"]!.Trim(),
+            OcrPythonPath = string.IsNullOrWhiteSpace(cfg["OCR_PYTHON_PATH"]) ? "python3" : cfg["OCR_PYTHON_PATH"]!.Trim(),
+            OcrScriptPath = string.IsNullOrWhiteSpace(cfg["OCR_SCRIPT_PATH"]) ? null : cfg["OCR_SCRIPT_PATH"]!.Trim(),
+            OcrTimeoutSec = int.TryParse(SanitizeNumericRaw(cfg["OCR_TIMEOUT_SEC"]), NumberStyles.Integer, CultureInfo.InvariantCulture, out var ocrTimeout)
+                ? Math.Clamp(ocrTimeout, 5, 180)
+                : 30,
         };
     }
 
