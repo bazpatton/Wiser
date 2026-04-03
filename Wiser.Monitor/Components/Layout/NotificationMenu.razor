@@ -2,6 +2,7 @@
 @inject TemperatureStore Store
 @inject NavigationManager Nav
 
+@* MudBlazor 9+: custom ActivatorContent must call MenuContext.ToggleAsync; a bare MudIconButton does not open the menu. *@
 <MudMenu AnchorOrigin="Origin.BottomRight"
          MaxHeight="400"
          OpenChanged="OnOpenChanged">
@@ -15,6 +16,7 @@
             <MudIconButton Icon="@Icons.Material.Filled.Notifications"
                            Color="Color.Inherit"
                            Class="touch-target-icon"
+                           OnClick="@context.ToggleAsync"
                            aria-label="Notification history" />
         </MudBadge>
     </ActivatorContent>
@@ -59,6 +61,11 @@
     {
         _count = Store.CountNtfyNotifications();
         _recent = Store.ListNtfyNotifications(10);
+    }
+
+    private void GoToAllNotifications()
+    {
+        Nav.NavigateTo("/notifications");
     }
 
     private static string FormatLocal(long sentTsUtc)
