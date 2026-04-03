@@ -1000,6 +1000,26 @@ public sealed class TemperatureStore
         }
     }
 
+    /// <summary>Unix seconds of the most recent gas meter read, or null if none.</summary>
+    public long? GetLatestGasMeterReadingUnixTs()
+    {
+        lock (_gate)
+        {
+            using var c = Open();
+            using var cmd = c.CreateCommand();
+            cmd.CommandText =
+                """
+                SELECT read_ts FROM gas_meter_readings
+                ORDER BY read_ts DESC, id DESC
+                LIMIT 1
+                """;
+            var scalar = cmd.ExecuteScalar();
+            if (scalar is null || scalar == DBNull.Value)
+                return null;
+            return Convert.ToInt64(scalar, CultureInfo.InvariantCulture);
+        }
+    }
+
     public GasMeterReadingRow? GetGasMeterReading(int id)
     {
         if (id <= 0)

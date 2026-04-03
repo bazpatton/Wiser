@@ -10,6 +10,27 @@
 <PageTitle>Wiser Monitor</PageTitle>
 
 <MudStack Spacing="3">
+    @if (_gasMeterReadingBannerText is not null)
+    {
+        <MudAlert Severity="Severity.Warning"
+                  Dense="true"
+                  Class="home-gas-meter-banner"
+                  ShowCloseIcon="false"
+                  ContentAlignment="HorizontalAlignment.Left">
+            <div class="d-flex flex-wrap align-center" style="gap: 12px;">
+                <MudText Typo="Typo.body1" Class="flex-grow-1">@_gasMeterReadingBannerText</MudText>
+                <MudButton Href="/gas-meter"
+                           Variant="Variant.Filled"
+                           Color="Color.Warning"
+                           Size="Size.Small"
+                           StartIcon="@Icons.Material.Filled.LocalGasStation"
+                           Class="touch-target">
+                    Gas meter
+                </MudButton>
+            </div>
+        </MudAlert>
+    }
+
     <MudPaper Class="pa-5 hero-card">
         <MudTooltip Text="Polls your Wiser hub on the configured interval and records room data locally.">
             <MudChip T="string" Variant="Variant.Outlined" Color="Color.Primary" Size="Size.Small">Live monitoring</MudChip>
@@ -169,6 +190,8 @@
     private string _outlookSummary = "";
     private string? _outlookDetail;
 
+    private string? _gasMeterReadingBannerText;
+
     private TimeZoneInfo DisplayZone => TimeZoneResolver.Resolve(Options.TimeZoneId);
 
     protected override async Task OnInitializedAsync()
@@ -184,7 +207,32 @@
         _qualityTotal24h = quality.TotalIgnored;
         _qualityReasons24h = quality.ByReason.Take(4).ToList();
         BuildHomeRoomHeatMap();
+        UpdateGasMeterReadingBanner();
         await LoadHeatingOutlookAsync();
+    }
+
+    private void UpdateGasMeterReadingBanner()
+    {
+        const long weekSec = 7L * 24 * 60 * 60;
+        var latestTs = Store.GetLatestGasMeterReadingUnixTs();
+        var cutoff = DateTimeOffset.UtcNow.ToUnixTimeSeconds() - weekSec;
+
+        if (latestTs is null)
+        {
+            _gasMeterReadingBannerText =
+                "No gas meter reading has been logged yet. Add readings on the Gas meter page to track credit and estimated cost.";
+            return;
+        }
+
+        if (latestTs.Value < cutoff)
+        {
+            var local = TimeZoneInfo.ConvertTime(DateTimeOffset.FromUnixTimeSeconds(latestTs.Value), DisplayZone);
+            _gasMeterReadingBannerText =
+                $"Your last gas meter reading was {local.ToString("g", CultureInfo.CurrentCulture)} — over a week ago. Log a new reading on the Gas meter page.";
+            return;
+        }
+
+        _gasMeterReadingBannerText = null;
     }
 
     private async Task LoadHeatingOutlookAsync()
