@@ -2,7 +2,7 @@ using Wiser.Monitor;
 
 namespace Wiser.Monitor.Services;
 
-public sealed class RoomAlertService(NtfyClient ntfy, ILogger<RoomAlertService> log)
+public sealed class RoomAlertService(NtfyClient ntfy, TemperatureStore store, ILogger<RoomAlertService> log)
 {
     public async Task ProcessSampleAsync(
         MonitorOptions options,
@@ -35,6 +35,7 @@ public sealed class RoomAlertService(NtfyClient ntfy, ILogger<RoomAlertService> 
                     {
                         log.LogWarning(ex, "ntfy high alert failed");
                     }
+
                     latches.LatchedHigh = true;
                 }
             }
@@ -61,11 +62,14 @@ public sealed class RoomAlertService(NtfyClient ntfy, ILogger<RoomAlertService> 
                     {
                         log.LogWarning(ex, "ntfy low alert failed");
                     }
+
                     latches.LatchedLow = true;
                 }
             }
             else if (tempC >= below)
                 latches.LatchedLow = false;
         }
+
+        store.UpsertRoomAlertLatch(observedRoom, latches.LatchedHigh, latches.LatchedLow);
     }
 }

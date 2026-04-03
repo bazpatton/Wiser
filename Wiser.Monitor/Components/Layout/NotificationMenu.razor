@@ -1,18 +1,19 @@
 @using System.Globalization
+@implements IDisposable
 @inject TemperatureStore Store
 @inject NavigationManager Nav
 
-@* MudBlazor 9+: custom ActivatorContent must call MenuContext.ToggleAsync; a bare MudIconButton does not open the menu. *@
+@* MudBlazor 9+: custom ActivatorContent must call MenuContext.ToggleAsync. *@
 <MudMenu AnchorOrigin="Origin.BottomRight"
          MaxHeight="400"
          OpenChanged="OnOpenChanged">
     <ActivatorContent>
-        @* Badge shows total stored notifications (all time), not a rolling window. *@
+        @* Badge = unread only (after user opens menu or /notifications, count hides until new alerts). *@
         <MudBadge Content="@BadgeContent"
                   Color="Color.Error"
                   Overlap="true"
                   Bordered="true"
-                  Visible="@(_count > 0)">
+                  Visible="@(_unreadCount > 0)">
             <MudIconButton Icon="@Icons.Material.Filled.Notifications"
                            Color="Color.Inherit"
                            Class="touch-target-icon"
@@ -41,31 +42,47 @@
 </MudMenu>
 
 @code {
-    private int _count;
+    private int _unreadCount;
     private IReadOnlyList<NtfyNotificationRow> _recent = [];
 
-    private string BadgeContent => _count > 99 ? "99+" : _count.ToString(CultureInfo.InvariantCulture);
+    private string BadgeContent => _unreadCount > 99 ? "99+" : _unreadCount.ToString(CultureInfo.InvariantCulture);
 
     protected override void OnInitialized()
     {
+        Nav.LocationChanged += OnLocationChanged;
         Refresh();
+    }
+
+    public void Dispose()
+    {
+        Nav.LocationChanged -= OnLocationChanged;
+    }
+
+    private void OnLocationChanged(object? sender, LocationChangedEventArgs args)
+    {
+        _ = InvokeAsync(RefreshBadgeUiAsync);
+    }
+
+    private Task RefreshBadgeUiAsync()
+    {
+        Refresh();
+        StateHasChanged();
+        return Task.CompletedTask;
     }
 
     private void OnOpenChanged(bool open)
     {
         if (open)
+        {
+            Store.MarkNtfyNotificationsViewedNow();
             Refresh();
+        }
     }
 
     private void Refresh()
     {
-        _count = Store.CountNtfyNotifications();
+        _unreadCount = Store.CountNtfyNotificationsUnread();
         _recent = Store.ListNtfyNotifications(10);
-    }
-
-    private void GoToAllNotifications()
-    {
-        Nav.NavigateTo("/notifications");
     }
 
     private static string FormatLocal(long sentTsUtc)

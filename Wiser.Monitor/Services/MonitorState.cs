@@ -6,7 +6,7 @@ public sealed class AlertLatches
     public bool LatchedLow { get; set; }
 }
 
-public sealed class MonitorState
+public sealed class MonitorState(TemperatureStore store)
 {
     private readonly object _gate = new();
     private readonly Dictionary<string, AlertLatches> _latchesByRoom = new(StringComparer.OrdinalIgnoreCase);
@@ -22,9 +22,15 @@ public sealed class MonitorState
         {
             if (!_latchesByRoom.TryGetValue(key, out var latch))
             {
-                latch = new AlertLatches();
+                var db = store.GetRoomAlertLatch(key);
+                latch = new AlertLatches
+                {
+                    LatchedHigh = db?.LatchedHigh ?? false,
+                    LatchedLow = db?.LatchedLow ?? false,
+                };
                 _latchesByRoom[key] = latch;
             }
+
             return latch;
         }
     }

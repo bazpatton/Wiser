@@ -46,8 +46,8 @@ foreach (var err in valErrors.Except(hubConfigurationErrors))
     Console.Error.WriteLine($"Configuration warning: {err}");
 
 builder.Services.AddSingleton(monitorOptions);
-builder.Services.AddSingleton<MonitorState>();
 builder.Services.AddSingleton<TemperatureStore>();
+builder.Services.AddSingleton<MonitorState>();
 builder.Services.AddSingleton<GasReceiptOcrService>();
 builder.Services.AddHttpClient<WiserHubFetch>(c => c.Timeout = TimeSpan.FromSeconds(15));
 builder.Services.AddHttpClient<OutdoorWeatherClient>(c => c.Timeout = TimeSpan.FromSeconds(20));

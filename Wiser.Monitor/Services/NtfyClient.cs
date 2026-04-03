@@ -2,6 +2,8 @@ namespace Wiser.Monitor.Services;
 
 public sealed class NtfyClient(HttpClient http, TemperatureStore store)
 {
+    private const int DuplicateWindowSeconds = 300;
+
     public Task SendAsync(string topic, string title, string message, CancellationToken ct, string kind = "alert")
         => SendAsync(topic, title, message, ct, tags: null, priority: null, kind);
 
@@ -14,6 +16,10 @@ public sealed class NtfyClient(HttpClient http, TemperatureStore store)
         string? priority,
         string kind = "alert")
     {
+        var sentTs = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+        if (store.NtfyNotificationDuplicateRecent(sentTs, kind, title, message, DuplicateWindowSeconds))
+            return;
+
         var url = $"https://ntfy.sh/{Uri.EscapeDataString(topic)}";
         using var req = new HttpRequestMessage(HttpMethod.Post, url);
         req.Headers.TryAddWithoutValidation("Title", title);
@@ -24,7 +30,6 @@ public sealed class NtfyClient(HttpClient http, TemperatureStore store)
         using var resp = await http.SendAsync(req, ct).ConfigureAwait(false);
         resp.EnsureSuccessStatusCode();
 
-        var sentTs = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
         store.RecordNtfyNotification(sentTs, kind, title, message);
     }
 }

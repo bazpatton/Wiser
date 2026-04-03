@@ -11,7 +11,7 @@
         <i class="fa-solid fa-bell"></i> ntfy notification history
     </MudText>
     <MudText Typo="Typo.body2" Class="mud-text-secondary">
-        Successful pushes to your configured ntfy topic (temperature alerts and gas meter reminders). Failed sends are not listed.
+        Successful pushes to your configured ntfy topic. Opening this page clears the unread count on the bell. Identical messages within a few minutes are not stored or sent again. Temperature alerts repeat only after the room returns below/above the threshold and crosses again. Failed sends are not listed.
     </MudText>
 
     @if (_rows.Count == 0)
@@ -42,6 +42,7 @@
 
     protected override void OnInitialized()
     {
+        Store.MarkNtfyNotificationsViewedNow();
         _rows.Clear();
         _rows.AddRange(Store.ListNtfyNotifications(200));
     }

@@ -6,5 +6,5 @@ namespace Wiser.Monitor.Services;
 /// </summary>
 public static class GasCreditMeterPricing
 {
-    public const decimal RawConsumptionToVolCreditUnits = 100m;
+    public const decimal RawConsumptionToVolCreditUnits = 1000m;
 }

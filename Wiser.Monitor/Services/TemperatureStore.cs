@@ -108,6 +108,13 @@ public sealed class TemperatureStore
                         message TEXT NOT NULL
                     );
                     CREATE INDEX IF NOT EXISTS idx_ntfy_notifications_sent_ts ON ntfy_notifications(sent_ts DESC);
+
+                    CREATE TABLE IF NOT EXISTS room_alert_latches (
+                        room TEXT PRIMARY KEY,
+                        latched_high INTEGER NOT NULL DEFAULT 0,
+                        latched_low INTEGER NOT NULL DEFAULT 0,
+                        updated_ts INTEGER NOT NULL
+                    );
                     """;
                 cmd.ExecuteNonQuery();
             }
@@ -642,7 +649,7 @@ public sealed class TemperatureStore
         }
     }
 
-    /// <summary>Total rows in ntfy_notifications (for app bar badge; not time-windowed).</summary>
+    /// <summary>Total rows in ntfy_notifications.</summary>
     public int CountNtfyNotifications()
     {
         lock (_gate)
@@ -651,6 +658,72 @@ public sealed class TemperatureStore
             using var cmd = c.CreateCommand();
             cmd.CommandText = "SELECT COUNT(*) FROM ntfy_notifications";
             return Convert.ToInt32((long)cmd.ExecuteScalar()!, CultureInfo.InvariantCulture);
+        }
+    }
+
+    /// <summary>Rows with sent_ts strictly after last mark-viewed (unix). Default 0 = all rows count as unread until user views.</summary>
+    public int CountNtfyNotificationsUnread()
+    {
+        var after = GetNtfyNotificationsLastViewedSentTs();
+        lock (_gate)
+        {
+            using var c = Open();
+            using var cmd = c.CreateCommand();
+            cmd.CommandText = "SELECT COUNT(*) FROM ntfy_notifications WHERE sent_ts > $after";
+            cmd.Parameters.AddWithValue("$after", after);
+            return Convert.ToInt32((long)cmd.ExecuteScalar()!, CultureInfo.InvariantCulture);
+        }
+    }
+
+    /// <summary>Max sent_ts the user has acknowledged (notifications page or bell menu).</summary>
+    public long GetNtfyNotificationsLastViewedSentTs()
+    {
+        lock (_gate)
+        {
+            using var c = Open();
+            using var cmd = c.CreateCommand();
+            cmd.CommandText =
+                "SELECT value FROM app_settings WHERE key = 'ntfy_notifications_last_viewed_ts' LIMIT 1";
+            var raw = cmd.ExecuteScalar() as string;
+            if (long.TryParse(raw, NumberStyles.Integer, CultureInfo.InvariantCulture, out var v) && v >= 0)
+                return v;
+            return 0;
+        }
+    }
+
+    /// <summary>Mark all notifications as viewed up to now (badge clears until a newer notification arrives).</summary>
+    public void MarkNtfyNotificationsViewedNow()
+    {
+        var ts = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+        lock (_gate)
+        {
+            using var c = Open();
+            UpsertSetting(c, "ntfy_notifications_last_viewed_ts", ts.ToString(CultureInfo.InvariantCulture), ts);
+        }
+    }
+
+    /// <summary>True if an identical notification was logged within the last <paramref name="windowSeconds"/>.</summary>
+    public bool NtfyNotificationDuplicateRecent(long sentTs, string kind, string title, string message, int windowSeconds = 300)
+    {
+        kind = string.IsNullOrWhiteSpace(kind) ? "alert" : kind.Trim();
+        title ??= "";
+        message ??= "";
+        var cutoff = sentTs - windowSeconds;
+        lock (_gate)
+        {
+            using var c = Open();
+            using var cmd = c.CreateCommand();
+            cmd.CommandText =
+                """
+                SELECT 1 FROM ntfy_notifications
+                WHERE kind = $kind AND title = $title AND message = $message AND sent_ts >= $cutoff
+                LIMIT 1
+                """;
+            cmd.Parameters.AddWithValue("$kind", kind.Length > 64 ? kind[..64] : kind);
+            cmd.Parameters.AddWithValue("$title", title.Length > 500 ? title[..500] : title);
+            cmd.Parameters.AddWithValue("$message", message.Length > 4000 ? message[..4000] : message);
+            cmd.Parameters.AddWithValue("$cutoff", cutoff);
+            return cmd.ExecuteScalar() is not null;
         }
     }
 
@@ -681,6 +754,65 @@ public sealed class TemperatureStore
             cmd.Parameters.AddWithValue("$message", message);
             cmd.ExecuteNonQuery();
         }
+    }
+
+    public RoomAlertLatchRow? GetRoomAlertLatch(string room)
+    {
+        var key = NormalizeRoomLatchKey(room);
+        if (key.Length == 0)
+            return null;
+
+        lock (_gate)
+        {
+            using var c = Open();
+            using var cmd = c.CreateCommand();
+            cmd.CommandText =
+                """
+                SELECT latched_high, latched_low FROM room_alert_latches
+                WHERE room = $room
+                LIMIT 1
+                """;
+            cmd.Parameters.AddWithValue("$room", key);
+            using var r = cmd.ExecuteReader();
+            if (!r.Read())
+                return null;
+            return new RoomAlertLatchRow(r.GetInt32(0) != 0, r.GetInt32(1) != 0);
+        }
+    }
+
+    public void UpsertRoomAlertLatch(string room, bool latchedHigh, bool latchedLow)
+    {
+        var key = NormalizeRoomLatchKey(room);
+        if (key.Length == 0)
+            return;
+
+        var ts = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+        lock (_gate)
+        {
+            using var c = Open();
+            using var cmd = c.CreateCommand();
+            cmd.CommandText =
+                """
+                INSERT INTO room_alert_latches (room, latched_high, latched_low, updated_ts)
+                VALUES ($room, $high, $low, $ts)
+                ON CONFLICT(room) DO UPDATE SET
+                    latched_high = excluded.latched_high,
+                    latched_low = excluded.latched_low,
+                    updated_ts = excluded.updated_ts
+                """;
+            cmd.Parameters.AddWithValue("$room", key);
+            cmd.Parameters.AddWithValue("$high", latchedHigh ? 1 : 0);
+            cmd.Parameters.AddWithValue("$low", latchedLow ? 1 : 0);
+            cmd.Parameters.AddWithValue("$ts", ts);
+            cmd.ExecuteNonQuery();
+        }
+    }
+
+    private static string NormalizeRoomLatchKey(string room)
+    {
+        if (string.IsNullOrWhiteSpace(room))
+            return "";
+        return room.Trim().ToLowerInvariant();
     }
 
     public IReadOnlyList<NtfyNotificationRow> ListNtfyNotifications(int limit = 200)
@@ -1269,5 +1401,7 @@ public sealed record GasMeterReadingRow(
     long ReadTs,
     long CreatedTs,
     long UpdatedTs);
+
+public sealed record RoomAlertLatchRow(bool LatchedHigh, bool LatchedLow);
 
 public sealed record NtfyNotificationRow(int Id, long SentTs, string Kind, string Title, string Message);
