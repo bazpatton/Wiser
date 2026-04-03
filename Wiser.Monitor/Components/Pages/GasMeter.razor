@@ -183,6 +183,7 @@
     protected override Task OnInitializedAsync()
     {
         LoadRows();
+        ApplyQuickEntryDefaults();
         return Task.CompletedTask;
     }
 
@@ -286,7 +287,7 @@
             }
 
             LoadRows();
-            ClearEditor();
+            ApplyQuickEntryDefaults();
         }
         finally
         {
@@ -322,6 +323,7 @@
         if (ok)
         {
             LoadRows();
+            ApplyQuickEntryDefaults();
             Snackbar.Add("Entry deleted.", Severity.Success);
         }
         else
@@ -332,10 +334,16 @@
 
     private void ClearEditor()
     {
+        ApplyQuickEntryDefaults();
+    }
+
+    private void ApplyQuickEntryDefaults()
+    {
         _editingId = null;
-        _volCreditText = "";
-        _amountText = "";
-        _entryDateText = "";
+        var latest = _receipts.FirstOrDefault();
+        _volCreditText = latest is null ? "" : latest.VolCredit.ToString(CultureInfo.InvariantCulture);
+        _amountText = latest is null ? "" : latest.AmountGbp.ToString("0.00", CultureInfo.InvariantCulture);
+        _entryDateText = DateOnly.FromDateTime(DateTime.Now).ToString("dd/MM/yy", CultureInfo.InvariantCulture);
         _rawOcrJson = null;
         _rawOcrText = null;
         _ocrConfidence = null;
