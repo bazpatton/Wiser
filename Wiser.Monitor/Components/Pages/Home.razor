@@ -90,6 +90,56 @@
     <MudPaper Class="pa-4 status-card">
         <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center" Wrap="Wrap.Wrap">
             <MudText Typo="Typo.h6">
+                <i class="fa-solid fa-table"></i> Daily summary (energy proxies)
+            </MudText>
+            <MudButton Href="/charts"
+                       Variant="Variant.Text"
+                       Color="Color.Primary"
+                       StartIcon="@Icons.Material.Filled.OpenInNew">
+                Charts
+            </MudButton>
+        </MudStack>
+        <MudText Typo="Typo.caption" Class="mud-text-secondary d-block mt-1">
+            Per local day: HDD (15.5 °C base), mean outdoor °C, and heating demand / boiler relay minutes estimated from poll activity. Needs outdoor samples for HDD columns.
+        </MudText>
+        @if (_homeDailyRows.Count == 0)
+        {
+            <MudAlert Severity="Severity.Info" Dense="true" Class="mt-2">
+                No daily summary rows yet (needs recorded history).
+            </MudAlert>
+        }
+        else
+        {
+            <MudTable T="DailySummaryRow" Items="_homeDailyRows" Dense="true" Hover="true" Breakpoint="Breakpoint.Sm" Class="mt-2">
+                <HeaderContent>
+                    <MudTh>Date</MudTh>
+                    <MudTh Class="text-right">HDD</MudTh>
+                    <MudTh Class="text-right">Avg out °C</MudTh>
+                    <MudTh Class="text-right">Heat est. min</MudTh>
+                    <MudTh Class="text-right">Relay est. min</MudTh>
+                </HeaderContent>
+                <RowTemplate>
+                    <MudTd DataLabel="Date">@context.Date</MudTd>
+                    <MudTd DataLabel="HDD" Class="text-right">@FmtOpt(context.Hdd)</MudTd>
+                    <MudTd DataLabel="Avg out" Class="text-right">@FmtOpt(context.AvgOutdoorC)</MudTd>
+                    <MudTd DataLabel="Heat min" Class="text-right">@FmtHeatMin(context.HeatingActiveEstimateMin)</MudTd>
+                    <MudTd DataLabel="Relay min" Class="text-right">@FmtHeatMin(context.HeatingRelayEstimateMin)</MudTd>
+                </RowTemplate>
+            </MudTable>
+            <MudButton Href="/api/export/daily-summary.csv?days=14"
+                       Variant="Variant.Text"
+                       Size="Size.Small"
+                       Color="Color.Primary"
+                       StartIcon="@Icons.Material.Filled.Download"
+                       Class="mt-1">
+                Export CSV (14 days)
+            </MudButton>
+        }
+    </MudPaper>
+
+    <MudPaper Class="pa-4 status-card">
+        <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center" Wrap="Wrap.Wrap">
+            <MudText Typo="Typo.h6">
                 <i class="fa-solid fa-piggy-bank"></i> Save on heating - schedule ideas
             </MudText>
             <MudButton Href="/settings"
@@ -235,6 +285,7 @@
     private string _outlookSummary = "";
     private string? _outlookDetail;
     private readonly List<HeatingSavingsSuggestion> _savingsSuggestions = [];
+    private readonly List<DailySummaryRow> _homeDailyRows = [];
     private double? _outlookPastWeekHddSum;
     private double? _outlookForecastWeekHddSum;
 
@@ -254,11 +305,26 @@
         var quality = Store.GetDataQualitySummary(24);
         _qualityTotal24h = quality.TotalIgnored;
         _qualityReasons24h = quality.ByReason.Take(4).ToList();
+        LoadHomeDailySummary();
         BuildHomeRoomHeatMap();
         UpdateGasMeterReadingBanner();
         await LoadHeatingOutlookAsync();
         await LoadSavingsSuggestionsAsync();
     }
+
+    private void LoadHomeDailySummary()
+    {
+        _homeDailyRows.Clear();
+        _homeDailyRows.AddRange(
+            Store.GetDailySummaries(7, Math.Max(10, Options.IntervalSec), DisplayZone)
+                .OrderByDescending(static x => x.Date, StringComparer.Ordinal));
+    }
+
+    private static string FmtOpt(double? value) =>
+        value is null || double.IsNaN(value.Value) ? "—" : value.Value.ToString("0.0", CultureInfo.InvariantCulture);
+
+    private static string FmtHeatMin(double value) =>
+        double.IsNaN(value) ? "—" : value.ToString("0.0", CultureInfo.InvariantCulture);
 
     private void UpdateGasMeterReadingBanner()
     {
