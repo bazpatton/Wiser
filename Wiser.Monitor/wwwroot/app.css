@@ -225,6 +225,12 @@
     min-height: 44px;
 }
 
+.room-focused-banner {
+    border-radius: 12px;
+    border: 1px solid color-mix(in srgb, var(--mud-palette-primary) 35%, var(--mud-palette-lines-default));
+    background: color-mix(in srgb, var(--mud-palette-surface) 90%, var(--mud-palette-primary) 10%);
+}
+
 .charts-toolbar {
     padding: 0.85rem 1rem !important;
 }

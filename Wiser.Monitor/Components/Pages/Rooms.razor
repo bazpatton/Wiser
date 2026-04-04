@@ -13,7 +13,7 @@
 @inject ISnackbar Snackbar
 @implements IAsyncDisposable
 
-<PageTitle>Wiser Monitor - Rooms</PageTitle>
+<PageTitle>@(IsFocusedRoomView && FocusedRoomName is { } fn ? $"Wiser Monitor - {fn}" : "Wiser Monitor - Rooms")</PageTitle>
 
 <MudStack Spacing="3" Class="rooms-page">
     <MudPaper Class="pa-4 page-header-card">
@@ -53,9 +53,18 @@
                 </MudStack>
             </MudStack>
             <MudText Typo="Typo.caption" Class="mud-text-secondary">@LastUpdatedText</MudText>
-            <MudText Typo="Typo.caption" Class="mud-text-secondary">
-                Tap the room name to expand stats and timed boost. Use the link icons on each card to copy or open its direct URL. Older bookmark links with a hash fragment still scroll to the same card.
-            </MudText>
+            @if (!IsFocusedRoomView)
+            {
+                <MudText Typo="Typo.caption" Class="mud-text-secondary">
+                    Tap the room name to expand stats and timed boost. Use the link icon to copy a shareable URL or open that room in this window. Older hash links still open the full room list and scroll to the card.
+                </MudText>
+            }
+            else
+            {
+                <MudText Typo="Typo.caption" Class="mud-text-secondary">
+                    Direct link: only this room is shown. Use <strong>All rooms</strong> in the banner to return to the full list.
+                </MudText>
+            }
             @if (!string.IsNullOrWhiteSpace(_actionMessage))
             {
                 <MudAlert Severity="@(_actionError ? Severity.Error : Severity.Success)" Dense="true">
@@ -91,23 +100,48 @@
             <MudAlert Severity="Severity.Info" Dense="true" Class="mb-2">@_roomSlugError</MudAlert>
         }
 
-        <MudPaper Class="pa-3 filter-bar">
-            <MudText Typo="Typo.caption" Class="mud-text-secondary mb-2 d-block">Show</MudText>
-            <MudButtonGroup Variant="Variant.Outlined" Color="Color.Primary" Style="width:100%;" Class="room-filter-group">
-                <MudButton FullWidth="true"
-                           Class="touch-target"
-                           Variant="@(_heatOnlyFilter ? Variant.Outlined : Variant.Filled)"
-                           OnClick="@(() => SetHeatFilter(false))">
-                    All rooms
-                </MudButton>
-                <MudButton FullWidth="true"
-                           Class="touch-target"
-                           Variant="@(_heatOnlyFilter ? Variant.Filled : Variant.Outlined)"
-                           OnClick="@(() => SetHeatFilter(true))">
-                    Calling heat
-                </MudButton>
-            </MudButtonGroup>
-        </MudPaper>
+        @if (IsFocusedRoomView)
+        {
+            <MudPaper Class="pa-3 room-focused-banner">
+                <MudStack Row="true"
+                          Justify="Justify.SpaceBetween"
+                          AlignItems="AlignItems.Center"
+                          Wrap="Wrap.Wrap"
+                          Spacing="2">
+                    <MudText Typo="Typo.body1">
+                        Room: <strong>@FocusedRoomName</strong>
+                    </MudText>
+                    <MudButton Variant="Variant.Filled"
+                               Color="Color.Primary"
+                               StartIcon="@Icons.Material.Filled.ArrowBack"
+                               Class="touch-target"
+                               Href="/rooms">
+                        All rooms
+                    </MudButton>
+                </MudStack>
+            </MudPaper>
+        }
+
+        @if (!IsFocusedRoomView)
+        {
+            <MudPaper Class="pa-3 filter-bar">
+                <MudText Typo="Typo.caption" Class="mud-text-secondary mb-2 d-block">Show</MudText>
+                <MudButtonGroup Variant="Variant.Outlined" Color="Color.Primary" Style="width:100%;" Class="room-filter-group">
+                    <MudButton FullWidth="true"
+                               Class="touch-target"
+                               Variant="@(_heatOnlyFilter ? Variant.Outlined : Variant.Filled)"
+                               OnClick="@(() => SetHeatFilter(false))">
+                        All rooms
+                    </MudButton>
+                    <MudButton FullWidth="true"
+                               Class="touch-target"
+                               Variant="@(_heatOnlyFilter ? Variant.Filled : Variant.Outlined)"
+                               OnClick="@(() => SetHeatFilter(true))">
+                        Calling heat
+                    </MudButton>
+                </MudButtonGroup>
+            </MudPaper>
+        }
 
         @if (_isRefreshing)
         {
@@ -115,30 +149,33 @@
         }
 
         <MudGrid Class="room-grid">
-            <MudItem xs="12">
-                <MudPaper Class="pa-4 status-card">
-                    <MudText Typo="Typo.h6">
-                        <i class="fa-solid fa-fire-flame-curved" aria-hidden="true"></i>
-                        Heating status
-                    </MudText>
-                    <MudStack Row="true" Spacing="2" Class="mt-2" Wrap="Wrap.Wrap">
-                        <MudTooltip Text="Heating channel relay state from the hub (boiler demand).">
-                            <MudChip T="string" Color="@(_heatingRelayOn ? Color.Error : Color.Default)" Variant="Variant.Filled">
-                                Boiler relay: @(_heatingRelayOn ? "On" : "Off")
-                            </MudChip>
-                        </MudTooltip>
-                        <MudTooltip Text="Whether any zone is currently calling for heat (aggregate).">
-                            <MudChip T="string" Color="@(_heatingActive ? Color.Warning : Color.Success)" Variant="Variant.Filled">
-                                Heating active: @(_heatingActive ? "Yes" : "No")
-                            </MudChip>
-                        </MudTooltip>
-                    </MudStack>
-                </MudPaper>
-            </MudItem>
-
-            @foreach (var room in FilteredRooms())
+            @if (!IsFocusedRoomView)
             {
-                <MudItem xs="12" sm="6" lg="4">
+                <MudItem xs="12">
+                    <MudPaper Class="pa-4 status-card">
+                        <MudText Typo="Typo.h6">
+                            <i class="fa-solid fa-fire-flame-curved" aria-hidden="true"></i>
+                            Heating status
+                        </MudText>
+                        <MudStack Row="true" Spacing="2" Class="mt-2" Wrap="Wrap.Wrap">
+                            <MudTooltip Text="Heating channel relay state from the hub (boiler demand).">
+                                <MudChip T="string" Color="@(_heatingRelayOn ? Color.Error : Color.Default)" Variant="Variant.Filled">
+                                    Boiler relay: @(_heatingRelayOn ? "On" : "Off")
+                                </MudChip>
+                            </MudTooltip>
+                            <MudTooltip Text="Whether any zone is currently calling for heat (aggregate).">
+                                <MudChip T="string" Color="@(_heatingActive ? Color.Warning : Color.Success)" Variant="Variant.Filled">
+                                    Heating active: @(_heatingActive ? "Yes" : "No")
+                                </MudChip>
+                            </MudTooltip>
+                        </MudStack>
+                    </MudPaper>
+                </MudItem>
+            }
+
+            @foreach (var room in RoomsForDisplay())
+            {
+                <MudItem xs="12" sm="@(IsFocusedRoomView ? 12 : 6)" lg="@(IsFocusedRoomView ? 12 : 4)">
                     <MudPaper Class="pa-3 room-card" @key="room.Id" id="@RoomLinkHelper.AnchorId(room.Name)">
                         <MudStack Spacing="2">
                             <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Start" Wrap="Wrap.Wrap">
@@ -166,16 +203,18 @@
                                                        OnClick="@(() => CopyRoomLinkAsync(room.Name))"
                                                        Disabled="@_loading" />
                                     </MudTooltip>
-                                    <MudTooltip Text="Open room URL in a new tab">
-                                        <MudIconButton Icon="@Icons.Material.Filled.OpenInNew"
-                                                       Color="Color.Default"
-                                                       Size="Size.Small"
-                                                       Class="touch-target-icon"
-                                                       aria-label="Open room link in new tab"
-                                                       Href="@RoomLinkHelper.RoomsPagePath(room.Name)"
-                                                       Target="_blank"
-                                                       Disabled="@_loading" />
-                                    </MudTooltip>
+                                    @if (!IsFocusedRoomView)
+                                    {
+                                        <MudTooltip Text="Open this room only (same tab)">
+                                            <MudIconButton Icon="@Icons.Material.Filled.OpenInNew"
+                                                           Color="Color.Default"
+                                                           Size="Size.Small"
+                                                           Class="touch-target-icon"
+                                                           aria-label="Open this room only in this window"
+                                                           Disabled="@_loading"
+                                                           OnClick="@(() => Nav.NavigateTo(RoomLinkHelper.RoomsPagePath(room.Name)))" />
+                                        </MudTooltip>
+                                    }
                                     @if (IsOfflineTemperature(room.TempC))
                                     {
                                         <MudChip T="string"
@@ -450,6 +489,15 @@
     /// <summary>Same zone as Charts / daily summary (<c>TIME_ZONE</c>), not the server OS timezone.</summary>
     private TimeZoneInfo DisplayZone => TimeZoneResolver.Resolve(Options.TimeZoneId);
 
+    private bool IsFocusedRoomView =>
+        !string.IsNullOrWhiteSpace(RoomSlug) &&
+        _hasLoadedOnce &&
+        string.IsNullOrWhiteSpace(_roomSlugError) &&
+        FindRoomByRouteSlug(RoomSlug.Trim()) is not null;
+
+    private string? FocusedRoomName =>
+        string.IsNullOrWhiteSpace(RoomSlug) ? null : FindRoomByRouteSlug(RoomSlug.Trim())?.Name;
+
     private string LastUpdatedText => _lastRefreshAt is null
         ? "Last updated: never"
         : $"Last updated: {_lastRefreshAt.Value:HH:mm:ss} ({(int)Math.Max(0, (DateTimeOffset.Now - _lastRefreshAt.Value).TotalSeconds)}s ago)";
@@ -626,6 +674,21 @@
         return q.OrderBy(r => r.Name, StringComparer.OrdinalIgnoreCase);
     }
 
+    private IEnumerable<HubLiveRoom> RoomsForDisplay()
+    {
+        if (IsFocusedRoomView && !string.IsNullOrWhiteSpace(RoomSlug))
+        {
+            var one = FindRoomByRouteSlug(RoomSlug.Trim());
+            if (one is not null)
+            {
+                yield return one;
+                yield break;
+            }
+        }
+        foreach (var r in FilteredRooms())
+            yield return r;
+    }
+
     private void SetHeatFilter(bool heatOnly)
     {
         _heatOnlyFilter = heatOnly;
@@ -789,12 +852,15 @@
         _detailSliderTemp = GetDefaultSliderTemp(hit);
         await InvokeAsync(StateHasChanged);
         await Task.Delay(50);
-        try
+        if (!IsFocusedRoomView)
         {
-            await Js.InvokeVoidAsync("wiserScrollToId", RoomLinkHelper.AnchorId(hit.Name));
-        }
-        catch (JSDisconnectedException)
-        {
+            try
+            {
+                await Js.InvokeVoidAsync("wiserScrollToId", RoomLinkHelper.AnchorId(hit.Name));
+            }
+            catch (JSDisconnectedException)
+            {
+            }
         }
     }
 
