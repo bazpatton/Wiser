@@ -90,6 +90,46 @@
     padding-right: 0.25rem;
 }
 
+.rooms-page .room-title-expand-btn.mud-button-root {
+    text-transform: none;
+    justify-content: flex-start;
+    min-height: auto;
+    text-align: left;
+}
+
+.rooms-page .room-title-text {
+    font-size: 1.15rem;
+    font-weight: 650;
+    line-height: 1.3;
+    color: var(--mud-palette-text-primary);
+}
+
+.room-detail-panel {
+    border-radius: 10px;
+    background: color-mix(in srgb, var(--mud-palette-surface) 88%, var(--mud-palette-primary) 12%);
+    border: 1px solid color-mix(in srgb, var(--mud-palette-lines-default) 85%, var(--mud-palette-primary) 15%);
+}
+
+.room-detail-heading {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    font-weight: 650;
+}
+
+.room-detail-stats-grid .mud-typography-body1 {
+    font-variant-numeric: tabular-nums;
+}
+
+.room-slider-readout {
+    font-variant-numeric: tabular-nums;
+    font-weight: 700;
+}
+
+.rooms-page .room-target-slider {
+    width: 100%;
+}
+
 .room-climate-icon {
     flex-shrink: 0;
     opacity: 0.95;

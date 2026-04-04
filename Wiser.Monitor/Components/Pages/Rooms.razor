@@ -1,6 +1,7 @@
 @page "/rooms"
 @rendermode InteractiveServer
 
+@using System.Globalization
 @using Microsoft.JSInterop
 @inject MonitorOptions Options
 @inject WiserHubFetch Hub
@@ -51,6 +52,9 @@
                 </MudStack>
             </MudStack>
             <MudText Typo="Typo.caption" Class="mud-text-secondary">@LastUpdatedText</MudText>
+            <MudText Typo="Typo.caption" Class="mud-text-secondary">
+                Tap the room name to expand 24h stored statistics and a manual target slider (Hive-style). Deep links from elsewhere scroll to the room and open this panel. Boost and mode controls stay on the same card below.
+            </MudText>
             @if (!string.IsNullOrWhiteSpace(_actionMessage))
             {
                 <MudAlert Severity="@(_actionError ? Severity.Error : Severity.Success)" Dense="true">
@@ -133,7 +137,20 @@
                     <MudPaper Class="pa-3 room-card" @key="room.Id" id="@BuildRoomAnchorId(room.Name)">
                         <MudStack Spacing="2">
                             <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Start" Wrap="Wrap.Wrap">
-                                <MudText Typo="Typo.h6" Class="room-name">@room.Name</MudText>
+                                <MudButton Variant="Variant.Text"
+                                           Color="Color.Inherit"
+                                           Class="room-title-expand-btn pa-0"
+                                           OnClick="@(() => ToggleRoomDetail(room))"
+                                           Disabled="@_loading"
+                                           aria-expanded="@(_expandedRoomId == room.Id)"
+                                           aria-controls="@($"room-detail-{room.Id}")">
+                                    <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1">
+                                        <MudIcon Icon="@(_expandedRoomId == room.Id ? Icons.Material.Filled.ExpandLess : Icons.Material.Filled.ExpandMore)"
+                                                 Size="Size.Small"
+                                                 aria-hidden="true" />
+                                        <span class="room-title-text room-name">@room.Name</span>
+                                    </MudStack>
+                                </MudButton>
                                 <MudStack Row="true" Spacing="1" Wrap="Wrap.Wrap">
                                     @if (IsOfflineTemperature(room.TempC))
                                     {
@@ -178,6 +195,73 @@
                                     Valve @(room.PercentageDemand is null ? "—" : $"{room.PercentageDemand}%")
                                 </MudText>
                             </MudStack>
+
+                            @if (_expandedRoomId == room.Id)
+                            {
+                                var stats = GetRoomHistory24hStats(room.Name);
+                                <div id="@($"room-detail-{room.Id}")" class="room-detail-panel pa-2 mt-1">
+                                    <MudText Typo="Typo.subtitle2" Class="room-detail-heading">
+                                        <MudIcon Icon="@Icons.Material.Filled.Insights" Class="room-inline-icon" Size="Size.Small" aria-hidden="true" />
+                                        Last 24h from this device (stored)
+                                    </MudText>
+                                    @if (stats is null)
+                                    {
+                                        <MudText Typo="Typo.body2" Class="mud-text-secondary mt-1">No temperature samples in the last 24 hours yet.</MudText>
+                                    }
+                                    else
+                                    {
+                                        <MudGrid Spacing="1" Class="room-detail-stats-grid mt-2">
+                                            <MudItem xs="6" sm="3">
+                                                <MudText Typo="Typo.caption" Class="mud-text-secondary">Min</MudText>
+                                                <MudText Typo="Typo.body1">@($"{stats.MinTemp:F1}") °C</MudText>
+                                            </MudItem>
+                                            <MudItem xs="6" sm="3">
+                                                <MudText Typo="Typo.caption" Class="mud-text-secondary">Max</MudText>
+                                                <MudText Typo="Typo.body1">@($"{stats.MaxTemp:F1}") °C</MudText>
+                                            </MudItem>
+                                            <MudItem xs="6" sm="3">
+                                                <MudText Typo="Typo.caption" Class="mud-text-secondary">Average</MudText>
+                                                <MudText Typo="Typo.body1">@($"{stats.AvgTemp:F1}") °C</MudText>
+                                            </MudItem>
+                                            <MudItem xs="6" sm="3">
+                                                <MudText Typo="Typo.caption" Class="mud-text-secondary">Samples</MudText>
+                                                <MudText Typo="Typo.body1">@stats.SampleCount.ToString("N0", CultureInfo.CurrentCulture)</MudText>
+                                            </MudItem>
+                                        </MudGrid>
+                                    }
+
+                                    <MudDivider Class="my-3" />
+
+                                    <MudText Typo="Typo.subtitle2" Class="room-detail-heading">
+                                        <MudIcon Icon="@Icons.Material.Filled.DeviceThermostat" Class="room-inline-icon" Size="Size.Small" aria-hidden="true" />
+                                        Manual target
+                                    </MudText>
+                                    <MudText Typo="Typo.caption" Class="mud-text-secondary d-block mt-1">
+                                        Drag to choose °C, then set — switches the room to <strong>Manual</strong> and holds that temperature (similar to a thermostat wheel on other heating apps).
+                                    </MudText>
+                                    <MudText Typo="Typo.h5" Class="mt-2 room-slider-readout" aria-live="polite">
+                                        @(_detailSliderTemp.ToString("F1", CultureInfo.CurrentCulture)) °C
+                                    </MudText>
+                                    <MudSlider T="double"
+                                               @bind-Value="_detailSliderTemp"
+                                               Min="@RoomTargetSliderMin"
+                                               Max="@RoomTargetSliderMax"
+                                               Step="0.5"
+                                               Color="Color.Primary"
+                                               Size="Size.Large"
+                                               Class="room-target-slider mt-1"
+                                               Disabled="@(room.Id <= 0 || _busyRoomId == room.Id)" />
+                                    <MudButton Variant="Variant.Filled"
+                                               Color="Color.Primary"
+                                               FullWidth="true"
+                                               Class="touch-target mt-2"
+                                               StartIcon="@Icons.Material.Filled.CheckCircle"
+                                               Disabled="@(room.Id <= 0 || _busyRoomId == room.Id)"
+                                               OnClick="@(() => ApplyManualTargetAsync(room))">
+                                        Apply manual target
+                                    </MudButton>
+                                </div>
+                            }
 
                             @if (!string.IsNullOrWhiteSpace(FormatBoostSummary(room)))
                             {
@@ -314,6 +398,10 @@
     private CancellationTokenSource? _autoRefreshCts;
     private Task? _autoRefreshTask;
     private bool _scrollFragmentOnce;
+    private int? _expandedRoomId;
+    private double _detailSliderTemp = 20;
+    private const double RoomTargetSliderMin = 5;
+    private const double RoomTargetSliderMax = 30;
 
     /// <summary>Same zone as Charts / daily summary (<c>TIME_ZONE</c>), not the server OS timezone.</summary>
     private TimeZoneInfo DisplayZone => TimeZoneResolver.Resolve(Options.TimeZoneId);
@@ -386,6 +474,13 @@
             var id = Uri.UnescapeDataString(frag.AsSpan(1).ToString());
             if (!IsSafeFragmentElementId(id))
                 return;
+            var anchorRoom = _rooms.FirstOrDefault(r => BuildRoomAnchorId(r.Name) == id);
+            if (anchorRoom is { Id: > 0 } hit)
+            {
+                _expandedRoomId = hit.Id;
+                _detailSliderTemp = GetDefaultSliderTemp(hit);
+                await InvokeAsync(StateHasChanged);
+            }
             await Js.InvokeVoidAsync("wiserScrollToId", id);
         }
         catch (JSDisconnectedException)
@@ -481,7 +576,56 @@
     private void SetHeatFilter(bool heatOnly)
     {
         _heatOnlyFilter = heatOnly;
+        if (_heatOnlyFilter && _expandedRoomId is { } eid)
+        {
+            var r = _rooms.FirstOrDefault(x => x.Id == eid);
+            if (r is null || r.Id == 0 || r.HeatDemand == 0)
+                _expandedRoomId = null;
+        }
     }
+
+    private void ToggleRoomDetail(HubLiveRoom room)
+    {
+        if (_expandedRoomId == room.Id)
+        {
+            _expandedRoomId = null;
+            return;
+        }
+        _expandedRoomId = room.Id;
+        _detailSliderTemp = GetDefaultSliderTemp(room);
+    }
+
+    private static double GetDefaultSliderTemp(HubLiveRoom room)
+    {
+        if (room.SetpointC is >= 5.0 and var sp)
+            return Math.Clamp(WiserSetpointDisplay.ToDisplayTargetC(sp), RoomTargetSliderMin, RoomTargetSliderMax);
+        if (!IsOfflineTemperature(room.TempC))
+            return Math.Clamp(Math.Round(room.TempC * 2, MidpointRounding.AwayFromZero) / 2, RoomTargetSliderMin, RoomTargetSliderMax);
+        return 20;
+    }
+
+    private RoomHistory24hStats? GetRoomHistory24hStats(string roomName)
+    {
+        var since = DateTimeOffset.UtcNow.ToUnixTimeSeconds() - 86400;
+        var rows = Store.SeriesRoom(roomName, since);
+        var temps = new List<double>();
+        foreach (var row in rows)
+        {
+            if (!IsOfflineTemperature(row.TempC))
+                temps.Add(row.TempC);
+        }
+        if (temps.Count == 0)
+            return null;
+        return new RoomHistory24hStats(temps.Min(), temps.Max(), temps.Average(), temps.Count);
+    }
+
+    private Task ApplyManualTargetAsync(HubLiveRoom room)
+    {
+        var t = Math.Clamp(Math.Round(_detailSliderTemp * 2, MidpointRounding.AwayFromZero) / 2, RoomTargetSliderMin, RoomTargetSliderMax);
+        return ApplyModeAsync(room, "manual", t);
+    }
+
+    private sealed record RoomHistory24hStats(double MinTemp, double MaxTemp, double AvgTemp, int SampleCount);
 
     private static string RoomClimateIcon(HubLiveRoom room)
     {
