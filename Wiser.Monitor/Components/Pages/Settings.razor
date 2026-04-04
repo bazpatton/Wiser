@@ -365,6 +365,7 @@
     private readonly string _floorplanUploadFileId = $"floorplan-upload-{Guid.NewGuid():N}";
     private readonly string _floorplanPreviewSurfaceId = $"floorplan-surface-{Guid.NewGuid():N}";
     private readonly List<FloorplanPinSetting> _floorplanPins = [];
+    private const long MaxFloorplanUploadBytes = 10L * 1024 * 1024;
     private bool _restoreBusy;
     private bool _floorplanUploadBusy;
     private string? _floorplanImageName;
@@ -634,17 +635,44 @@
         await InvokeAsync(StateHasChanged);
         try
         {
-            await using var stream = file.OpenReadStream(10L * 1024 * 1024);
-            using var content = new MultipartFormDataContent();
-            content.Add(new StreamContent(stream), "file", file.Name);
-
-            using var resp = await Http.PostAsync("api/floorplan/upload", content).ConfigureAwait(false);
-            var body = await resp.Content.ReadAsStringAsync().ConfigureAwait(false);
-            if (!resp.IsSuccessStatusCode)
+            if (file.Size <= 0)
             {
-                Snackbar.Add(ParseApiError(body) ?? $"Upload failed: {(int)resp.StatusCode} {resp.ReasonPhrase}", Severity.Error);
+                Snackbar.Add("Please choose an image file.", Severity.Warning);
                 return;
             }
+            if (file.Size > MaxFloorplanUploadBytes)
+            {
+                Snackbar.Add($"Floorplan file is too large (max {MaxFloorplanUploadBytes / (1024 * 1024)} MB).", Severity.Warning);
+                return;
+            }
+
+            var ext = Path.GetExtension(file.Name);
+            if (!IsAllowedFloorplanExtension(ext))
+            {
+                Snackbar.Add("Unsupported image extension (allowed: .png, .jpg, .jpeg, .webp).", Severity.Warning);
+                return;
+            }
+
+            var normalizedExt = NormalizeFloorplanExtension(ext);
+            var generatedName = $"floorplan-{Guid.NewGuid():N}{normalizedExt}";
+            var dir = Path.Combine(Path.GetFullPath(Options.DataDir), "floorplan");
+            Directory.CreateDirectory(dir);
+            var destPath = Path.Combine(dir, generatedName);
+
+            await using (var stream = file.OpenReadStream(MaxFloorplanUploadBytes))
+            await using (var output = File.Create(destPath))
+            {
+                await stream.CopyToAsync(output);
+            }
+
+            var contentType = FloorplanContentTypeFromExtension(normalizedExt);
+            var current = Store.GetFloorplanConfig();
+            Store.SaveFloorplanConfig(current with
+            {
+                ImageFileName = generatedName,
+                ImageContentType = contentType,
+                UpdatedTs = 0,
+            });
 
             LoadFloorplanMapping(_rooms.Select(static r => r.Room).ToList());
             await RefreshFloorplanPreviewSizeAsync();
@@ -660,6 +688,25 @@
             await InvokeAsync(StateHasChanged);
         }
     }
+
+    private static bool IsAllowedFloorplanExtension(string? ext) =>
+        ext is not null
+        && (ext.Equals(".png", StringComparison.OrdinalIgnoreCase)
+            || ext.Equals(".jpg", StringComparison.OrdinalIgnoreCase)
+            || ext.Equals(".jpeg", StringComparison.OrdinalIgnoreCase)
+            || ext.Equals(".webp", StringComparison.OrdinalIgnoreCase));
+
+    private static string NormalizeFloorplanExtension(string? ext) =>
+        ext is not null && ext.Equals(".jpeg", StringComparison.OrdinalIgnoreCase)
+            ? ".jpg"
+            : (ext ?? ".png").ToLowerInvariant();
+
+    private static string FloorplanContentTypeFromExtension(string ext) =>
+        ext.Equals(".png", StringComparison.OrdinalIgnoreCase)
+            ? "image/png"
+            : ext.Equals(".webp", StringComparison.OrdinalIgnoreCase)
+                ? "image/webp"
+                : "image/jpeg";
 
     private Task SaveAsync()
     {
