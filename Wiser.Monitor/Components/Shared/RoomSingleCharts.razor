@@ -1,0 +1,268 @@
+@using System.Globalization
+@using MudBlazor
+@using MudBlazor.Charts
+@using MudBlazor.Services
+@implements IAsyncDisposable
+@inject TemperatureStore Store
+@inject MonitorOptions Options
+@inject IBrowserViewportService Viewport
+
+<MudPaper Class="pa-3 chart-card room-single-charts">
+    <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center" Wrap="Wrap.Wrap" Class="mb-2">
+        <MudText Typo="Typo.h6">
+            <i class="fa-solid fa-chart-area" aria-hidden="true"></i> @RoomName — history
+        </MudText>
+        <MudButton Variant="Variant.Text"
+                   Color="Color.Primary"
+                   Size="Size.Small"
+                   StartIcon="@Icons.Material.Filled.OpenInNew"
+                   Href="/charts">
+            All charts
+        </MudButton>
+    </MudStack>
+    <MudText Typo="Typo.caption" Class="mud-text-secondary mb-3 d-block">
+        Only this room appears below (temperature, target, optional outdoor, valve %). Same data pipeline as Charts → Room trends → Selected room trend.
+    </MudText>
+
+    <MudGrid Spacing="2" Class="mb-3">
+        <MudItem xs="12" sm="6" md="4">
+            <MudSelect T="int"
+                       Label="Window"
+                       Value="_hours"
+                       ValueChanged="OnHoursChanged"
+                       Variant="Variant.Outlined"
+                       Dense="true"
+                       Margin="Margin.Dense"
+                       Class="touch-control">
+                <MudSelectItem Value="12">12 hours</MudSelectItem>
+                <MudSelectItem Value="24">24 hours</MudSelectItem>
+                <MudSelectItem Value="48">48 hours</MudSelectItem>
+                <MudSelectItem Value="72">72 hours</MudSelectItem>
+                <MudSelectItem Value="168">7 days</MudSelectItem>
+            </MudSelect>
+        </MudItem>
+        <MudItem xs="12" sm="6" md="4">
+            <MudSwitch T="bool"
+                       Label="Outdoor series"
+                       Value="_includeOutdoor"
+                       ValueChanged="OnOutdoorChanged"
+                       Color="Color.Primary"
+                       Class="mt-sm-4"
+                       Disabled="@(Options.OpenMeteoLat is null)" />
+        </MudItem>
+    </MudGrid>
+
+    @if (string.IsNullOrWhiteSpace(RoomName))
+    {
+        <MudAlert Severity="Severity.Info" Dense="true">No room selected.</MudAlert>
+    }
+    else if (_tempSeries.Count == 0)
+    {
+        <MudAlert Severity="Severity.Info" Dense="true">No stored samples for this room in the selected window.</MudAlert>
+    }
+    else
+    {
+        <MudText Typo="Typo.subtitle2" Class="mb-1">Room temperature &amp; target (°C)</MudText>
+        <MudChart T="double"
+                  ChartType="ChartType.Line"
+                  ChartSeries="_tempSeries"
+                  ChartLabels="_labels"
+                  ChartOptions="_tempLineOptions"
+                  Width="100%"
+                  Height="@ChartHeight"
+                  MatchBoundsToSize="false"
+                  Class="@($"{ChartHostClass} room-single-chart-temp")"
+                  @key="@($"t-{_renderKey}")" />
+
+        <MudText Typo="Typo.subtitle2" Class="mb-1 mt-3">Valve demand (%)</MudText>
+        @if (!_hasValve)
+        {
+            <MudAlert Severity="Severity.Info" Dense="true" Class="mb-0">
+                No valve percentage samples in this window.
+            </MudAlert>
+        }
+        else
+        {
+            <MudChart T="double"
+                      ChartType="ChartType.Line"
+                      ChartSeries="_valveSeries"
+                      ChartLabels="_labels"
+                      ChartOptions="_valveLineOptions"
+                      Width="100%"
+                      Height="@ChartHeight"
+                      MatchBoundsToSize="false"
+                      Class="@($"{ChartHostClass} room-single-chart-valve")"
+                      @key="@($"v-{_renderKey}")" />
+        }
+    }
+</MudPaper>
+
+@code {
+    [Parameter] public string RoomName { get; set; } = "";
+
+    private int _hours = 24;
+    private bool _includeOutdoor = true;
+    private string[] _labels = [];
+    private List<ChartSeries<double>> _tempSeries = [];
+    private List<ChartSeries<double>> _valveSeries = [];
+    private bool _hasValve;
+    private int _renderKey;
+    private int _pointCount;
+    private string _lastLoadedRoom = string.Empty;
+
+    private readonly Guid _viewportObserverId = Guid.NewGuid();
+    private bool _compactChartAxes;
+
+    private readonly LineChartOptions _tempLineOptions = new()
+    {
+        InterpolationOption = InterpolationOption.Straight,
+        ShowToolTips = true,
+        YAxisTitle = "°C",
+        YAxisTicks = 1,
+        MaxNumYAxisTicks = 22,
+        YAxisFormat = "F0",
+    };
+
+    private readonly LineChartOptions _valveLineOptions = new()
+    {
+        InterpolationOption = InterpolationOption.Straight,
+        ShowToolTips = true,
+        YAxisTitle = "Valve %",
+        YAxisSuggestedMax = 100,
+        YAxisRequireZeroPoint = true,
+        YAxisTicks = 20,
+        MaxNumYAxisTicks = 16,
+    };
+
+    private TimeZoneInfo DisplayZone => TimeZoneResolver.Resolve(Options.TimeZoneId);
+
+    private string ChartHostClass => _hours >= 168
+        ? "mud-chart-responsive chart-range-long"
+        : _hours > 24
+            ? "mud-chart-responsive chart-range-medium"
+            : "mud-chart-responsive";
+
+    private string ChartHeight => $"{(_hours >= 168 ? 260 : 220)}px";
+
+    protected override async Task OnParametersSetAsync()
+    {
+        await base.OnParametersSetAsync();
+        var key = RoomName.Trim();
+        if (!string.Equals(_lastLoadedRoom, key, StringComparison.OrdinalIgnoreCase))
+        {
+            _lastLoadedRoom = key;
+            LoadData();
+        }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender)
+            return;
+        await Viewport.SubscribeAsync(
+            _viewportObserverId,
+            OnViewportChangedAsync,
+            new ResizeOptions
+            {
+                ReportRate = 200,
+                NotifyOnBreakpointOnly = true,
+            },
+            fireImmediately: true);
+    }
+
+    public async ValueTask DisposeAsync() =>
+        await Viewport.UnsubscribeAsync(_viewportObserverId);
+
+    private async Task OnViewportChangedAsync(BrowserViewportEventArgs _)
+    {
+        var compact = await Viewport.IsBreakpointWithinWindowSizeAsync(Breakpoint.MdAndDown);
+        if (_compactChartAxes == compact)
+            return;
+        _compactChartAxes = compact;
+        if (_pointCount > 0)
+            ApplyLineOptions(_pointCount);
+        _renderKey++;
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private Task OnHoursChanged(int hours)
+    {
+        _hours = hours;
+        LoadData();
+        return Task.CompletedTask;
+    }
+
+    private Task OnOutdoorChanged(bool v)
+    {
+        _includeOutdoor = v;
+        LoadData();
+        return Task.CompletedTask;
+    }
+
+    private void LoadData()
+    {
+        _tempSeries = [];
+        _valveSeries = [];
+        _hasValve = false;
+        _labels = [];
+        _pointCount = 0;
+        if (string.IsNullOrWhiteSpace(RoomName))
+            return;
+
+        var built = RoomTrendChartBuilder.Build(
+            Store,
+            Options,
+            RoomName,
+            _hours,
+            DisplayZone,
+            _includeOutdoor,
+            _compactChartAxes);
+        if (built is null)
+            return;
+
+        _pointCount = built.PointTs.Length;
+        _labels = built.ChartLabels;
+        _tempSeries = built.TempSeries;
+        _valveSeries = built.ValveSeries;
+        _hasValve = built.HasValveSeries;
+        ApplyLineOptions(built.PointTs.Length);
+        _renderKey++;
+    }
+
+    private void ApplyLineOptions(int pointCount)
+    {
+        var rotation = _compactChartAxes
+            ? (_hours <= 24 ? 0 : 40)
+            : _hours switch
+            {
+                <= 12 => 0,
+                <= 24 => 32,
+                <= 48 => 48,
+                _ => 58,
+            };
+        var xTitle = _compactChartAxes
+            ? null
+            : _hours >= 168
+                ? "Time (local, ~7 days)"
+                : _hours > 24
+                    ? "Time (local)"
+                    : null;
+
+        var manyPoints = pointCount > 200;
+        var markers = _hours <= 24 && !manyPoints && !_compactChartAxes;
+
+        foreach (var opt in new[] { _tempLineOptions, _valveLineOptions })
+        {
+            opt.XAxisLabelRotation = rotation;
+            opt.XAxisTitle = xTitle;
+            opt.ShowDataMarkers = markers;
+        }
+
+        _tempLineOptions.YAxisTicks = _compactChartAxes ? 2 : 1;
+        _tempLineOptions.MaxNumYAxisTicks = _compactChartAxes ? 10 : 22;
+        _valveLineOptions.YAxisTicks = _compactChartAxes ? 25 : 20;
+        _valveLineOptions.MaxNumYAxisTicks = _compactChartAxes ? 8 : 16;
+        _tempLineOptions.YAxisTitle = _compactChartAxes ? null : "°C";
+        _valveLineOptions.YAxisTitle = _compactChartAxes ? null : "Valve %";
+    }
+}

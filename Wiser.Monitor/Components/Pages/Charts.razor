@@ -616,16 +616,11 @@
         TooltipSubtitleFormat = "{{Y_VALUE}}",
     };
 
-    private const string RoomTrendSeriesRoom = "Room °C";
-    private const string RoomTrendSeriesTarget = "Target °C";
-    private const string RoomTrendSeriesOutdoor = "Outdoor °C";
-    private const string RoomTrendSeriesValve = "Valve demand %";
-
     private static readonly string[] RoomTrendToggleableNames =
     [
-        RoomTrendSeriesRoom,
-        RoomTrendSeriesTarget,
-        RoomTrendSeriesOutdoor,
+        RoomTrendChartBuilder.SeriesRoom,
+        RoomTrendChartBuilder.SeriesTarget,
+        RoomTrendChartBuilder.SeriesOutdoor,
     ];
 
     private IEnumerable<string> RoomTrendToggleableNamesPresent =>
@@ -678,7 +673,7 @@
         ApplyResponsiveHeatCallingChartOptions();
         if (_pointTs.Length > 0)
         {
-            _labels = BuildSparseTimeLabels(_pointTs, _hours, DisplayZone, _compactChartAxes);
+            _labels = RoomTrendChartBuilder.BuildSparseTimeLabels(_pointTs, _hours, DisplayZone, _compactChartAxes);
             ApplyRoomTrendLineOptions(_pointTs.Length);
         }
 
@@ -800,63 +795,22 @@
 
             if (!string.IsNullOrWhiteSpace(_selectedRoom))
             {
-                var roomRows = Store.SeriesRoom(_selectedRoom, since);
-                if (roomRows.Count > 0)
+                var built = RoomTrendChartBuilder.Build(
+                    Store,
+                    Options,
+                    _selectedRoom,
+                    _hours,
+                    DisplayZone,
+                    _includeOutdoor,
+                    _compactChartAxes);
+                if (built is not null)
                 {
-                    _pointTs = roomRows.Select(static x => x.Ts).ToArray();
-                    _labels = BuildSparseTimeLabels(_pointTs, _hours, DisplayZone, _compactChartAxes);
-                    ApplyRoomTrendLineOptions(roomRows.Count);
-
-                    var targetChartValues = roomRows.Select(ChartTargetTempC).ToArray();
-                    ForwardFillTargetLine(targetChartValues);
-
-                    var roomTempsSmooth = roomRows.Select(static x => x.TempC).ToArray();
-                    SmoothRoomTemperatureSeriesInPlace(roomTempsSmooth);
-
-                    _roomTrendTempSeries =
-                    [
-                        new ChartSeries<double>
-                        {
-                            Name = RoomTrendSeriesRoom,
-                            Data = roomTempsSmooth,
-                        },
-                    ];
-                    if (targetChartValues.Any(static v => !double.IsNaN(v)))
-                    {
-                        _roomTrendTempSeries.Add(new ChartSeries<double>
-                        {
-                            Name = RoomTrendSeriesTarget,
-                            Data = targetChartValues,
-                        });
-                    }
-
-                    if (_includeOutdoor && Options.OpenMeteoLat is not null)
-                    {
-                        var alignedOutdoor = AlignOutdoor(
-                            roomRows.Select(static x => x.Ts).ToArray(),
-                            Store.SeriesOutdoor(since));
-                        if (alignedOutdoor.Any(static x => x is not null))
-                        {
-                            _roomTrendTempSeries.Add(new ChartSeries<double>
-                            {
-                                Name = RoomTrendSeriesOutdoor,
-                                Data = alignedOutdoor.Select(static x => x ?? double.NaN).ToArray(),
-                            });
-                        }
-                    }
-
-                    if (roomRows.Any(x => x.PercentageDemand.HasValue))
-                    {
-                        _roomTrendHasValveSeries = true;
-                        _roomTrendValveSeries =
-                        [
-                            new ChartSeries<double>
-                            {
-                                Name = RoomTrendSeriesValve,
-                                Data = roomRows.Select(x => x.PercentageDemand is null ? double.NaN : x.PercentageDemand.Value).ToArray(),
-                            },
-                        ];
-                    }
+                    _pointTs = built.PointTs;
+                    _labels = built.ChartLabels;
+                    _roomTrendTempSeries = built.TempSeries;
+                    _roomTrendValveSeries = built.ValveSeries;
+                    _roomTrendHasValveSeries = built.HasValveSeries;
+                    ApplyRoomTrendLineOptions(built.PointTs.Length);
 
                     var presentNames = _roomTrendTempSeries.Select(static s => s.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
                     _roomTrendHiddenSeries.IntersectWith(presentNames);
@@ -979,52 +933,6 @@
         StateHasChanged();
     }
 
-    /// <summary>
-    /// Fewer x labels for long windows so MudChart does not draw overlapping timestamps. Tooltip still shows exact time.
-    /// </summary>
-    private static string[] BuildSparseTimeLabels(
-        IReadOnlyList<long> timestampsUtc,
-        int hoursWindow,
-        TimeZoneInfo zone,
-        bool compactAxes = false)
-    {
-        var n = timestampsUtc.Count;
-        if (n == 0)
-            return [];
-
-        var maxLabels = hoursWindow switch
-        {
-            <= 12 => 18,
-            <= 24 => 15,
-            <= 48 => 12,
-            <= 96 => 11,
-            _ => 10,
-        };
-        if (compactAxes)
-            maxLabels = Math.Max(5, maxLabels * 2 / 3);
-        maxLabels = Math.Clamp(maxLabels, compactAxes ? 5 : 8, 20);
-        var step = Math.Max(1, (n + maxLabels - 1) / maxLabels);
-
-        var format = hoursWindow >= 168
-            ? "MMM d"
-            : hoursWindow >= 72
-                ? "ddd d HH:mm"
-                : hoursWindow > 24
-                    ? "M/d HH:mm"
-                    : "HH:mm";
-
-        var labels = new string[n];
-        for (var i = 0; i < n; i++)
-        {
-            var show = i == 0 || i == n - 1 || i % step == 0;
-            labels[i] = show
-                ? TimeZoneInfo.ConvertTime(DateTimeOffset.FromUnixTimeSeconds(timestampsUtc[i]), zone).ToString(format, CultureInfo.CurrentCulture)
-                : string.Empty;
-        }
-
-        return labels;
-    }
-
     private const int HeatCallingTrendHours = 24;
 
     private DateTime TsToHeatChartDateTime(long tsUtc) =>
@@ -1056,53 +964,6 @@
             result.Add((pts[i].T, sum / c));
         }
         return result;
-    }
-
-    private static void SmoothRoomTemperatureSeriesInPlace(double[] values, int window = 5)
-    {
-        if (values.Length < 3)
-            return;
-        var src = (double[])values.Clone();
-        var half = window / 2;
-        for (var i = 0; i < values.Length; i++)
-        {
-            var lo = Math.Max(0, i - half);
-            var hi = Math.Min(values.Length - 1, i + half);
-            double sum = 0;
-            var c = 0;
-            for (var j = lo; j <= hi; j++)
-            {
-                var v = src[j];
-                if (double.IsFinite(v))
-                {
-                    sum += v;
-                    c++;
-                }
-            }
-            if (c > 0)
-                values[i] = sum / c;
-        }
-    }
-
-    /// <summary>Effective target: setpoint_c, else current_setpoint_c, else scheduled_setpoint_c; hub off (−20 °C) shown as 0.</summary>
-    private static double ChartTargetTempC(RoomSeriesRow x)
-    {
-        var sp = x.SetpointC ?? x.CurrentSetpointC ?? x.ScheduledSetpointC;
-        return sp is { } v ? WiserSetpointDisplay.ToDisplayTargetC(v) : double.NaN;
-    }
-
-    /// <summary>Carry last known target through gaps (null setpoints between polls); leading NaNs unchanged.</summary>
-    private static void ForwardFillTargetLine(double[] values)
-    {
-        double? last = null;
-        for (var i = 0; i < values.Length; i++)
-        {
-            var v = values[i];
-            if (!double.IsNaN(v) && !double.IsInfinity(v))
-                last = v;
-            else if (last is { } lv)
-                values[i] = lv;
-        }
     }
 
     /// <summary>
@@ -1597,30 +1458,6 @@
         _dailyRows.AddRange(
             Store.GetDailySummaries(14, Math.Max(10, Options.IntervalSec), DisplayZone)
                 .OrderByDescending(static x => x.Date, StringComparer.Ordinal));
-    }
-
-    private static double?[] AlignOutdoor(long[] timestamps, IReadOnlyList<OutdoorSeriesRow> outdoor)
-    {
-        if (outdoor.Count == 0)
-            return new double?[timestamps.Length];
-
-        var sorted = outdoor.OrderBy(static x => x.Ts).ToList();
-        var result = new double?[timestamps.Length];
-        var j = 0;
-        double? last = null;
-        for (var i = 0; i < timestamps.Length; i++)
-        {
-            var ts = timestamps[i];
-            while (j < sorted.Count && sorted[j].Ts <= ts)
-            {
-                last = sorted[j].TempC;
-                j++;
-            }
-
-            result[i] = last;
-        }
-
-        return result;
     }
 
     private static string Fmt(double value) => double.IsNaN(value) ? "—" : value.ToString("0.0");

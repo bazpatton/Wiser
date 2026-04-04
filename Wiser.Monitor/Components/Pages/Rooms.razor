@@ -195,24 +195,28 @@
                                 </MudButton>
                                 <MudStack Row="true" Spacing="1" Wrap="Wrap.Wrap" AlignItems="AlignItems.Start">
                                     <MudTooltip Text="Copy direct link to this room">
-                                        <MudIconButton Icon="@Icons.Material.Filled.Link"
-                                                       Color="Color.Default"
-                                                       Size="Size.Small"
-                                                       Class="touch-target-icon"
-                                                       aria-label="Copy link to this room"
-                                                       OnClick="@(() => CopyRoomLinkAsync(room.Name))"
-                                                       Disabled="@_loading" />
+                                        <span class="room-copy-link-wrap" @onclick:stopPropagation="true">
+                                            <MudIconButton Icon="@Icons.Material.Filled.Link"
+                                                           Color="Color.Default"
+                                                           Size="Size.Small"
+                                                           Class="touch-target-icon"
+                                                           aria-label="Copy link to this room"
+                                                           OnClick="@(() => CopyRoomLinkAsync(room))"
+                                                           Disabled="@_loading" />
+                                        </span>
                                     </MudTooltip>
                                     @if (!IsFocusedRoomView)
                                     {
                                         <MudTooltip Text="Open this room only (same tab)">
-                                            <MudIconButton Icon="@Icons.Material.Filled.OpenInNew"
-                                                           Color="Color.Default"
-                                                           Size="Size.Small"
-                                                           Class="touch-target-icon"
-                                                           aria-label="Open this room only in this window"
-                                                           Disabled="@_loading"
-                                                           OnClick="@(() => Nav.NavigateTo(RoomLinkHelper.RoomsPagePath(room.Name)))" />
+                                            <span class="room-open-link-wrap" @onclick:stopPropagation="true">
+                                                <MudIconButton Icon="@Icons.Material.Filled.OpenInNew"
+                                                               Color="Color.Default"
+                                                               Size="Size.Small"
+                                                               Class="touch-target-icon"
+                                                               aria-label="Open this room only in this window"
+                                                               Disabled="@_loading"
+                                                               OnClick="@(() => Nav.NavigateTo(RoomLinkHelper.RoomsPagePath(room.Name)))" />
+                                            </span>
                                         </MudTooltip>
                                     }
                                     @if (IsOfflineTemperature(room.TempC))
@@ -447,6 +451,12 @@
                             </MudStack>
                         </MudStack>
                     </MudPaper>
+                </MudItem>
+            }
+            @if (IsFocusedRoomView && FocusedRoomName is { } chartRoom)
+            {
+                <MudItem xs="12">
+                    <RoomSingleCharts @key="@chartRoom" RoomName="@chartRoom" />
                 </MudItem>
             }
         </MudGrid>
@@ -864,11 +874,17 @@
         }
     }
 
-    private async Task CopyRoomLinkAsync(string roomName)
+    private async Task CopyRoomLinkAsync(HubLiveRoom room)
     {
         try
         {
-            var url = Nav.ToAbsoluteUri(RoomLinkHelper.RoomsPagePath(roomName)).AbsoluteUri;
+            var path = RoomLinkHelper.RoomsPagePath(room.Name);
+            var url = Nav.ToAbsoluteUri(path).AbsoluteUri;
+            if (string.IsNullOrWhiteSpace(url) || !url.StartsWith("http", StringComparison.OrdinalIgnoreCase))
+            {
+                Snackbar.Add("Could not build a valid room URL to copy.", Severity.Warning);
+                return;
+            }
             await Js.InvokeVoidAsync("wiserCopyText", url);
             Snackbar.Add("Room link copied to clipboard.", Severity.Success);
         }
