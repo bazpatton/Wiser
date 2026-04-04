@@ -601,8 +601,8 @@
             };
             // Too cold: ascending sort key (smallest gap below range first — closest to OK). Too hot / in range: negate so OrderBy puts larger severity first.
             var sortKeyWithinBand = status == "Too cold" ? severity : -severity;
-            var color = GetComfortGradientColor(average, rangeMin, rangeMax);
-            var (currentStateText, currentStateColor) = GetCurrentState(current, rangeMin, rangeMax);
+            var color = ComfortColors.GetGradientColor(average, rangeMin, rangeMax);
+            var (currentStateText, currentStateColor) = ComfortColors.GetCurrentState(current, rangeMin, rangeMax);
             tiles.Add(new HomeRoomHeatTile(
                 room,
                 current,
@@ -657,7 +657,7 @@
 
             var isActive = !activityMap.TryGetValue(room, out var activeFlag) || activeFlag;
             var (rangeMin, rangeMax) = GetRecommendedTempRange(room, isActive);
-            var color = GetComfortGradientColor(latest.TempC, rangeMin, rangeMax);
+            var color = ComfortColors.GetGradientColor(latest.TempC, rangeMin, rangeMax);
             var tempText = $"{latest.TempC:0.0}C";
             var tooltip =
                 $"{room}: {latest.TempC:0.0}C. Recommended {rangeMin:0.#}-{rangeMax:0.#}C"
@@ -691,40 +691,6 @@
 
         const double inactiveOffsetC = 2.0;
         return (baseRange.Item1 - inactiveOffsetC, baseRange.Item2 - inactiveOffsetC);
-    }
-
-    private static string GetComfortGradientColor(double avgTemp, double targetMin, double targetMax)
-    {
-        if (avgTemp > targetMax)
-        {
-            var tHot = Math.Clamp((avgTemp - targetMax) / 4.0, 0.0, 1.0);
-            if (tHot < 0.33)
-                return "#ff7f50";
-            if (tHot < 0.66)
-                return "#ff4500";
-            return "#b22222";
-        }
-
-        if (avgTemp < targetMin)
-        {
-            var tCold = Math.Clamp((targetMin - avgTemp) / 4.0, 0.0, 1.0);
-            if (tCold < 0.33)
-                return "#87cefa";
-            if (tCold < 0.66)
-                return "#00bfff";
-            return "#1e3a8a";
-        }
-
-        return "#2e8b57";
-    }
-
-    private static (string Text, string Color) GetCurrentState(double currentTemp, double targetMin, double targetMax)
-    {
-        if (currentTemp > targetMax)
-            return ("Now: too warm", "#b22222");
-        if (currentTemp < targetMin)
-            return ("Now: too cold", "#1e3a8a");
-        return ("Now: in range", "#2e8b57");
     }
 
     private static string FormatTrend(double trendDelta)
