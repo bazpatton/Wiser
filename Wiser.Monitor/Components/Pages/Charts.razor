@@ -1173,17 +1173,44 @@
     }
 
     /// <summary>
-    /// Pads valve series to the shared window: idle before demand uses 0%; tail extends with the last sample.
+    /// Valve % is held between hub polls until the next sample. Expand to step segments so MudChart
+    /// draws horizontal-then-vertical moves instead of long diagonals between sparse points.
+    /// Rooms with no % samples get a flat 0% segment across the history window (legend parity only).
     /// </summary>
-    private static List<(DateTime T, double Y)> ExpandHeatCallingValveToWindow(IReadOnlyList<(DateTime T, double Y)> core, DateTime ws, DateTime we)
+    private static List<(DateTime T, double Y)> BuildHeatCallingValvePlotPoints(
+        IReadOnlyList<(DateTime T, double Y)> core,
+        DateTime ws,
+        DateTime we)
     {
         if (core.Count == 0)
             return [(ws, 0.0), (we, 0.0)];
-        var list = core.ToList();
-        if (list[0].T > ws)
-            list.Insert(0, (ws, 0.0));
-        if (list[^1].T < we)
-            list.Add((we, list[^1].Y));
+        return ValvePercentToStepSeries(core);
+    }
+
+    private static List<(DateTime T, double Y)> ValvePercentToStepSeries(IReadOnlyList<(DateTime T, double Y)> core)
+    {
+        if (core.Count == 0)
+            return [];
+        if (core.Count == 1)
+            return [core[0]];
+
+        var list = new List<(DateTime T, double Y)>(core.Count * 2) { core[0] };
+        for (var i = 1; i < core.Count; i++)
+        {
+            var prev = core[i - 1];
+            var curr = core[i];
+            if (curr.T < prev.T)
+                continue;
+            if (curr.T == prev.T)
+            {
+                list[^1] = curr;
+                continue;
+            }
+
+            list.Add((curr.T, prev.Y));
+            list.Add(curr);
+        }
+
         return list;
     }
 
@@ -1263,7 +1290,7 @@
                 .ToList();
 
             var valveCore = ValveCorePointsForHeatChart(valvePairsFull);
-            var valvePairs = ExpandHeatCallingValveToWindow(valveCore, ws, we);
+            var valvePairs = BuildHeatCallingValvePlotPoints(valveCore, ws, we);
 
             valveSeries.Add(new ChartSeries<double>
             {
