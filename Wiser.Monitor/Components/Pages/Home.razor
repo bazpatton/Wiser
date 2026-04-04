@@ -69,7 +69,7 @@
             </MudButton>
         </MudStack>
         <MudText Typo="Typo.caption" Class="mud-text-secondary d-block mt-1">
-            Room pins are mapped in Settings. Colors reflect temperature vs each room's recommended range. After the temperature, icons show warmer, cooler, or steady over the last @HomeTrendHours h (same rules as the room tiles below, including trend ignore hours).
+            Room pins are mapped in Settings. Colors reflect temperature vs each room's recommended range. Icons after the temperature compare the latest reading to the previous stored poll (warmer, cooler, or steady).
         </MudText>
         @if (FloorplanImageHref is null)
         {
@@ -672,10 +672,10 @@
                 + (isActive ? string.Empty : " (inactive profile)");
 
             string? trendIcon = null;
-            if (TryGetRoomTrendDelta(room, out var trendDelta))
+            if (TryGetRoomPollTrendDelta(room, out var trendDelta))
             {
-                trendIcon = TrendIconClassForDelta(trendDelta);
-                tooltip += $" · Trend {FormatTrend(trendDelta)}";
+                trendIcon = TrendIconClassForDelta(trendDelta, FloorplanPollTrendDeadbandC);
+                tooltip += $" · {FormatPollTrendTooltip(trendDelta)}";
             }
 
             _homeFloorplanPins.Add(new HomeFloorplanPin(
@@ -689,32 +689,40 @@
         }
     }
 
-    private bool TryGetRoomTrendDelta(string room, out double trendDelta)
+    /// <summary>Minimum |Δ°C| between consecutive polls to show up/down icon (below = steady).</summary>
+    private const double FloorplanPollTrendDeadbandC = 0.15;
+
+    private bool TryGetRoomPollTrendDelta(string room, out double trendDelta)
     {
         trendDelta = 0;
-        var sinceTs = DateTimeOffset.UtcNow.ToUnixTimeSeconds() - (HomeTrendHours * 3600L);
+        var lookbackSec = Math.Max(HomeTrendHours * 3600L, Options.IntervalSec * 4L);
+        var sinceTs = DateTimeOffset.UtcNow.ToUnixTimeSeconds() - lookbackSec;
         var rows = Store.SeriesRoom(room, sinceTs);
-        if (rows.Count == 0)
+        if (rows.Count < 2)
             return false;
 
-        var (ignoreStart, ignoreEnd) = Store.GetTrendIgnoreWindow();
-        var trendRows = rows
-            .Where(x => !IsWithinIgnoreWindow(x.Ts, ignoreStart, ignoreEnd, DisplayZone))
-            .ToList();
-        if (trendRows.Count == 0)
-            return false;
-
-        trendDelta = trendRows[^1].TempC - trendRows[0].TempC;
+        trendDelta = rows[^1].TempC - rows[^2].TempC;
         return true;
     }
 
-    private static string TrendIconClassForDelta(double trendDelta)
+    private static string TrendIconClassForDelta(double trendDelta, double deadbandC)
     {
-        if (trendDelta > 0.4)
+        if (trendDelta > deadbandC)
             return "fa-solid fa-arrow-trend-up";
-        if (trendDelta < -0.4)
+        if (trendDelta < -deadbandC)
             return "fa-solid fa-arrow-trend-down";
         return "fa-solid fa-minus";
+    }
+
+    private static string FormatPollTrendTooltip(double trendDelta)
+    {
+        if (trendDelta > FloorplanPollTrendDeadbandC)
+            return $"warmer than prior read (+{trendDelta:0.0} °C)";
+        if (trendDelta < -FloorplanPollTrendDeadbandC)
+            return $"cooler than prior read ({trendDelta:0.0} °C)";
+        return Math.Abs(trendDelta) < 0.05
+            ? "same as prior read"
+            : $"steady vs prior read ({trendDelta:+0.0;-0.0;0.0} °C)";
     }
 
     private static (double Min, double Max) GetRecommendedTempRange(string roomName, bool isActive)
