@@ -293,14 +293,50 @@
         return Task.CompletedTask;
     }
 
-    private static bool TryParseTime(string text, out TimeSpan value)
+    /// <summary>
+    /// Parses a time-of-day from Settings fields. Browsers often send <c>HH:mm:ss</c> from
+    /// <c>input type="time"</c>; we accept that plus <c>HH:mm</c> and single-digit hours.
+    /// </summary>
+    private static bool TryParseTime(string? text, out TimeSpan value)
     {
-        if (TimeSpan.TryParseExact(text, @"hh\:mm", CultureInfo.InvariantCulture, out value))
-            return true;
-        if (TimeSpan.TryParseExact(text, @"h\:mm", CultureInfo.InvariantCulture, out value))
-            return true;
         value = default;
-        return false;
+        if (string.IsNullOrWhiteSpace(text))
+            return false;
+
+        var s = text.Trim();
+        if (s.Length > 0 && s[0] == 'T')
+            s = s[1..].TrimStart();
+
+        string[] formats =
+        [
+            @"hh\:mm",
+            @"h\:mm",
+            @"hh\:mm\:ss",
+            @"h\:mm\:ss",
+        ];
+        foreach (var fmt in formats)
+        {
+            if (TimeSpan.TryParseExact(s, fmt, CultureInfo.InvariantCulture, out value))
+                return true;
+        }
+
+        var parts = s.Split(':', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length < 2)
+            return false;
+
+        if (!int.TryParse(parts[0], NumberStyles.Integer, CultureInfo.InvariantCulture, out var h))
+            return false;
+        if (!int.TryParse(parts[1], NumberStyles.Integer, CultureInfo.InvariantCulture, out var m))
+            return false;
+        var sec = 0;
+        if (parts.Length >= 3 && !int.TryParse(parts[2], NumberStyles.Integer, CultureInfo.InvariantCulture, out sec))
+            return false;
+
+        if (h is < 0 or > 23 || m is < 0 or > 59 || sec is < 0 or > 59)
+            return false;
+
+        value = new TimeSpan(h, m, sec);
+        return true;
     }
 
     private static bool TryParseGasReminderTimes(string? text, out List<TimeSpan> times)
