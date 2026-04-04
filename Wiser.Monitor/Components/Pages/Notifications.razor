@@ -2,6 +2,7 @@
 @rendermode InteractiveServer
 @using System.Globalization
 
+@inject MonitorOptions Options
 @inject TemperatureStore Store
 @inject IDialogService DialogService
 @inject ISnackbar Snackbar
@@ -31,7 +32,7 @@
                 <MudTh Style="width: 3rem;"></MudTh>
             </HeaderContent>
             <RowTemplate>
-                <MudTd DataLabel="Sent">@FormatLocal(context.SentTs)</MudTd>
+                <MudTd DataLabel="Sent">@FormatSent(context.SentTs)</MudTd>
                 <MudTd DataLabel="Kind">@context.Kind</MudTd>
                 <MudTd DataLabel="Title">@context.Title</MudTd>
                 <MudTd DataLabel="Message" Style="white-space: pre-wrap; max-width: 28rem;">@context.Message</MudTd>
@@ -50,6 +51,7 @@
 
 @code {
     private readonly List<NtfyNotificationRow> _rows = [];
+    private TimeZoneInfo DisplayZone => TimeZoneResolver.Resolve(Options.TimeZoneId);
 
     protected override void OnInitialized()
     {
@@ -57,9 +59,9 @@
         ReloadRows();
     }
 
-    private static string FormatLocal(long sentTsUtc)
+    private string FormatSent(long sentTsUtc)
     {
-        var local = DateTimeOffset.FromUnixTimeSeconds(sentTsUtc).ToLocalTime();
+        var local = TimeZoneInfo.ConvertTime(DateTimeOffset.FromUnixTimeSeconds(sentTsUtc), DisplayZone);
         return local.ToString("g", CultureInfo.CurrentCulture);
     }
 
@@ -67,7 +69,7 @@
     {
         var confirm = await DialogService.ShowMessageBoxAsync(
             "Delete notification?",
-            $"Remove the entry sent {FormatLocal(row.SentTs)} ({row.Kind})? This cannot be undone.",
+            $"Remove the entry sent {FormatSent(row.SentTs)} ({row.Kind})? This cannot be undone.",
             yesText: "Delete",
             noText: null,
             cancelText: "Cancel");

@@ -1,5 +1,6 @@
 @using System.Globalization
 @implements IDisposable
+@inject MonitorOptions Options
 @inject TemperatureStore Store
 @inject NavigationManager Nav
 @inject IDialogService DialogService
@@ -34,7 +35,7 @@
             {
                 <div class="d-flex align-start gap-1 px-3 py-2" style="max-width: 22rem;">
                     <div class="flex-grow-1" style="min-width: 0;">
-                        <MudText Typo="Typo.caption" Class="mud-text-secondary">@FormatLocal(row.SentTs) · @row.Kind</MudText>
+                        <MudText Typo="Typo.caption" Class="mud-text-secondary">@FormatSent(row.SentTs) · @row.Kind</MudText>
                         <MudText Typo="Typo.body2">@row.Title</MudText>
                     </div>
                     <div @onclick:stopPropagation="true">
@@ -56,6 +57,7 @@
 @code {
     private int _unreadCount;
     private IReadOnlyList<NtfyNotificationRow> _recent = [];
+    private TimeZoneInfo DisplayZone => TimeZoneResolver.Resolve(Options.TimeZoneId);
 
     private string BadgeContent => _unreadCount > 99 ? "99+" : _unreadCount.ToString(CultureInfo.InvariantCulture);
 
@@ -97,9 +99,9 @@
         _recent = Store.ListNtfyNotifications(10);
     }
 
-    private static string FormatLocal(long sentTsUtc)
+    private string FormatSent(long sentTsUtc)
     {
-        var local = DateTimeOffset.FromUnixTimeSeconds(sentTsUtc).ToLocalTime();
+        var local = TimeZoneInfo.ConvertTime(DateTimeOffset.FromUnixTimeSeconds(sentTsUtc), DisplayZone);
         return local.ToString("g", CultureInfo.CurrentCulture);
     }
 
@@ -107,7 +109,7 @@
     {
         var confirm = await DialogService.ShowMessageBoxAsync(
             "Delete notification?",
-            $"Remove the entry sent {FormatLocal(row.SentTs)} ({row.Kind})? This cannot be undone.",
+            $"Remove the entry sent {FormatSent(row.SentTs)} ({row.Kind})? This cannot be undone.",
             yesText: "Delete",
             noText: null,
             cancelText: "Cancel");
