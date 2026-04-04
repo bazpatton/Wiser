@@ -69,7 +69,7 @@
             </MudButton>
         </MudStack>
         <MudText Typo="Typo.caption" Class="mud-text-secondary d-block mt-1">
-            Room pins are mapped in Settings. Colors reflect current temperature against each room's recommended range.
+            Room pins are mapped in Settings. Colors reflect temperature vs each room's recommended range. After the temperature, icons show warmer, cooler, or steady over the last @HomeTrendHours h (same rules as the room tiles below, including trend ignore hours).
         </MudText>
         @if (FloorplanImageHref is null)
         {
@@ -96,7 +96,14 @@
                        aria-label="@pin.Tooltip">
                         <span class="home-floorplan-pin-dot"></span>
                         <span class="home-floorplan-pin-label">
-                            <span class="home-floorplan-pin-room">@pin.Room</span><span class="home-floorplan-pin-sep">: </span><span class="home-floorplan-pin-temp">@pin.TempText</span>
+                            <span class="home-floorplan-pin-room">@pin.Room</span><span class="home-floorplan-pin-sep">: </span>
+                            <span class="home-floorplan-pin-temp-group">
+                                <span class="home-floorplan-pin-temp">@pin.TempText</span>
+                                @if (pin.TrendIconClass is not null)
+                                {
+                                    <i class="@pin.TrendIconClass home-floorplan-pin-trend-icon" aria-hidden="true"></i>
+                                }
+                            </span>
                         </span>
                     </a>
                 }
@@ -651,6 +658,7 @@
                     Math.Clamp(pin.YPercent, 0, 100),
                     "#64748b",
                     "—",
+                    null,
                     $"{room}: no current reading"));
                 continue;
             }
@@ -663,14 +671,50 @@
                 $"{room}: {latest.TempC:0.0}C. Recommended {rangeMin:0.#}-{rangeMax:0.#}C"
                 + (isActive ? string.Empty : " (inactive profile)");
 
+            string? trendIcon = null;
+            if (TryGetRoomTrendDelta(room, out var trendDelta))
+            {
+                trendIcon = TrendIconClassForDelta(trendDelta);
+                tooltip += $" · Trend {FormatTrend(trendDelta)}";
+            }
+
             _homeFloorplanPins.Add(new HomeFloorplanPin(
                 room,
                 Math.Clamp(pin.XPercent, 0, 100),
                 Math.Clamp(pin.YPercent, 0, 100),
                 color,
                 tempText,
+                trendIcon,
                 tooltip));
         }
+    }
+
+    private bool TryGetRoomTrendDelta(string room, out double trendDelta)
+    {
+        trendDelta = 0;
+        var sinceTs = DateTimeOffset.UtcNow.ToUnixTimeSeconds() - (HomeTrendHours * 3600L);
+        var rows = Store.SeriesRoom(room, sinceTs);
+        if (rows.Count == 0)
+            return false;
+
+        var (ignoreStart, ignoreEnd) = Store.GetTrendIgnoreWindow();
+        var trendRows = rows
+            .Where(x => !IsWithinIgnoreWindow(x.Ts, ignoreStart, ignoreEnd, DisplayZone))
+            .ToList();
+        if (trendRows.Count == 0)
+            return false;
+
+        trendDelta = trendRows[^1].TempC - trendRows[0].TempC;
+        return true;
+    }
+
+    private static string TrendIconClassForDelta(double trendDelta)
+    {
+        if (trendDelta > 0.4)
+            return "fa-solid fa-arrow-trend-up";
+        if (trendDelta < -0.4)
+            return "fa-solid fa-arrow-trend-down";
+        return "fa-solid fa-minus";
     }
 
     private static (double Min, double Max) GetRecommendedTempRange(string roomName, bool isActive)
@@ -746,6 +790,7 @@
         double YPercent,
         string Color,
         string TempText,
+        string? TrendIconClass,
         string Tooltip);
 }
 

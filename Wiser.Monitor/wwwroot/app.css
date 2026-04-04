@@ -510,6 +510,18 @@
     white-space: nowrap;
 }
 
+.home-floorplan-pin-temp-group {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.home-floorplan-pin-trend-icon {
+    font-size: 0.78em;
+    opacity: 0.92;
+    line-height: 1;
+}
+
 @media (max-width: 720px) {
     .home-floorplan-pin-room,
     .home-floorplan-pin-sep {
