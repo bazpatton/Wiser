@@ -1,10 +1,13 @@
 @page "/charts"
 @rendermode InteractiveServer
+@implements IAsyncDisposable
 @using System.Globalization
 @using MudBlazor.Charts
+@using MudBlazor.Services
 
 @inject TemperatureStore Store
 @inject MonitorOptions Options
+@inject IBrowserViewportService Viewport
 
 <PageTitle>Wiser Monitor - Charts</PageTitle>
 
@@ -579,11 +582,16 @@
     private string[] _runtimeDistributionLabels = [];
     private List<ChartSeries<double>> _runtimeDistributionSeries = [];
     private Dictionary<string, bool> _roomIsActiveMap = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Guid _viewportObserverId = Guid.NewGuid();
+    private bool _compactChartAxes;
     private readonly LineChartOptions _roomTrendTempLineOptions = new()
     {
         InterpolationOption = InterpolationOption.Straight,
         ShowToolTips = true,
         YAxisTitle = "°C",
+        YAxisTicks = 1,
+        MaxNumYAxisTicks = 22,
+        YAxisFormat = "F0",
     };
     private readonly LineChartOptions _roomTrendValveLineOptions = new()
     {
@@ -593,6 +601,7 @@
         YAxisSuggestedMax = 100,
         YAxisRequireZeroPoint = true,
         YAxisTicks = 20,
+        MaxNumYAxisTicks = 16,
     };
 
     private readonly LineChartOptions _comfortComplianceLineOptions = new()
@@ -638,6 +647,80 @@
     private string DailySummaryCsvHref => "/api/export/daily-summary.csv?days=14";
     private string RoomTrendsCsvHref => $"/api/export/room-trends.csv?hours={_hours}";
     private TimeZoneInfo DisplayZone => TimeZoneResolver.Resolve(Options.TimeZoneId);
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender)
+            return;
+        await Viewport.SubscribeAsync(
+            _viewportObserverId,
+            OnViewportChangedAsync,
+            new ResizeOptions
+            {
+                ReportRate = 200,
+                NotifyOnBreakpointOnly = true,
+            },
+            fireImmediately: true);
+    }
+
+    private async Task OnViewportChangedAsync(BrowserViewportEventArgs _)
+    {
+        var compact = await Viewport.IsBreakpointWithinWindowSizeAsync(Breakpoint.MdAndDown);
+        if (_compactChartAxes == compact)
+            return;
+        _compactChartAxes = compact;
+        RefreshChartPresentationForBreakpoint();
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private void RefreshChartPresentationForBreakpoint()
+    {
+        ApplyResponsiveHeatCallingChartOptions();
+        if (_pointTs.Length > 0)
+        {
+            _labels = BuildSparseTimeLabels(_pointTs, _hours, DisplayZone, _compactChartAxes);
+            ApplyRoomTrendLineOptions(_pointTs.Length);
+        }
+
+        _roomTrendChartRenderKey++;
+    }
+
+    private void ApplyResponsiveHeatCallingChartOptions()
+    {
+        if (_compactChartAxes)
+        {
+            _heatCallingTempTsOptions.TimeLabelSpacing = TimeSpan.FromHours(6);
+            _heatCallingTempTsOptions.XAxisTitle = null;
+            _heatCallingTempTsOptions.YAxisTitle = null;
+            _heatCallingTempTsOptions.YAxisTicks = 2;
+            _heatCallingTempTsOptions.MaxNumYAxisTicks = 10;
+
+            _heatCallingValveTsOptions.TimeLabelSpacing = TimeSpan.FromHours(6);
+            _heatCallingValveTsOptions.XAxisTitle = null;
+            _heatCallingValveTsOptions.YAxisTitle = null;
+            _heatCallingValveTsOptions.YAxisTicks = 25;
+            _heatCallingValveTsOptions.MaxNumYAxisTicks = 8;
+        }
+        else
+        {
+            _heatCallingTempTsOptions.TimeLabelSpacing = TimeSpan.FromHours(2);
+            _heatCallingTempTsOptions.XAxisTitle = "Time (local, last 24h)";
+            _heatCallingTempTsOptions.YAxisTitle = "°C";
+            _heatCallingTempTsOptions.YAxisTicks = 1;
+            _heatCallingTempTsOptions.MaxNumYAxisTicks = 22;
+
+            _heatCallingValveTsOptions.TimeLabelSpacing = TimeSpan.FromHours(2);
+            _heatCallingValveTsOptions.XAxisTitle = "Time (local, last 24h)";
+            _heatCallingValveTsOptions.YAxisTitle = "Valve %";
+            _heatCallingValveTsOptions.YAxisTicks = 10;
+            _heatCallingValveTsOptions.MaxNumYAxisTicks = 16;
+        }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        await Viewport.UnsubscribeAsync(_viewportObserverId);
+    }
 
     protected override async Task OnInitializedAsync()
     {
@@ -721,18 +804,21 @@
                 if (roomRows.Count > 0)
                 {
                     _pointTs = roomRows.Select(static x => x.Ts).ToArray();
-                    _labels = BuildSparseTimeLabels(_pointTs, _hours, DisplayZone);
+                    _labels = BuildSparseTimeLabels(_pointTs, _hours, DisplayZone, _compactChartAxes);
                     ApplyRoomTrendLineOptions(roomRows.Count);
 
                     var targetChartValues = roomRows.Select(ChartTargetTempC).ToArray();
                     ForwardFillTargetLine(targetChartValues);
+
+                    var roomTempsSmooth = roomRows.Select(static x => x.TempC).ToArray();
+                    SmoothRoomTemperatureSeriesInPlace(roomTempsSmooth);
 
                     _roomTrendTempSeries =
                     [
                         new ChartSeries<double>
                         {
                             Name = RoomTrendSeriesRoom,
-                            Data = roomRows.Select(static x => x.TempC).ToArray(),
+                            Data = roomTempsSmooth,
                         },
                     ];
                     if (targetChartValues.Any(static v => !double.IsNaN(v)))
@@ -832,21 +918,25 @@
 
     private void ApplyRoomTrendLineOptions(int pointCount)
     {
-        var rotation = _hours switch
-        {
-            <= 12 => 0,
-            <= 24 => 32,
-            <= 48 => 48,
-            _ => 58,
-        };
-        var xTitle = _hours >= 168
-            ? "Time (local, ~7 days)"
-            : _hours > 24
-                ? "Time (local)"
-                : null;
+        var rotation = _compactChartAxes
+            ? (_hours <= 24 ? 0 : 40)
+            : _hours switch
+            {
+                <= 12 => 0,
+                <= 24 => 32,
+                <= 48 => 48,
+                _ => 58,
+            };
+        var xTitle = _compactChartAxes
+            ? null
+            : _hours >= 168
+                ? "Time (local, ~7 days)"
+                : _hours > 24
+                    ? "Time (local)"
+                    : null;
 
         var manyPoints = pointCount > 200;
-        var markers = _hours <= 24 && !manyPoints;
+        var markers = _hours <= 24 && !manyPoints && !_compactChartAxes;
 
         foreach (var opt in new[] { _roomTrendTempLineOptions, _roomTrendValveLineOptions })
         {
@@ -854,6 +944,13 @@
             opt.XAxisTitle = xTitle;
             opt.ShowDataMarkers = markers;
         }
+
+        _roomTrendTempLineOptions.YAxisTicks = _compactChartAxes ? 2 : 1;
+        _roomTrendTempLineOptions.MaxNumYAxisTicks = _compactChartAxes ? 10 : 22;
+        _roomTrendValveLineOptions.YAxisTicks = _compactChartAxes ? 25 : 20;
+        _roomTrendValveLineOptions.MaxNumYAxisTicks = _compactChartAxes ? 8 : 16;
+        _roomTrendTempLineOptions.YAxisTitle = _compactChartAxes ? null : "°C";
+        _roomTrendValveLineOptions.YAxisTitle = _compactChartAxes ? null : "Valve %";
     }
 
     private void ApplyRoomTrendSeriesVisibility()
@@ -885,7 +982,11 @@
     /// <summary>
     /// Fewer x labels for long windows so MudChart does not draw overlapping timestamps. Tooltip still shows exact time.
     /// </summary>
-    private static string[] BuildSparseTimeLabels(IReadOnlyList<long> timestampsUtc, int hoursWindow, TimeZoneInfo zone)
+    private static string[] BuildSparseTimeLabels(
+        IReadOnlyList<long> timestampsUtc,
+        int hoursWindow,
+        TimeZoneInfo zone,
+        bool compactAxes = false)
     {
         var n = timestampsUtc.Count;
         if (n == 0)
@@ -899,7 +1000,9 @@
             <= 96 => 11,
             _ => 10,
         };
-        maxLabels = Math.Clamp(maxLabels, 8, 20);
+        if (compactAxes)
+            maxLabels = Math.Max(5, maxLabels * 2 / 3);
+        maxLabels = Math.Clamp(maxLabels, compactAxes ? 5 : 8, 20);
         var step = Math.Max(1, (n + maxLabels - 1) / maxLabels);
 
         var format = hoursWindow >= 168
@@ -928,6 +1031,58 @@
         TimeZoneInfo.ConvertTime(DateTimeOffset.FromUnixTimeSeconds(tsUtc), DisplayZone).DateTime;
 
     private static bool IsPlausibleHeatChartTemp(double tempC) => tempC is > -45 and < 75;
+
+    /// <summary>
+    /// MudChart timeseries draws straight segments only; a short moving average softens jagged poll-to-poll noise.
+    /// </summary>
+    private static List<(DateTime T, double Y)> SmoothHeatCallingTemperatureSeries(IReadOnlyList<(DateTime T, double Y)> pts, int window = 5)
+    {
+        if (pts.Count < 3)
+            return [.. pts];
+        var n = pts.Count;
+        var half = window / 2;
+        var result = new List<(DateTime T, double Y)>(n);
+        for (var i = 0; i < n; i++)
+        {
+            var lo = Math.Max(0, i - half);
+            var hi = Math.Min(n - 1, i + half);
+            double sum = 0;
+            var c = 0;
+            for (var j = lo; j <= hi; j++)
+            {
+                sum += pts[j].Y;
+                c++;
+            }
+            result.Add((pts[i].T, sum / c));
+        }
+        return result;
+    }
+
+    private static void SmoothRoomTemperatureSeriesInPlace(double[] values, int window = 5)
+    {
+        if (values.Length < 3)
+            return;
+        var src = (double[])values.Clone();
+        var half = window / 2;
+        for (var i = 0; i < values.Length; i++)
+        {
+            var lo = Math.Max(0, i - half);
+            var hi = Math.Min(values.Length - 1, i + half);
+            double sum = 0;
+            var c = 0;
+            for (var j = lo; j <= hi; j++)
+            {
+                var v = src[j];
+                if (double.IsFinite(v))
+                {
+                    sum += v;
+                    c++;
+                }
+            }
+            if (c > 0)
+                values[i] = sum / c;
+        }
+    }
 
     /// <summary>Effective target: setpoint_c, else current_setpoint_c, else scheduled_setpoint_c; hub off (−20 °C) shown as 0.</summary>
     private static double ChartTargetTempC(RoomSeriesRow x)
@@ -1088,7 +1243,8 @@
 
             if (tempPairsRaw.Count > 0)
             {
-                var tempPairs = ExpandHeatCallingTempToWindow(tempPairsRaw, ws, we);
+                var tempSmoothed = SmoothHeatCallingTemperatureSeries(tempPairsRaw);
+                var tempPairs = ExpandHeatCallingTempToWindow(tempSmoothed, ws, we);
                 tempSeries.Add(new ChartSeries<double>
                 {
                     Name = room,
@@ -1125,8 +1281,9 @@
         _heatCallingHasAnyPlottedSeries = tempSeries.Count > 0 || valveSeries.Count > 0;
 
         var estPoints = orderedRooms.Sum(x => x.Rows.Count);
-        _heatCallingTempTsOptions.ShowDataMarkers = estPoints <= 200;
-        _heatCallingValveTsOptions.ShowDataMarkers = estPoints <= 200;
+        var showMarkers = estPoints <= 200 && !_compactChartAxes;
+        _heatCallingTempTsOptions.ShowDataMarkers = showMarkers;
+        _heatCallingValveTsOptions.ShowDataMarkers = showMarkers;
     }
 
     private void ToggleHeatCallingRoomVisibility(string room)
