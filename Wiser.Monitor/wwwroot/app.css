@@ -511,6 +511,11 @@
 }
 
 @media (max-width: 720px) {
+    .home-floorplan-pin-room,
+    .home-floorplan-pin-sep {
+        display: none;
+    }
+
     .home-floorplan-pin-label {
         font-size: 0.66rem;
         padding: 1px 5px;

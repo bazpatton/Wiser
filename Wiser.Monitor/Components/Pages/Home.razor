@@ -92,9 +92,12 @@
                     <a class="home-floorplan-pin"
                        href="@GetRoomDetailsHref(pin.Room)"
                        style="@($"left:{pin.XPercent:0.##}%;top:{pin.YPercent:0.##}%;--pin-color:{pin.Color};")"
-                       title="@pin.Tooltip">
+                       title="@pin.Tooltip"
+                       aria-label="@pin.Tooltip">
                         <span class="home-floorplan-pin-dot"></span>
-                        <span class="home-floorplan-pin-label">@pin.Label</span>
+                        <span class="home-floorplan-pin-label">
+                            <span class="home-floorplan-pin-room">@pin.Room</span><span class="home-floorplan-pin-sep">: </span><span class="home-floorplan-pin-temp">@pin.TempText</span>
+                        </span>
                     </a>
                 }
             </div>
@@ -647,7 +650,7 @@
                     Math.Clamp(pin.XPercent, 0, 100),
                     Math.Clamp(pin.YPercent, 0, 100),
                     "#64748b",
-                    $"{room}: —",
+                    "—",
                     $"{room}: no current reading"));
                 continue;
             }
@@ -655,7 +658,7 @@
             var isActive = !activityMap.TryGetValue(room, out var activeFlag) || activeFlag;
             var (rangeMin, rangeMax) = GetRecommendedTempRange(room, isActive);
             var color = GetComfortGradientColor(latest.TempC, rangeMin, rangeMax);
-            var label = $"{room}: {latest.TempC:0.0}C";
+            var tempText = $"{latest.TempC:0.0}C";
             var tooltip =
                 $"{room}: {latest.TempC:0.0}C. Recommended {rangeMin:0.#}-{rangeMax:0.#}C"
                 + (isActive ? string.Empty : " (inactive profile)");
@@ -665,7 +668,7 @@
                 Math.Clamp(pin.XPercent, 0, 100),
                 Math.Clamp(pin.YPercent, 0, 100),
                 color,
-                label,
+                tempText,
                 tooltip));
         }
     }
@@ -776,7 +779,7 @@
         double XPercent,
         double YPercent,
         string Color,
-        string Label,
+        string TempText,
         string Tooltip);
 }
 
