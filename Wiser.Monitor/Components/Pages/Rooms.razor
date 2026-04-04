@@ -1,4 +1,5 @@
 @page "/rooms"
+@page "/rooms/{RoomSlug}"
 @rendermode InteractiveServer
 
 @using System.Globalization
@@ -53,7 +54,7 @@
             </MudStack>
             <MudText Typo="Typo.caption" Class="mud-text-secondary">@LastUpdatedText</MudText>
             <MudText Typo="Typo.caption" Class="mud-text-secondary">
-                Tap the room name to expand 24h stored statistics and a manual target slider (Hive-style). Deep links from elsewhere scroll to the room and open this panel. Boost and mode controls stay on the same card below.
+                Tap the room name to expand stats and timed boost. Use the link icons on each card to copy or open its direct URL. Older bookmark links with a hash fragment still scroll to the same card.
             </MudText>
             @if (!string.IsNullOrWhiteSpace(_actionMessage))
             {
@@ -81,9 +82,13 @@
     }
     else
     {
-        @if (!string.IsNullOrWhiteSpace(_loadError))
+            @if (!string.IsNullOrWhiteSpace(_loadError))
         {
             <MudAlert Severity="Severity.Warning" Dense="true">@_loadError</MudAlert>
+        }
+        @if (!string.IsNullOrWhiteSpace(_roomSlugError))
+        {
+            <MudAlert Severity="Severity.Info" Dense="true" Class="mb-2">@_roomSlugError</MudAlert>
         }
 
         <MudPaper Class="pa-3 filter-bar">
@@ -134,7 +139,7 @@
             @foreach (var room in FilteredRooms())
             {
                 <MudItem xs="12" sm="6" lg="4">
-                    <MudPaper Class="pa-3 room-card" @key="room.Id" id="@BuildRoomAnchorId(room.Name)">
+                    <MudPaper Class="pa-3 room-card" @key="room.Id" id="@RoomLinkHelper.AnchorId(room.Name)">
                         <MudStack Spacing="2">
                             <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Start" Wrap="Wrap.Wrap">
                                 <MudButton Variant="Variant.Text"
@@ -151,7 +156,26 @@
                                         <span class="room-title-text room-name">@room.Name</span>
                                     </MudStack>
                                 </MudButton>
-                                <MudStack Row="true" Spacing="1" Wrap="Wrap.Wrap">
+                                <MudStack Row="true" Spacing="1" Wrap="Wrap.Wrap" AlignItems="AlignItems.Start">
+                                    <MudTooltip Text="Copy direct link to this room">
+                                        <MudIconButton Icon="@Icons.Material.Filled.Link"
+                                                       Color="Color.Default"
+                                                       Size="Size.Small"
+                                                       Class="touch-target-icon"
+                                                       aria-label="Copy link to this room"
+                                                       OnClick="@(() => CopyRoomLinkAsync(room.Name))"
+                                                       Disabled="@_loading" />
+                                    </MudTooltip>
+                                    <MudTooltip Text="Open room URL in a new tab">
+                                        <MudIconButton Icon="@Icons.Material.Filled.OpenInNew"
+                                                       Color="Color.Default"
+                                                       Size="Size.Small"
+                                                       Class="touch-target-icon"
+                                                       aria-label="Open room link in new tab"
+                                                       Href="@RoomLinkHelper.RoomsPagePath(room.Name)"
+                                                       Target="_blank"
+                                                       Disabled="@_loading" />
+                                    </MudTooltip>
                                     @if (IsOfflineTemperature(room.TempC))
                                     {
                                         <MudChip T="string"
@@ -233,11 +257,11 @@
                                     <MudDivider Class="my-3" />
 
                                     <MudText Typo="Typo.subtitle2" Class="room-detail-heading">
-                                        <MudIcon Icon="@Icons.Material.Filled.DeviceThermostat" Class="room-inline-icon" Size="Size.Small" aria-hidden="true" />
-                                        Manual target
+                                        <MudIcon Icon="@Icons.Material.Filled.Bolt" Class="room-inline-icon" Size="Size.Small" aria-hidden="true" />
+                                        Timed boost
                                     </MudText>
                                     <MudText Typo="Typo.caption" Class="mud-text-secondary d-block mt-1">
-                                        Drag to choose °C, then set — switches the room to <strong>Manual</strong> and holds that temperature (similar to a thermostat wheel on other heating apps).
+                                        Choose a target °C and how long to hold it. This applies the same timed override as Quick / Comfort / Gentle: the room returns to schedule when the boost ends. It does <strong>not</strong> switch the room to permanent Manual mode.
                                     </MudText>
                                     <MudText Typo="Typo.h5" Class="mt-2 room-slider-readout" aria-live="polite">
                                         @(_detailSliderTemp.ToString("F1", CultureInfo.CurrentCulture)) °C
@@ -251,14 +275,31 @@
                                                Size="Size.Large"
                                                Class="room-target-slider mt-1"
                                                Disabled="@(room.Id <= 0 || _busyRoomId == room.Id)" />
+                                    <MudSelect T="int"
+                                               Label="Duration"
+                                               @bind-Value="_detailBoostMinutes"
+                                               Variant="Variant.Outlined"
+                                               Dense="true"
+                                               Margin="Margin.Dense"
+                                               Class="touch-control mt-2"
+                                               Disabled="@(room.Id <= 0 || _busyRoomId == room.Id)">
+                                        <MudSelectItem Value="15">15 minutes</MudSelectItem>
+                                        <MudSelectItem Value="30">30 minutes</MudSelectItem>
+                                        <MudSelectItem Value="45">45 minutes</MudSelectItem>
+                                        <MudSelectItem Value="60">60 minutes</MudSelectItem>
+                                        <MudSelectItem Value="90">90 minutes</MudSelectItem>
+                                        <MudSelectItem Value="120">2 hours</MudSelectItem>
+                                        <MudSelectItem Value="180">3 hours</MudSelectItem>
+                                        <MudSelectItem Value="240">4 hours</MudSelectItem>
+                                    </MudSelect>
                                     <MudButton Variant="Variant.Filled"
                                                Color="Color.Primary"
                                                FullWidth="true"
                                                Class="touch-target mt-2"
-                                               StartIcon="@Icons.Material.Filled.CheckCircle"
+                                               StartIcon="@Icons.Material.Filled.Bolt"
                                                Disabled="@(room.Id <= 0 || _busyRoomId == room.Id)"
-                                               OnClick="@(() => ApplyManualTargetAsync(room))">
-                                        Apply manual target
+                                               OnClick="@(() => ApplySliderBoostAsync(room))">
+                                        Apply timed boost
                                     </MudButton>
                                 </div>
                             }
@@ -398,8 +439,11 @@
     private CancellationTokenSource? _autoRefreshCts;
     private Task? _autoRefreshTask;
     private bool _scrollFragmentOnce;
+    private string? _roomSlugError;
+    private string? _lastAppliedRouteSlug;
     private int? _expandedRoomId;
     private double _detailSliderTemp = 20;
+    private int _detailBoostMinutes = 60;
     private const double RoomTargetSliderMin = 5;
     private const double RoomTargetSliderMax = 30;
 
@@ -410,9 +454,18 @@
         ? "Last updated: never"
         : $"Last updated: {_lastRefreshAt.Value:HH:mm:ss} ({(int)Math.Max(0, (DateTimeOffset.Now - _lastRefreshAt.Value).TotalSeconds)}s ago)";
 
+    [Parameter] public string? RoomSlug { get; set; }
+
     protected override void OnInitialized()
     {
         Nav.LocationChanged += OnLocationChanged;
+    }
+
+    protected override async Task OnParametersSetAsync()
+    {
+        await base.OnParametersSetAsync();
+        if (_hasLoadedOnce && _rooms.Count > 0)
+            await TryApplyRoomSlugFromRouteAsync();
     }
 
     protected override async Task OnInitializedAsync()
@@ -474,7 +527,7 @@
             var id = Uri.UnescapeDataString(frag.AsSpan(1).ToString());
             if (!IsSafeFragmentElementId(id))
                 return;
-            var anchorRoom = _rooms.FirstOrDefault(r => BuildRoomAnchorId(r.Name) == id);
+            var anchorRoom = _rooms.FirstOrDefault(r => RoomLinkHelper.AnchorId(r.Name) == id);
             if (anchorRoom is { Id: > 0 } hit)
             {
                 _expandedRoomId = hit.Id;
@@ -619,10 +672,34 @@
         return new RoomHistory24hStats(temps.Min(), temps.Max(), temps.Average(), temps.Count);
     }
 
-    private Task ApplyManualTargetAsync(HubLiveRoom room)
+    private async Task ApplySliderBoostAsync(HubLiveRoom room)
     {
+        if (!EnsureLiveRoom(room))
+            return;
+
         var t = Math.Clamp(Math.Round(_detailSliderTemp * 2, MidpointRounding.AwayFromZero) / 2, RoomTargetSliderMin, RoomTargetSliderMax);
-        return ApplyModeAsync(room, "manual", t);
+        var minutes = Math.Clamp(_detailBoostMinutes, 5, 240);
+
+        _actionMessage = null;
+        _actionError = false;
+        _busyRoomId = room.Id;
+        try
+        {
+            await Hub.PatchRoomBoostAsync(Options, room.Id, t, minutes, CancellationToken.None);
+            _actionMessage = $"Boost applied to {room.Name}: {t:F1} °C for {minutes} min.";
+            Snackbar.Add(_actionMessage!, Severity.Success);
+            await RefreshAsync();
+        }
+        catch (Exception ex)
+        {
+            _actionError = true;
+            _actionMessage = $"Action failed: {ex.Message}";
+            Snackbar.Add(_actionMessage!, Severity.Error);
+        }
+        finally
+        {
+            _busyRoomId = null;
+        }
     }
 
     private sealed record RoomHistory24hStats(double MinTemp, double MaxTemp, double AvgTemp, int SampleCount);
@@ -669,13 +746,73 @@
     private static bool IsOfflineTemperature(double tempC) =>
         Math.Abs(tempC - (-327.68)) < 0.001;
 
-    private static string BuildRoomAnchorId(string roomName)
+    private HubLiveRoom? FindRoomByRouteSlug(string raw)
     {
-        var chars = roomName.Trim().ToLowerInvariant()
-            .Select(static c => char.IsLetterOrDigit(c) ? c : '-')
-            .ToArray();
-        var normalized = new string(chars).Trim('-');
-        return $"room-{(string.IsNullOrWhiteSpace(normalized) ? "unknown" : normalized)}";
+        var s = raw.Trim();
+        foreach (var r in _rooms)
+        {
+            if (string.Equals(RoomLinkHelper.PathSlug(r.Name), s, StringComparison.OrdinalIgnoreCase))
+                return r;
+            if (string.Equals(RoomLinkHelper.AnchorId(r.Name), s, StringComparison.OrdinalIgnoreCase))
+                return r;
+        }
+        return null;
+    }
+
+    private async Task TryApplyRoomSlugFromRouteAsync()
+    {
+        if (string.IsNullOrWhiteSpace(RoomSlug))
+        {
+            _roomSlugError = null;
+            _lastAppliedRouteSlug = null;
+            return;
+        }
+
+        var slug = RoomSlug.Trim();
+        if (_rooms.Count == 0)
+            return;
+
+        if (string.Equals(_lastAppliedRouteSlug, slug, StringComparison.OrdinalIgnoreCase))
+            return;
+
+        var hit = FindRoomByRouteSlug(slug);
+        if (hit is null)
+        {
+            _roomSlugError = $"No room matches URL segment \"{slug}\". Open the full room list or check the name.";
+            _lastAppliedRouteSlug = slug;
+            return;
+        }
+
+        _roomSlugError = null;
+        _lastAppliedRouteSlug = slug;
+        _expandedRoomId = hit.Id;
+        _detailSliderTemp = GetDefaultSliderTemp(hit);
+        await InvokeAsync(StateHasChanged);
+        await Task.Delay(50);
+        try
+        {
+            await Js.InvokeVoidAsync("wiserScrollToId", RoomLinkHelper.AnchorId(hit.Name));
+        }
+        catch (JSDisconnectedException)
+        {
+        }
+    }
+
+    private async Task CopyRoomLinkAsync(string roomName)
+    {
+        try
+        {
+            var url = Nav.ToAbsoluteUri(RoomLinkHelper.RoomsPagePath(roomName)).AbsoluteUri;
+            await Js.InvokeVoidAsync("wiserCopyText", url);
+            Snackbar.Add("Room link copied to clipboard.", Severity.Success);
+        }
+        catch (JSException)
+        {
+            Snackbar.Add("Could not copy (clipboard may be blocked).", Severity.Warning);
+        }
+        catch (JSDisconnectedException)
+        {
+        }
     }
 
     private string? FormatBoostSummary(HubLiveRoom room)
@@ -803,6 +940,8 @@
             _isRefreshing = false;
             _hasLoadedOnce = true;
         }
+
+        await TryApplyRoomSlugFromRouteAsync();
     }
 
     private async Task ApplyModeAsync(HubLiveRoom room, string mode, double? temp)

@@ -774,16 +774,7 @@
         return localTod >= ignoreStart || localTod < ignoreEnd;
     }
 
-    private static string GetRoomDetailsHref(string roomName) => $"/rooms#{BuildRoomAnchorId(roomName)}";
-
-    private static string BuildRoomAnchorId(string roomName)
-    {
-        var chars = roomName.Trim().ToLowerInvariant()
-            .Select(static c => char.IsLetterOrDigit(c) ? c : '-')
-            .ToArray();
-        var normalized = new string(chars).Trim('-');
-        return $"room-{(string.IsNullOrWhiteSpace(normalized) ? "unknown" : normalized)}";
-    }
+    private static string GetRoomDetailsHref(string roomName) => RoomLinkHelper.RoomsPagePath(roomName);
 
     private sealed record HomeRoomHeatTile(
         string Room,
