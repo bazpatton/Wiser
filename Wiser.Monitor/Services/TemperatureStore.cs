@@ -755,6 +755,31 @@ public sealed class TemperatureStore
         }
     }
 
+    public FloorplanConfig GetFloorplanConfig()
+    {
+        lock (_gate)
+        {
+            using var c = Open();
+            using var cmd = c.CreateCommand();
+            cmd.CommandText = "SELECT value FROM app_settings WHERE key = 'floorplan_config_v1' LIMIT 1";
+            var raw = cmd.ExecuteScalar() as string;
+            return ParseFloorplanConfig(raw);
+        }
+    }
+
+    public FloorplanConfig SaveFloorplanConfig(FloorplanConfig config)
+    {
+        var normalized = NormalizeFloorplanConfig(config, DateTimeOffset.UtcNow.ToUnixTimeSeconds());
+        var json = JsonSerializer.Serialize(normalized);
+        lock (_gate)
+        {
+            using var c = Open();
+            UpsertSetting(c, "floorplan_config_v1", json, normalized.UpdatedTs);
+        }
+
+        return normalized;
+    }
+
     public HeatingSavingsProfile GetHeatingSavingsProfile()
     {
         lock (_gate)
@@ -888,6 +913,52 @@ public sealed class TemperatureStore
         {
             return HeatingSavingsProfile.Default;
         }
+    }
+
+    private static FloorplanConfig ParseFloorplanConfig(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json))
+            return FloorplanConfig.Default;
+
+        try
+        {
+            var parsed = JsonSerializer.Deserialize<FloorplanConfig>(json);
+            return NormalizeFloorplanConfig(parsed ?? FloorplanConfig.Default, parsed?.UpdatedTs ?? 0);
+        }
+        catch
+        {
+            return FloorplanConfig.Default;
+        }
+    }
+
+    private static FloorplanConfig NormalizeFloorplanConfig(FloorplanConfig config, long updatedTs)
+    {
+        var imageFile = string.IsNullOrWhiteSpace(config.ImageFileName)
+            ? null
+            : Path.GetFileName(config.ImageFileName.Trim());
+        var imageType = string.IsNullOrWhiteSpace(config.ImageContentType)
+            ? null
+            : config.ImageContentType.Trim();
+
+        var pins = (config.Pins ?? [])
+            .Where(p => !string.IsNullOrWhiteSpace(p.Room))
+            .GroupBy(p => p.Room.Trim(), StringComparer.OrdinalIgnoreCase)
+            .Select(g =>
+            {
+                var p = g.Last();
+                return new FloorplanRoomPin(
+                    g.Key,
+                    Math.Clamp(p.XPercent, 0, 100),
+                    Math.Clamp(p.YPercent, 0, 100));
+            })
+            .OrderBy(p => p.Room, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        return new FloorplanConfig(
+            imageFile,
+            imageType,
+            updatedTs,
+            pins);
     }
 
     private static HeatingSavingsProfile NormalizeHeatingSavingsProfile(HeatingSavingsProfile profile, long updatedTs)

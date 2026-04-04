@@ -64,6 +64,15 @@ Font Awesome is included for additional iconography in the UI.
 
 Core data paths are unchanged: the app still uses the same minimal API endpoints and `TemperatureStore`, so scripts and integrations that call `/api/*` remain compatible.
 
+### Floorplan temperature overlay
+
+- Go to **Settings -> Floorplan temperature overlay**.
+- Upload a floorplan image (`.png`, `.jpg/.jpeg`, `.webp`).
+- Map each room to a pin position using X/Y percentages (0-100), then save.
+- Home shows the floorplan with live room temperature pins colored by comfort range.
+
+Uploaded images are stored in `DATA_DIR/floorplan/`. Mapping + selected image metadata are stored in SQLite `app_settings` (`floorplan_config_v1`).
+
 ## API
 
 `GET /api/health`, `/api/rooms`, `/api/latest` (includes optional `system`: `heating_relay_on`, `heating_active`, `ts`), `/api/series?room=&hours=&include_outdoor=`
@@ -90,3 +99,12 @@ Each poll stores **boiler relay** and **heating active** (relay on or any room d
 | `GET /api/system-series?hours=48` | Time series of `heating_relay_on` / `heating_active` for custom charts. |
 
 Use **HDD** to compare cold vs mild weeks; use **estimated minutes** as a relative gas/proxy trend, not kWh.
+
+### Floorplan endpoints
+
+| Path | Purpose |
+|------|---------|
+| `GET /api/floorplan/config` | Returns current floorplan config (`image_file_name`, `pins`, etc.). |
+| `POST /api/floorplan/config` | Saves floorplan config (room pin mappings). |
+| `POST /api/floorplan/upload` | Upload floorplan image (max 10 MB; png/jpg/webp). |
+| `GET /api/floorplan/image` | Streams the currently configured floorplan image. |

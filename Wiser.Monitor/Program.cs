@@ -78,6 +78,10 @@ var app = builder.Build();
 app.UseStaticFiles();
 app.UseAntiforgery();
 
+const long MaxFloorplanImageBytes = 10L * 1024 * 1024;
+var floorplanDir = Path.Combine(Path.GetFullPath(monitorOptions.DataDir), "floorplan");
+Directory.CreateDirectory(floorplanDir);
+
 app.MapGet("/api/health", (MonitorState state, MonitorOptions o) =>
 {
     var (err, ok) = state.Snapshot();
@@ -363,6 +367,80 @@ app.MapGet("/api/daily-summary", (int? days, TemperatureStore store, MonitorOpti
             + "HDD uses mean outdoor samples that day (configure OPEN_METEO_LAT/LON). Compare weeks after normalising for HDD.",
     });
 });
+
+app.MapGet("/api/floorplan/config", (TemperatureStore store) =>
+{
+    var cfg = store.GetFloorplanConfig();
+    return Results.Json(cfg);
+});
+
+app.MapPost("/api/floorplan/config", (FloorplanConfig body, TemperatureStore store) =>
+{
+    var saved = store.SaveFloorplanConfig(body);
+    return Results.Json(new { ok = true, config = saved });
+}).DisableAntiforgery();
+
+app.MapGet("/api/floorplan/image", (TemperatureStore store) =>
+{
+    var cfg = store.GetFloorplanConfig();
+    if (string.IsNullOrWhiteSpace(cfg.ImageFileName))
+        return Results.NotFound(new { error = "no floorplan image configured" });
+
+    var safeName = Path.GetFileName(cfg.ImageFileName);
+    if (!string.Equals(safeName, cfg.ImageFileName, StringComparison.Ordinal))
+        return Results.BadRequest(new { error = "invalid floorplan image filename" });
+
+    var path = Path.Combine(floorplanDir, safeName);
+    if (!File.Exists(path))
+        return Results.NotFound(new { error = "floorplan image file not found" });
+
+    var contentType = TryGetFloorplanContentType(path) ?? "application/octet-stream";
+    return Results.File(path, contentType);
+});
+
+app.MapPost("/api/floorplan/upload", async (IFormFile file, TemperatureStore store) =>
+{
+    if (file is null || file.Length == 0)
+        return Results.BadRequest(new { error = "file is required" });
+    if (file.Length > MaxFloorplanImageBytes)
+        return Results.BadRequest(new { error = $"file exceeds max size ({MaxFloorplanImageBytes} bytes)" });
+
+    var ext = Path.GetExtension(file.FileName);
+    if (!IsAllowedFloorplanExtension(ext))
+        return Results.BadRequest(new { error = "unsupported image extension (allowed: .png, .jpg, .jpeg, .webp)" });
+
+    var normalizedExt = NormalizeFloorplanExtension(ext);
+    var generatedName = $"floorplan-{Guid.NewGuid():N}{normalizedExt}";
+    var destPath = Path.Combine(floorplanDir, generatedName);
+
+    try
+    {
+        await using var input = file.OpenReadStream();
+        await using var output = File.Create(destPath);
+        await input.CopyToAsync(output);
+    }
+    catch (Exception ex)
+    {
+        return Results.Problem(detail: ex.Message);
+    }
+
+    var contentType = TryGetFloorplanContentType(generatedName) ?? "application/octet-stream";
+    var current = store.GetFloorplanConfig();
+    var saved = store.SaveFloorplanConfig(current with
+    {
+        ImageFileName = generatedName,
+        ImageContentType = contentType,
+        UpdatedTs = 0,
+    });
+
+    return Results.Json(new
+    {
+        ok = true,
+        file_name = generatedName,
+        content_type = contentType,
+        config = saved,
+    });
+}).DisableAntiforgery();
 
 app.MapGet("/api/system-series", (int? hours, TemperatureStore store) =>
 {
@@ -703,6 +781,33 @@ static bool TryParseEntryDate(string? text, out DateOnly date)
     if (DateOnly.TryParseExact(text, "dd/MM/yyyy", CultureInfo.InvariantCulture, DateTimeStyles.None, out date))
         return true;
     return false;
+}
+
+static bool IsAllowedFloorplanExtension(string? ext)
+{
+    if (string.IsNullOrWhiteSpace(ext))
+        return false;
+    return ext.Equals(".png", StringComparison.OrdinalIgnoreCase)
+        || ext.Equals(".jpg", StringComparison.OrdinalIgnoreCase)
+        || ext.Equals(".jpeg", StringComparison.OrdinalIgnoreCase)
+        || ext.Equals(".webp", StringComparison.OrdinalIgnoreCase);
+}
+
+static string NormalizeFloorplanExtension(string? ext) =>
+    ext is not null && ext.Equals(".jpeg", StringComparison.OrdinalIgnoreCase)
+        ? ".jpg"
+        : (ext ?? ".png").ToLowerInvariant();
+
+static string? TryGetFloorplanContentType(string pathOrFileName)
+{
+    var ext = Path.GetExtension(pathOrFileName);
+    if (ext.Equals(".png", StringComparison.OrdinalIgnoreCase))
+        return "image/png";
+    if (ext.Equals(".jpg", StringComparison.OrdinalIgnoreCase) || ext.Equals(".jpeg", StringComparison.OrdinalIgnoreCase))
+        return "image/jpeg";
+    if (ext.Equals(".webp", StringComparison.OrdinalIgnoreCase))
+        return "image/webp";
+    return null;
 }
 
 internal sealed record SeriesRoomRowDto(

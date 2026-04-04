@@ -140,6 +140,51 @@
     <MudPaper Class="pa-4 status-card">
         <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center" Wrap="Wrap.Wrap">
             <MudText Typo="Typo.h6">
+                <i class="fa-solid fa-map-location-dot"></i> Floorplan temperature overlay
+            </MudText>
+            <MudButton Href="/settings"
+                       Variant="Variant.Text"
+                       Color="Color.Primary"
+                       StartIcon="@Icons.Material.Filled.OpenInNew">
+                Configure
+            </MudButton>
+        </MudStack>
+        <MudText Typo="Typo.caption" Class="mud-text-secondary d-block mt-1">
+            Room pins are mapped in Settings. Colors reflect current temperature against each room's recommended range.
+        </MudText>
+        @if (FloorplanImageHref is null)
+        {
+            <MudAlert Severity="Severity.Info" Dense="true" Class="mt-2">
+                Upload a floorplan image and map room pins in Settings to enable this view.
+            </MudAlert>
+        }
+        else if (_homeFloorplanPins.Count == 0)
+        {
+            <MudAlert Severity="Severity.Info" Dense="true" Class="mt-2">
+                No room pins are mapped yet. Add pin coordinates in Settings.
+            </MudAlert>
+        }
+        else
+        {
+            <div class="home-floorplan-wrap mt-2">
+                <img src="@FloorplanImageHref" alt="House floorplan" class="home-floorplan-image" />
+                @foreach (var pin in _homeFloorplanPins)
+                {
+                    <a class="home-floorplan-pin"
+                       href="@GetRoomDetailsHref(pin.Room)"
+                       style="@($"left:{pin.XPercent:0.##}%;top:{pin.YPercent:0.##}%;--pin-color:{pin.Color};")"
+                       title="@pin.Tooltip">
+                        <span class="home-floorplan-pin-dot"></span>
+                        <span class="home-floorplan-pin-label">@pin.Label</span>
+                    </a>
+                }
+            </div>
+        }
+    </MudPaper>
+
+    <MudPaper Class="pa-4 status-card">
+        <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center" Wrap="Wrap.Wrap">
+            <MudText Typo="Typo.h6">
                 <i class="fa-solid fa-piggy-bank"></i> Save on heating - schedule ideas
             </MudText>
             <MudButton Href="/settings"
@@ -286,12 +331,18 @@
     private string? _outlookDetail;
     private readonly List<HeatingSavingsSuggestion> _savingsSuggestions = [];
     private readonly List<DailySummaryRow> _homeDailyRows = [];
+    private FloorplanConfig _homeFloorplanConfig = FloorplanConfig.Default;
+    private readonly List<HomeFloorplanPin> _homeFloorplanPins = [];
     private double? _outlookPastWeekHddSum;
     private double? _outlookForecastWeekHddSum;
 
     private string? _gasMeterReadingBannerText;
 
     private TimeZoneInfo DisplayZone => TimeZoneResolver.Resolve(Options.TimeZoneId);
+    private string? FloorplanImageHref =>
+        string.IsNullOrWhiteSpace(_homeFloorplanConfig.ImageFileName)
+            ? null
+            : $"/api/floorplan/image?v={_homeFloorplanConfig.UpdatedTs}";
 
     protected override async Task OnInitializedAsync()
     {
@@ -307,6 +358,7 @@
         _qualityReasons24h = quality.ByReason.Take(4).ToList();
         LoadHomeDailySummary();
         BuildHomeRoomHeatMap();
+        BuildHomeFloorplanOverlay();
         UpdateGasMeterReadingBanner();
         await LoadHeatingOutlookAsync();
         await LoadSavingsSuggestionsAsync();
@@ -572,6 +624,52 @@
             .ThenBy(static x => x.Room, StringComparer.OrdinalIgnoreCase));
     }
 
+    private void BuildHomeFloorplanOverlay()
+    {
+        _homeFloorplanPins.Clear();
+        _homeFloorplanConfig = Store.GetFloorplanConfig();
+        if (_homeFloorplanConfig.Pins.Count == 0)
+            return;
+
+        var latestByRoom = Store.LatestByRoom();
+        var activityMap = Store.GetRoomActivityMap();
+
+        foreach (var pin in _homeFloorplanConfig.Pins)
+        {
+            var room = pin.Room.Trim();
+            if (room.Length == 0)
+                continue;
+
+            if (!latestByRoom.TryGetValue(room, out var latest))
+            {
+                _homeFloorplanPins.Add(new HomeFloorplanPin(
+                    room,
+                    Math.Clamp(pin.XPercent, 0, 100),
+                    Math.Clamp(pin.YPercent, 0, 100),
+                    "#64748b",
+                    $"{room}: —",
+                    $"{room}: no current reading"));
+                continue;
+            }
+
+            var isActive = !activityMap.TryGetValue(room, out var activeFlag) || activeFlag;
+            var (rangeMin, rangeMax) = GetRecommendedTempRange(room, isActive);
+            var color = GetComfortGradientColor(latest.TempC, rangeMin, rangeMax);
+            var label = $"{room}: {latest.TempC:0.0}C";
+            var tooltip =
+                $"{room}: {latest.TempC:0.0}C. Recommended {rangeMin:0.#}-{rangeMax:0.#}C"
+                + (isActive ? string.Empty : " (inactive profile)");
+
+            _homeFloorplanPins.Add(new HomeFloorplanPin(
+                room,
+                Math.Clamp(pin.XPercent, 0, 100),
+                Math.Clamp(pin.YPercent, 0, 100),
+                color,
+                label,
+                tooltip));
+        }
+    }
+
     private static (double Min, double Max) GetRecommendedTempRange(string roomName, bool isActive)
     {
         var r = roomName.ToLowerInvariant();
@@ -672,6 +770,14 @@
         double SortKeyWithinBand,
         string CurrentStateText,
         string CurrentStateColor);
+
+    private sealed record HomeFloorplanPin(
+        string Room,
+        double XPercent,
+        double YPercent,
+        string Color,
+        string Label,
+        string Tooltip);
 }
 
 <style>

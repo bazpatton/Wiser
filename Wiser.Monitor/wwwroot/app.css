@@ -413,3 +413,106 @@
     overflow: hidden;
     opacity: 0;
 }
+
+.settings-floorplan-preview-wrap {
+    max-width: min(820px, 100%);
+    border: 1px solid var(--mud-palette-lines-default);
+    border-radius: 10px;
+    overflow: hidden;
+    background: var(--mud-palette-surface);
+}
+
+.settings-floorplan-preview {
+    display: block;
+    width: 100%;
+    height: auto;
+}
+
+.settings-floorplan-live-surface {
+    position: relative;
+    display: inline-block;
+    width: 100%;
+    line-height: 0;
+    user-select: none;
+    cursor: crosshair;
+}
+
+.settings-floorplan-pin {
+    position: absolute;
+    transform: translate(-50%, -50%);
+    border-radius: 999px;
+    border: 1px solid rgba(248, 250, 252, 0.55);
+    background: color-mix(in srgb, var(--mud-palette-primary) 70%, #0f172a 30%);
+    color: #f8fafc;
+    font-size: 0.68rem;
+    font-weight: 700;
+    line-height: 1;
+    padding: 4px 8px;
+    cursor: grab;
+    box-shadow: 0 1px 4px rgba(2, 6, 23, 0.45);
+    z-index: 2;
+}
+
+.settings-floorplan-pin.is-selected {
+    outline: 2px solid color-mix(in srgb, var(--mud-palette-warning) 80%, white 20%);
+    outline-offset: 1px;
+}
+
+.settings-floorplan-pin:active {
+    cursor: grabbing;
+}
+
+.home-floorplan-wrap {
+    position: relative;
+    width: 100%;
+    max-width: 980px;
+    border: 1px solid var(--mud-palette-lines-default);
+    border-radius: 10px;
+    overflow: hidden;
+    background: var(--mud-palette-surface);
+}
+
+.home-floorplan-image {
+    display: block;
+    width: 100%;
+    height: auto;
+}
+
+.home-floorplan-pin {
+    position: absolute;
+    transform: translate(-50%, -50%);
+    text-decoration: none;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    z-index: 2;
+}
+
+.home-floorplan-pin-dot {
+    width: 12px;
+    height: 12px;
+    border-radius: 999px;
+    border: 2px solid #ffffff;
+    background: var(--pin-color, #64748b);
+    box-shadow: 0 0 0 1px rgba(15, 23, 42, 0.45);
+    flex: 0 0 auto;
+}
+
+.home-floorplan-pin-label {
+    font-size: 0.73rem;
+    font-weight: 700;
+    line-height: 1.2;
+    color: #f8fafc;
+    background: color-mix(in srgb, var(--pin-color, #64748b) 70%, #0f172a 30%);
+    padding: 2px 6px;
+    border-radius: 999px;
+    border: 1px solid rgba(248, 250, 252, 0.4);
+    white-space: nowrap;
+}
+
+@media (max-width: 720px) {
+    .home-floorplan-pin-label {
+        font-size: 0.66rem;
+        padding: 1px 5px;
+    }
+}

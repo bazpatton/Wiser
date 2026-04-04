@@ -3,6 +3,7 @@
 @using System.Globalization
 @using System.Net.Http
 @using System.Text.Json
+@using Microsoft.AspNetCore.Components.Web
 
 @inject TemperatureStore Store
 @inject MonitorOptions Options
@@ -10,6 +11,7 @@
 @inject IDialogService DialogService
 @inject HttpClient Http
 @inject NavigationManager Nav
+@inject IJSRuntime Js
 
 <PageTitle>Wiser Monitor - Settings</PageTitle>
 
@@ -175,6 +177,135 @@
 
         <MudDivider Class="my-3" />
 
+        <MudText Typo="Typo.subtitle1" Class="mb-2">Floorplan temperature overlay</MudText>
+        <MudText Typo="Typo.body2" Class="mud-text-secondary mb-2">
+            Upload your floorplan image, then map room pins using X/Y percentages (0-100). Home will render live room temperatures
+            with comfort colors on top of the image.
+        </MudText>
+        <MudStack Row="true" Spacing="2" Class="flex-wrap mb-2">
+            <MudButton Variant="Variant.Outlined"
+                       Color="Color.Primary"
+                       HtmlTag="label"
+                       for="@_floorplanUploadFileId"
+                       StartIcon="@Icons.Material.Filled.UploadFile"
+                       Disabled="@_floorplanUploadBusy">
+                Upload floorplan image
+            </MudButton>
+            <InputFile id="@_floorplanUploadFileId"
+                       OnChange="OnFloorplanImageUploadAsync"
+                       accept=".png,.jpg,.jpeg,.webp,image/png,image/jpeg,image/webp"
+                       class="settings-input-file-hidden" />
+            <MudButton Variant="Variant.Filled"
+                       Color="Color.Primary"
+                       OnClick="SaveFloorplanMappingAsync"
+                       StartIcon="@Icons.Material.Filled.Save">
+                Save floorplan mapping
+            </MudButton>
+            <MudButton Variant="Variant.Outlined"
+                       Color="Color.Default"
+                       OnClick="ReloadFloorplanMapping"
+                       StartIcon="@Icons.Material.Filled.Refresh">
+                Reload floorplan mapping
+            </MudButton>
+        </MudStack>
+        @if (!string.IsNullOrWhiteSpace(_floorplanImageName))
+        {
+            <MudText Typo="Typo.caption" Class="mud-text-secondary d-block mb-2">
+                Current image: @_floorplanImageName
+            </MudText>
+            <div class="settings-floorplan-preview-wrap mb-2">
+                <div id="@_floorplanPreviewSurfaceId"
+                     class="settings-floorplan-live-surface"
+                     @onmousedown="OnFloorplanSurfaceMouseDown"
+                     @onmousemove="OnFloorplanSurfaceMouseMove"
+                     @onmouseup="OnFloorplanSurfaceMouseUp"
+                     @onmouseleave="OnFloorplanSurfaceMouseUp">
+                    <img src="@FloorplanImageHref"
+                         alt="Floorplan preview"
+                         class="settings-floorplan-preview"
+                         draggable="false"
+                         @onload="OnFloorplanPreviewImageLoaded" />
+                    @foreach (var pin in _floorplanPins.Where(static p => p.Enabled))
+                    {
+                        <button type="button"
+                                class="@($"settings-floorplan-pin {(string.Equals(_selectedFloorplanRoom, pin.Room, StringComparison.OrdinalIgnoreCase) ? "is-selected" : "")}")"
+                                style="@($"left:{pin.XPercent:0.##}%;top:{pin.YPercent:0.##}%;")"
+                                title="@($"{pin.Room}: {pin.XPercent:0.0}%, {pin.YPercent:0.0}%")"
+                                @onmousedown="@((MouseEventArgs e) => OnFloorplanPinMouseDown(pin, e))"
+                                @onmousedown:stopPropagation="true">
+                            <span>@pin.Room</span>
+                        </button>
+                    }
+                </div>
+            </div>
+            <MudText Typo="Typo.caption" Class="mud-text-secondary d-block mb-2">
+                Drag a pin directly on the preview, or select a room below and click/drag on the image to place it.
+            </MudText>
+        }
+        else
+        {
+            <MudAlert Severity="Severity.Info" Dense="true" Class="mb-2">
+                No floorplan image uploaded yet.
+            </MudAlert>
+        }
+        @if (_floorplanPins.Count == 0)
+        {
+            <MudAlert Severity="Severity.Info" Dense="true">
+                No rooms available yet for pin mapping.
+            </MudAlert>
+        }
+        else
+        {
+            <MudTable T="FloorplanPinSetting" Items="_floorplanPins" Dense="true" Hover="true" Breakpoint="Breakpoint.Sm">
+                <HeaderContent>
+                    <MudTh>Room</MudTh>
+                    <MudTh>Edit</MudTh>
+                    <MudTh>Show pin</MudTh>
+                    <MudTh>X %</MudTh>
+                    <MudTh>Y %</MudTh>
+                </HeaderContent>
+                <RowTemplate>
+                    <MudTd DataLabel="Room">@context.Room</MudTd>
+                    <MudTd DataLabel="Edit">
+                        <MudButton Variant="Variant.Text"
+                                   Size="Size.Small"
+                                   Color="@(string.Equals(_selectedFloorplanRoom, context.Room, StringComparison.OrdinalIgnoreCase) ? Color.Primary : Color.Default)"
+                                   OnClick="@(() => SelectFloorplanRoom(context.Room))">
+                            @(string.Equals(_selectedFloorplanRoom, context.Room, StringComparison.OrdinalIgnoreCase) ? "Selected" : "Select")
+                        </MudButton>
+                    </MudTd>
+                    <MudTd DataLabel="Show pin">
+                        <MudSwitch T="bool"
+                                   Value="@context.Enabled"
+                                   ValueChanged="@((v) => OnFloorplanPinEnabledChanged(context, v))"
+                                   Color="Color.Primary" />
+                    </MudTd>
+                    <MudTd DataLabel="X %">
+                        <MudNumericField T="double"
+                                         Value="@context.XPercent"
+                                         ValueChanged="@((v) => OnFloorplanPinXChanged(context, v))"
+                                         Min="0"
+                                         Max="100"
+                                         Step="0.5"
+                                         Variant="Variant.Outlined"
+                                         Margin="Margin.Dense" />
+                    </MudTd>
+                    <MudTd DataLabel="Y %">
+                        <MudNumericField T="double"
+                                         Value="@context.YPercent"
+                                         ValueChanged="@((v) => OnFloorplanPinYChanged(context, v))"
+                                         Min="0"
+                                         Max="100"
+                                         Step="0.5"
+                                         Variant="Variant.Outlined"
+                                         Margin="Margin.Dense" />
+                    </MudTd>
+                </RowTemplate>
+            </MudTable>
+        }
+
+        <MudDivider Class="my-3" />
+
         <MudText Typo="Typo.subtitle1" Class="mb-2">Room activity profile</MudText>
         <MudText Typo="Typo.body2" Class="mud-text-secondary mb-2">
             Active affects chart recommendation ranges. Priority marks rooms where comfort matters most for schedule suggestions.
@@ -231,7 +362,18 @@
 @code {
     private readonly List<RoomActivitySetting> _rooms = [];
     private readonly string _restoreFileId = $"restore-db-{Guid.NewGuid():N}";
+    private readonly string _floorplanUploadFileId = $"floorplan-upload-{Guid.NewGuid():N}";
+    private readonly string _floorplanPreviewSurfaceId = $"floorplan-surface-{Guid.NewGuid():N}";
+    private readonly List<FloorplanPinSetting> _floorplanPins = [];
     private bool _restoreBusy;
+    private bool _floorplanUploadBusy;
+    private string? _floorplanImageName;
+    private string? _floorplanImageContentType;
+    private long _floorplanImageVersion;
+    private string? _selectedFloorplanRoom;
+    private string? _dragFloorplanRoom;
+    private double _floorplanPreviewWidth;
+    private double _floorplanPreviewHeight;
     private string _ignoreStartText = "00:00";
     private string _ignoreEndText = "07:00";
     private bool _gasReminderEnabled;
@@ -243,8 +385,20 @@
     private string _weekendAwayStartText = "10:00";
     private string _weekendAwayEndText = "16:00";
     private bool _nightSetbackOk = true;
+    private string? FloorplanImageHref =>
+        string.IsNullOrWhiteSpace(_floorplanImageName)
+            ? null
+            : $"/api/floorplan/image?v={_floorplanImageVersion}";
 
     protected override Task OnInitializedAsync() => LoadAsync();
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender)
+            return;
+
+        await RefreshFloorplanPreviewSizeAsync();
+    }
 
     private Task OnGasReminderEnabledChanged(bool value)
     {
@@ -282,6 +436,107 @@
         return InvokeAsync(StateHasChanged);
     }
 
+    private Task OnFloorplanPinEnabledChanged(FloorplanPinSetting row, bool value)
+    {
+        row.Enabled = value;
+        if (value && string.IsNullOrWhiteSpace(_selectedFloorplanRoom))
+            _selectedFloorplanRoom = row.Room;
+        return InvokeAsync(StateHasChanged);
+    }
+
+    private Task OnFloorplanPinXChanged(FloorplanPinSetting row, double value)
+    {
+        row.XPercent = Math.Clamp(value, 0, 100);
+        return InvokeAsync(StateHasChanged);
+    }
+
+    private Task OnFloorplanPinYChanged(FloorplanPinSetting row, double value)
+    {
+        row.YPercent = Math.Clamp(value, 0, 100);
+        return InvokeAsync(StateHasChanged);
+    }
+
+    private Task SelectFloorplanRoom(string room)
+    {
+        _selectedFloorplanRoom = room;
+        var row = _floorplanPins.FirstOrDefault(r => string.Equals(r.Room, room, StringComparison.OrdinalIgnoreCase));
+        if (row is not null)
+            row.Enabled = true;
+        return InvokeAsync(StateHasChanged);
+    }
+
+    private async Task OnFloorplanPreviewImageLoaded()
+    {
+        await RefreshFloorplanPreviewSizeAsync();
+    }
+
+    private async Task RefreshFloorplanPreviewSizeAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_floorplanImageName))
+            return;
+        try
+        {
+            var size = await Js.InvokeAsync<FloorplanElementSize>("wiserFloorplan.getElementSize", _floorplanPreviewSurfaceId);
+            _floorplanPreviewWidth = Math.Max(0, size.Width);
+            _floorplanPreviewHeight = Math.Max(0, size.Height);
+        }
+        catch
+        {
+            // best effort
+        }
+    }
+
+    private async Task OnFloorplanSurfaceMouseDown(MouseEventArgs e)
+    {
+        if (string.IsNullOrWhiteSpace(_selectedFloorplanRoom))
+            return;
+
+        _dragFloorplanRoom = _selectedFloorplanRoom;
+        await SetFloorplanPinFromMouseAsync(_dragFloorplanRoom, e);
+    }
+
+    private async Task OnFloorplanSurfaceMouseMove(MouseEventArgs e)
+    {
+        if (string.IsNullOrWhiteSpace(_dragFloorplanRoom))
+            return;
+
+        await SetFloorplanPinFromMouseAsync(_dragFloorplanRoom, e);
+    }
+
+    private Task OnFloorplanSurfaceMouseUp(MouseEventArgs _)
+    {
+        _dragFloorplanRoom = null;
+        return Task.CompletedTask;
+    }
+
+    private async Task OnFloorplanPinMouseDown(FloorplanPinSetting pin, MouseEventArgs e)
+    {
+        _selectedFloorplanRoom = pin.Room;
+        pin.Enabled = true;
+        _dragFloorplanRoom = pin.Room;
+        await SetFloorplanPinFromMouseAsync(pin.Room, e);
+    }
+
+    private async Task SetFloorplanPinFromMouseAsync(string? room, MouseEventArgs e)
+    {
+        if (string.IsNullOrWhiteSpace(room))
+            return;
+
+        if (_floorplanPreviewWidth <= 1 || _floorplanPreviewHeight <= 1)
+            await RefreshFloorplanPreviewSizeAsync();
+        if (_floorplanPreviewWidth <= 1 || _floorplanPreviewHeight <= 1)
+            return;
+
+        var row = _floorplanPins.FirstOrDefault(r => string.Equals(r.Room, room, StringComparison.OrdinalIgnoreCase));
+        if (row is null)
+            return;
+
+        row.Enabled = true;
+        row.XPercent = Math.Clamp((e.OffsetX / _floorplanPreviewWidth) * 100.0, 0, 100);
+        row.YPercent = Math.Clamp((e.OffsetY / _floorplanPreviewHeight) * 100.0, 0, 100);
+        await InvokeAsync(StateHasChanged);
+    }
+
     private Task LoadAsync()
     {
         _rooms.Clear();
@@ -309,7 +564,101 @@
                 room,
                 !activity.TryGetValue(room, out var isActive) || isActive,
                 prioritySet.Contains(room)));
+        LoadFloorplanMapping(rooms);
         return Task.CompletedTask;
+    }
+
+    private void LoadFloorplanMapping(IReadOnlyList<string> rooms)
+    {
+        var cfg = Store.GetFloorplanConfig();
+        _floorplanImageName = cfg.ImageFileName;
+        _floorplanImageContentType = cfg.ImageContentType;
+        _floorplanImageVersion = cfg.UpdatedTs > 0 ? cfg.UpdatedTs : DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+
+        var byRoom = cfg.Pins
+            .Where(p => !string.IsNullOrWhiteSpace(p.Room))
+            .ToDictionary(p => p.Room, StringComparer.OrdinalIgnoreCase);
+
+        _floorplanPins.Clear();
+        foreach (var room in rooms.OrderBy(x => x, StringComparer.OrdinalIgnoreCase))
+        {
+            if (byRoom.TryGetValue(room, out var pin))
+            {
+                _floorplanPins.Add(new FloorplanPinSetting(room, true, pin.XPercent, pin.YPercent));
+            }
+            else
+            {
+                _floorplanPins.Add(new FloorplanPinSetting(room, false, 50, 50));
+            }
+        }
+        _selectedFloorplanRoom = _floorplanPins.FirstOrDefault(static p => p.Enabled)?.Room
+            ?? _floorplanPins.FirstOrDefault()?.Room;
+    }
+
+    private async Task ReloadFloorplanMapping()
+    {
+        var rooms = _rooms.Select(static r => r.Room).ToList();
+        LoadFloorplanMapping(rooms);
+        await RefreshFloorplanPreviewSizeAsync();
+        Snackbar.Add("Floorplan mapping reloaded.", Severity.Info);
+    }
+
+    private async Task SaveFloorplanMappingAsync()
+    {
+        var pins = _floorplanPins
+            .Where(p => p.Enabled)
+            .Select(p => new FloorplanRoomPin(
+                p.Room,
+                Math.Clamp(p.XPercent, 0, 100),
+                Math.Clamp(p.YPercent, 0, 100)))
+            .ToList();
+
+        Store.SaveFloorplanConfig(new FloorplanConfig(
+            _floorplanImageName,
+            _floorplanImageContentType,
+            0,
+            pins));
+
+        _floorplanImageVersion = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+        Snackbar.Add("Floorplan mapping saved.", Severity.Success);
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private async Task OnFloorplanImageUploadAsync(InputFileChangeEventArgs e)
+    {
+        var file = e.File;
+        if (file is null)
+            return;
+
+        _floorplanUploadBusy = true;
+        await InvokeAsync(StateHasChanged);
+        try
+        {
+            await using var stream = file.OpenReadStream(10L * 1024 * 1024);
+            using var content = new MultipartFormDataContent();
+            content.Add(new StreamContent(stream), "file", file.Name);
+
+            using var resp = await Http.PostAsync("api/floorplan/upload", content).ConfigureAwait(false);
+            var body = await resp.Content.ReadAsStringAsync().ConfigureAwait(false);
+            if (!resp.IsSuccessStatusCode)
+            {
+                Snackbar.Add(ParseApiError(body) ?? $"Upload failed: {(int)resp.StatusCode} {resp.ReasonPhrase}", Severity.Error);
+                return;
+            }
+
+            LoadFloorplanMapping(_rooms.Select(static r => r.Room).ToList());
+            await RefreshFloorplanPreviewSizeAsync();
+            Snackbar.Add("Floorplan image uploaded.", Severity.Success);
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+        finally
+        {
+            _floorplanUploadBusy = false;
+            await InvokeAsync(StateHasChanged);
+        }
     }
 
     private Task SaveAsync()
@@ -418,28 +767,36 @@
 
     private async Task ReportRestoreErrorAsync(HttpResponseMessage resp, string body)
     {
+        var parsed = ParseApiError(body);
+        if (!string.IsNullOrWhiteSpace(parsed))
+        {
+            Snackbar.Add(parsed, Severity.Error);
+            return;
+        }
+
+        Snackbar.Add(string.IsNullOrWhiteSpace(body) ? $"{(int)resp.StatusCode} {resp.ReasonPhrase}" : body, Severity.Error);
+    }
+
+    private static string? ParseApiError(string? body)
+    {
+        if (string.IsNullOrWhiteSpace(body))
+            return null;
         try
         {
             using var doc = JsonDocument.Parse(body);
             var root = doc.RootElement;
             if (root.TryGetProperty("error", out var err) && err.ValueKind == JsonValueKind.String)
-            {
-                Snackbar.Add(err.GetString() ?? "Restore failed.", Severity.Error);
-                return;
-            }
+                return err.GetString() ?? "Request failed.";
 
             if (root.TryGetProperty("detail", out var detail) && detail.ValueKind == JsonValueKind.String)
-            {
-                Snackbar.Add(detail.GetString() ?? "Restore failed.", Severity.Error);
-                return;
-            }
+                return detail.GetString() ?? "Request failed.";
         }
         catch (JsonException)
         {
-            // use body below
+            return body;
         }
 
-        Snackbar.Add(string.IsNullOrWhiteSpace(body) ? $"{(int)resp.StatusCode} {resp.ReasonPhrase}" : body, Severity.Error);
+        return body;
     }
 
     /// <summary>
@@ -518,4 +875,22 @@
         public bool IsActive { get; set; }
         public bool IsPriority { get; set; }
     }
+
+    private sealed class FloorplanPinSetting
+    {
+        public FloorplanPinSetting(string room, bool enabled, double xPercent, double yPercent)
+        {
+            Room = room;
+            Enabled = enabled;
+            XPercent = xPercent;
+            YPercent = yPercent;
+        }
+
+        public string Room { get; }
+        public bool Enabled { get; set; }
+        public double XPercent { get; set; }
+        public double YPercent { get; set; }
+    }
+
+    private sealed record FloorplanElementSize(double Width, double Height);
 }
