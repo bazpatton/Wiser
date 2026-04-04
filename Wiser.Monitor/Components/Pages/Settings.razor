@@ -61,7 +61,8 @@
         }
         <MudStack Spacing="2">
             <MudSwitch T="bool"
-                       @bind-Value="_gasReminderEnabled"
+                       Value="_gasReminderEnabled"
+                       ValueChanged="OnGasReminderEnabledChanged"
                        Color="Color.Primary"
                        Class="touch-control"
                        Label="Enable daily reminders" />
@@ -104,7 +105,8 @@
             </MudItem>
             <MudItem xs="12" md="6">
                 <MudSwitch T="bool"
-                           @bind-Value="_weekendDaytimeAway"
+                           Value="_weekendDaytimeAway"
+                           ValueChanged="OnWeekendAwayChanged"
                            Color="Color.Primary"
                            Class="touch-control"
                            Label="Weekends: usually away in daytime" />
@@ -125,7 +127,8 @@
             </MudItem>
             <MudItem xs="12">
                 <MudSwitch T="bool"
-                           @bind-Value="_nightSetbackOk"
+                           Value="_nightSetbackOk"
+                           ValueChanged="OnNightSetbackOkChanged"
                            Color="Color.Primary"
                            Class="touch-control"
                            Label="Comfort setting: small night setback is acceptable" />
@@ -162,7 +165,7 @@
                     <MudTd DataLabel="Priority">
                         <MudSwitch T="bool"
                                    Value="@context.IsPriority"
-                                   ValueChanged="@((value) => context.IsPriority = value)"
+                                   ValueChanged="@((value) => OnRoomPriorityChanged(context, value))"
                                    Color="Color.Secondary" />
                     </MudTd>
                     <MudTd DataLabel="Status">@(context.IsActive ? "Active" : "Inactive")</MudTd>
@@ -202,6 +205,42 @@
     private bool _nightSetbackOk = true;
 
     protected override Task OnInitializedAsync() => LoadAsync();
+
+    private Task OnGasReminderEnabledChanged(bool value)
+    {
+        _gasReminderEnabled = value;
+        return InvokeAsync(StateHasChanged);
+    }
+
+    private Task OnWeekdayAwayChanged(bool value)
+    {
+        _weekdayDaytimeAway = value;
+        return InvokeAsync(StateHasChanged);
+    }
+
+    private Task OnWeekendAwayChanged(bool value)
+    {
+        _weekendDaytimeAway = value;
+        return InvokeAsync(StateHasChanged);
+    }
+
+    private Task OnNightSetbackOkChanged(bool value)
+    {
+        _nightSetbackOk = value;
+        return InvokeAsync(StateHasChanged);
+    }
+
+    private Task OnRoomActiveChanged(RoomActivitySetting row, bool value)
+    {
+        row.IsActive = value;
+        return InvokeAsync(StateHasChanged);
+    }
+
+    private Task OnRoomPriorityChanged(RoomActivitySetting row, bool value)
+    {
+        row.IsPriority = value;
+        return InvokeAsync(StateHasChanged);
+    }
 
     private Task LoadAsync()
     {
