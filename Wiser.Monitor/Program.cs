@@ -1,6 +1,8 @@
 using System.Text.Json;
 using System.Globalization;
 using System.Text;
+using Microsoft.AspNetCore.Components;
+using Microsoft.AspNetCore.Http.Features;
 using Microsoft.AspNetCore.Mvc;
 using MudBlazor.Services;
 using Wiser.Monitor;
@@ -48,6 +50,19 @@ foreach (var err in valErrors.Except(hubConfigurationErrors))
 builder.Services.AddSingleton(monitorOptions);
 builder.Services.AddSingleton<TemperatureStore>();
 builder.Services.AddSingleton<MonitorState>();
+builder.Services.Configure<FormOptions>(o =>
+{
+    o.MultipartBodyLengthLimit = TemperatureStore.MaxDatabaseRestoreBytes;
+});
+builder.WebHost.ConfigureKestrel(o =>
+{
+    o.Limits.MaxRequestBodySize = TemperatureStore.MaxDatabaseRestoreBytes;
+});
+builder.Services.AddScoped(sp =>
+{
+    var nav = sp.GetRequiredService<NavigationManager>();
+    return new HttpClient { BaseAddress = new Uri(nav.BaseUri) };
+});
 builder.Services.AddHttpClient<WiserHubFetch>(c => c.Timeout = TimeSpan.FromSeconds(15));
 builder.Services.AddHttpClient<OutdoorWeatherClient>(c => c.Timeout = TimeSpan.FromSeconds(20));
 builder.Services.AddHttpClient<NtfyClient>(c => c.Timeout = TimeSpan.FromSeconds(15));
@@ -363,6 +378,49 @@ app.MapGet("/api/data-quality-summary", (int? hours, TemperatureStore store) =>
     var summary = store.GetDataQualitySummary(h);
     return Results.Json(summary);
 });
+
+app.MapGet("/api/backup/database", (TemperatureStore store) =>
+{
+    try
+    {
+        var bytes = store.ExportDatabaseBackupBytes();
+        var name = $"wiser-monitor-backup-{DateTimeOffset.UtcNow:yyyyMMdd-HHmmss}Z.sqlite3";
+        return Results.File(bytes, "application/octet-stream", name);
+    }
+    catch (Exception ex)
+    {
+        return Results.Problem(detail: ex.Message);
+    }
+});
+
+app.MapPost("/api/backup/restore", async (IFormFile file, TemperatureStore store) =>
+{
+    if (file is null || file.Length == 0)
+        return Results.BadRequest(new { error = "file is required" });
+    if (file.Length > TemperatureStore.MaxDatabaseRestoreBytes)
+    {
+        return Results.BadRequest(new
+        {
+            error = $"file exceeds max size ({TemperatureStore.MaxDatabaseRestoreBytes} bytes)",
+        });
+    }
+
+    try
+    {
+        await using var stream = file.OpenReadStream();
+        store.RestoreDatabaseFromStream(stream, file.Length);
+    }
+    catch (InvalidOperationException ex)
+    {
+        return Results.BadRequest(new { error = ex.Message });
+    }
+    catch (Exception ex)
+    {
+        return Results.Problem(detail: ex.Message);
+    }
+
+    return Results.Json(new { ok = true });
+}).DisableAntiforgery();
 
 app.MapGet("/api/gas-meter", (TemperatureStore store) =>
 {

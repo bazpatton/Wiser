@@ -130,15 +130,18 @@
                       ChartSeries="_heatCallingTempTsSeries"
                       ChartOptions="_heatCallingTempTsOptions"
                       Width="100%"
-                      Height="220px"
-                      MatchBoundsToSize="false"
+                      Height="260px"
+                      MatchBoundsToSize="true"
                       Class="charts-heat-calling-ts mb-4" />
             }
             <MudText Typo="Typo.subtitle2" Class="mb-1">Valve demand (%)</MudText>
-            @if (!_heatCallingHasValveSeries)
+            <MudText Typo="Typo.caption" Class="mud-text-secondary mb-1 d-block">
+                Legend matches the room chips. A flat line at 0% usually means no percentage-demand samples for that TRV in this window.
+            </MudText>
+            @if (_heatCallingValveTsSeries.Count == 0)
             {
                 <MudAlert Severity="Severity.Info" Dense="true" Class="mb-0">
-                    No valve percentage samples in this window for these rooms (older data or TRVs without PercentageDemand).
+                    No valve series to plot.
                 </MudAlert>
             }
             else
@@ -148,8 +151,8 @@
                           ChartSeries="_heatCallingValveTsSeries"
                           ChartOptions="_heatCallingValveTsOptions"
                           Width="100%"
-                          Height="220px"
-                          MatchBoundsToSize="false"
+                          Height="260px"
+                          MatchBoundsToSize="true"
                           Class="charts-heat-calling-ts" />
             }
         }
@@ -524,7 +527,6 @@
     private int _roomTrendChartRenderKey;
     private List<ChartSeries<double>> _heatCallingTempTsSeries = [];
     private List<ChartSeries<double>> _heatCallingValveTsSeries = [];
-    private bool _heatCallingHasValveSeries;
     private bool _heatCallingHasAnyPlottedSeries;
     private readonly HashSet<string> _heatCallingHiddenRooms = new(StringComparer.OrdinalIgnoreCase);
     private List<string> _heatCallingRoomPickerNames = [];
@@ -538,9 +540,15 @@
         ShowToolTips = true,
         TimeLabelFormat = "HH:mm",
         TimeLabelSpacing = TimeSpan.FromHours(2),
+        TimeLabelSpacingRounding = true,
+        TimeLabelSpacingRoundingPadSeries = true,
         TooltipTimeLabelFormat = "g",
         XAxisTitle = "Time (local, last 24h)",
         YAxisTitle = "°C",
+        // Default grid step is 20 — Room °C in a ~15–25 band was pinned to 0–40. Use 1 °C steps; Clamp expands if the span is huge.
+        YAxisTicks = 1,
+        MaxNumYAxisTicks = 22,
+        YAxisFormat = "F0",
     };
     private readonly TimeSeriesChartOptions _heatCallingValveTsOptions = new()
     {
@@ -548,12 +556,15 @@
         ShowToolTips = true,
         TimeLabelFormat = "HH:mm",
         TimeLabelSpacing = TimeSpan.FromHours(2),
+        TimeLabelSpacingRounding = true,
+        TimeLabelSpacingRoundingPadSeries = true,
         TooltipTimeLabelFormat = "g",
         XAxisTitle = "Time (local, last 24h)",
         YAxisTitle = "Valve %",
         YAxisSuggestedMax = 100,
         YAxisRequireZeroPoint = true,
-        YAxisTicks = 20,
+        YAxisTicks = 10,
+        MaxNumYAxisTicks = 16,
     };
     private readonly List<RoomHeatTile> _roomTiles = [];
     private readonly List<DailySummaryRow> _dailyRows = [];
@@ -682,7 +693,6 @@
         _pointTs = [];
         _heatCallingTempTsSeries = [];
         _heatCallingValveTsSeries = [];
-        _heatCallingHasValveSeries = false;
         _heatCallingHasAnyPlottedSeries = false;
         _heatCallingRoomPickerNames = [];
         _roomTiles.Clear();
@@ -984,6 +994,45 @@
     }
 
     /// <summary>
+    /// Extends plotted points to <paramref name="ws"/>..<paramref name="we"/> so multi-room charts share the same time domain (aligned with temperature).
+    /// </summary>
+    private static List<(DateTime T, double Y)> ExpandHeatCallingTempToWindow(IReadOnlyList<(DateTime T, double Y)> pts, DateTime ws, DateTime we)
+    {
+        if (pts.Count == 0)
+            return [];
+        var list = pts.ToList();
+        if (list[0].T > ws)
+            list.Insert(0, (ws, list[0].Y));
+        if (list[^1].T < we)
+            list.Add((we, list[^1].Y));
+        return list;
+    }
+
+    /// <summary>Core valve samples (trimmed active window when possible); empty if there are no % samples at all.</summary>
+    private static List<(DateTime T, double Y)> ValveCorePointsForHeatChart(IReadOnlyList<(DateTime T, double Y)> valvePairsFull)
+    {
+        var trimmed = TrimValveDemandWindowForChart(valvePairsFull);
+        if (trimmed.Count > 0)
+            return trimmed;
+        return valvePairsFull.Count > 0 ? [.. valvePairsFull] : [];
+    }
+
+    /// <summary>
+    /// Pads valve series to the shared window: idle before demand uses 0%; tail extends with the last sample.
+    /// </summary>
+    private static List<(DateTime T, double Y)> ExpandHeatCallingValveToWindow(IReadOnlyList<(DateTime T, double Y)> core, DateTime ws, DateTime we)
+    {
+        if (core.Count == 0)
+            return [(ws, 0.0), (we, 0.0)];
+        var list = core.ToList();
+        if (list[0].T > ws)
+            list.Insert(0, (ws, 0.0));
+        if (list[^1].T < we)
+            list.Add((we, list[^1].Y));
+        return list;
+    }
+
+    /// <summary>
     /// Multi-room 24h view: same per-room series as <see cref="LoadChartAsync"/> (temp + valve %), using MudChart timeseries (DateTime X).
     /// </summary>
     private void BuildHeatCallingRoomsTimeseries(long sinceTsUtc)
@@ -1006,23 +1055,40 @@
 
         _heatCallingRoomPickerNames = [.. orderedRooms.Select(static x => x.Room)];
 
+        DateTime ws = DateTime.MaxValue;
+        DateTime we = DateTime.MinValue;
+        foreach (var (_, rows) in orderedRooms)
+        {
+            foreach (var r in rows)
+            {
+                var t = TsToHeatChartDateTime(r.Ts);
+                if (t < ws)
+                    ws = t;
+                if (t > we)
+                    we = t;
+            }
+        }
+
+        if (we <= ws)
+            we = ws.AddMinutes(1);
+
         var tempSeries = new List<ChartSeries<double>>(orderedRooms.Count);
         var valveSeries = new List<ChartSeries<double>>(orderedRooms.Count);
-        var anyValve = false;
 
         foreach (var (room, rows) in orderedRooms)
         {
             var visible = !_heatCallingHiddenRooms.Contains(room);
             var dedup = rows.GroupBy(static r => r.Ts).Select(static g => g.Last()).ToList();
 
-            var tempPairs = dedup
+            var tempPairsRaw = dedup
                 .Where(r => IsPlausibleHeatChartTemp(r.TempC))
                 .Select(r => (TsToHeatChartDateTime(r.Ts), r.TempC))
                 .OrderBy(x => x.Item1)
                 .ToList();
 
-            if (tempPairs.Count > 0)
+            if (tempPairsRaw.Count > 0)
             {
+                var tempPairs = ExpandHeatCallingTempToWindow(tempPairsRaw, ws, we);
                 tempSeries.Add(new ChartSeries<double>
                 {
                     Name = room,
@@ -1040,12 +1106,9 @@
                 .OrderBy(x => x.Item1)
                 .ToList();
 
-            var valvePairs = TrimValveDemandWindowForChart(valvePairsFull);
+            var valveCore = ValveCorePointsForHeatChart(valvePairsFull);
+            var valvePairs = ExpandHeatCallingValveToWindow(valveCore, ws, we);
 
-            if (valvePairs.Count == 0)
-                continue;
-
-            anyValve = true;
             valveSeries.Add(new ChartSeries<double>
             {
                 Name = room,
@@ -1059,7 +1122,6 @@
 
         _heatCallingTempTsSeries = tempSeries;
         _heatCallingValveTsSeries = valveSeries;
-        _heatCallingHasValveSeries = anyValve;
         _heatCallingHasAnyPlottedSeries = tempSeries.Count > 0 || valveSeries.Count > 0;
 
         var estPoints = orderedRooms.Sum(x => x.Rows.Count);

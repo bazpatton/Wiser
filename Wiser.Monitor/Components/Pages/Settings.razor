@@ -1,14 +1,19 @@
 @page "/settings"
 @rendermode InteractiveServer
 @using System.Globalization
+@using System.Net.Http
+@using System.Text.Json
 
 @inject TemperatureStore Store
 @inject MonitorOptions Options
 @inject ISnackbar Snackbar
+@inject IDialogService DialogService
+@inject HttpClient Http
+@inject NavigationManager Nav
 
 <PageTitle>Wiser Monitor - Settings</PageTitle>
 
-<MudStack Spacing="3">
+<MudStack Spacing="3" Class="settings-page">
     <MudPaper Class="pa-4 page-header-card">
         <MudText Typo="Typo.h5">
             <i class="fa-solid fa-gear"></i> Settings
@@ -137,6 +142,39 @@
 
         <MudDivider Class="my-3" />
 
+        <MudText Typo="Typo.subtitle1" Class="mb-2">Database backup and restore</MudText>
+        <MudText Typo="Typo.body2" Class="mud-text-secondary mb-2">
+            Download a snapshot of your SQLite history, or restore from a file created with Download backup on this or another instance.
+            Restore replaces the live database; the previous file is kept in the data directory as
+            <code>wiser_monitor.pre-restore-*.sqlite3</code>.
+            Maximum upload size is 512&nbsp;MB.
+        </MudText>
+        <MudAlert Severity="Severity.Warning" Dense="true" Class="mb-2">
+            Restoring overwrites current readings and settings in the database (after saving a pre-restore copy). You may need to refresh the browser.
+        </MudAlert>
+        <MudStack Row="true" Spacing="2" Class="flex-wrap">
+            <MudButton Variant="Variant.Outlined"
+                       Color="Color.Primary"
+                       Href="@Nav.ToAbsoluteUri("/api/backup/database").ToString()"
+                       StartIcon="@Icons.Material.Filled.Download">
+                Download backup
+            </MudButton>
+            <MudButton Variant="Variant.Outlined"
+                       Color="Color.Warning"
+                       HtmlTag="label"
+                       for="@_restoreFileId"
+                       StartIcon="@Icons.Material.Filled.UploadFile"
+                       Disabled="@_restoreBusy">
+                Restore from file…
+            </MudButton>
+            <InputFile id="@_restoreFileId"
+                       OnChange="OnRestoreBackupAsync"
+                       accept=".sqlite3,.db,application/x-sqlite3,application/octet-stream"
+                       class="settings-input-file-hidden" />
+        </MudStack>
+
+        <MudDivider Class="my-3" />
+
         <MudText Typo="Typo.subtitle1" Class="mb-2">Room activity profile</MudText>
         <MudText Typo="Typo.body2" Class="mud-text-secondary mb-2">
             Active affects chart recommendation ranges. Priority marks rooms where comfort matters most for schedule suggestions.
@@ -192,6 +230,8 @@
 
 @code {
     private readonly List<RoomActivitySetting> _rooms = [];
+    private readonly string _restoreFileId = $"restore-db-{Guid.NewGuid():N}";
+    private bool _restoreBusy;
     private string _ignoreStartText = "00:00";
     private string _ignoreEndText = "07:00";
     private bool _gasReminderEnabled;
@@ -330,6 +370,76 @@
     {
         _ignoreEndText = value;
         return Task.CompletedTask;
+    }
+
+    private async Task OnRestoreBackupAsync(InputFileChangeEventArgs e)
+    {
+        var file = e.File;
+        if (file is null)
+            return;
+
+        var confirm = await DialogService.ShowMessageBoxAsync(
+            "Replace database?",
+            $"Restore from “{file.Name}”? This replaces the live database. The current file is copied aside first.",
+            yesText: "Restore",
+            noText: null,
+            cancelText: "Cancel");
+        if (confirm is not true)
+            return;
+
+        _restoreBusy = true;
+        await InvokeAsync(StateHasChanged);
+        try
+        {
+            await using var stream = file.OpenReadStream(TemperatureStore.MaxDatabaseRestoreBytes);
+            using var content = new MultipartFormDataContent();
+            content.Add(new StreamContent(stream), "file", file.Name);
+            using var resp = await Http.PostAsync("api/backup/restore", content).ConfigureAwait(false);
+            var body = await resp.Content.ReadAsStringAsync().ConfigureAwait(false);
+            if (!resp.IsSuccessStatusCode)
+            {
+                await ReportRestoreErrorAsync(resp, body).ConfigureAwait(false);
+                return;
+            }
+
+            Snackbar.Add("Database restored from backup.", Severity.Success);
+            await LoadAsync();
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+        finally
+        {
+            _restoreBusy = false;
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private async Task ReportRestoreErrorAsync(HttpResponseMessage resp, string body)
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(body);
+            var root = doc.RootElement;
+            if (root.TryGetProperty("error", out var err) && err.ValueKind == JsonValueKind.String)
+            {
+                Snackbar.Add(err.GetString() ?? "Restore failed.", Severity.Error);
+                return;
+            }
+
+            if (root.TryGetProperty("detail", out var detail) && detail.ValueKind == JsonValueKind.String)
+            {
+                Snackbar.Add(detail.GetString() ?? "Restore failed.", Severity.Error);
+                return;
+            }
+        }
+        catch (JsonException)
+        {
+            // use body below
+        }
+
+        Snackbar.Add(string.IsNullOrWhiteSpace(body) ? $"{(int)resp.StatusCode} {resp.ReasonPhrase}" : body, Severity.Error);
     }
 
     /// <summary>

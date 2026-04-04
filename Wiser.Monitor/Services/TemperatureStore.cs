@@ -1,5 +1,7 @@
 using Microsoft.Data.Sqlite;
+using System.Buffers;
 using System.Globalization;
+using System.Text;
 using System.Text.Json;
 using Wiser.Monitor;
 
@@ -7,6 +9,9 @@ namespace Wiser.Monitor.Services;
 
 public sealed class TemperatureStore
 {
+    /// <summary>Upper bound for uploaded restore files (bytes).</summary>
+    public const long MaxDatabaseRestoreBytes = 512L * 1024 * 1024;
+
     private readonly string _path;
     private readonly object _gate = new();
 
@@ -189,6 +194,200 @@ public sealed class TemperatureStore
             cmd.ExecuteNonQuery();
         }
         return c;
+    }
+
+    private void RunWalCheckpointFull()
+    {
+        using var c = Open();
+        using var cmd = c.CreateCommand();
+        cmd.CommandText = "PRAGMA wal_checkpoint(FULL);";
+        cmd.ExecuteNonQuery();
+    }
+
+    /// <summary>
+    /// Creates a consistent snapshot via <c>VACUUM INTO</c> (standalone file, no WAL).
+    /// Caller should delete the returned path after reading. Thread-safe.
+    /// </summary>
+    public string ExportDatabaseBackupToTempFile()
+    {
+        var dir = Path.GetDirectoryName(_path);
+        if (string.IsNullOrEmpty(dir))
+            throw new InvalidOperationException("Invalid database path.");
+        Directory.CreateDirectory(dir);
+        var tempOut = Path.Combine(dir, $"wiser-backup-{Guid.NewGuid():N}.sqlite3");
+        var escaped = SqliteVacuumIntoPathLiteral(tempOut);
+
+        lock (_gate)
+        {
+            RunWalCheckpointFull();
+            using (var c = Open())
+            using (var cmd = c.CreateCommand())
+            {
+                cmd.CommandText = $"VACUUM INTO '{escaped}';";
+                cmd.ExecuteNonQuery();
+            }
+        }
+
+        if (!File.Exists(tempOut))
+            throw new InvalidOperationException("Backup failed: output file was not created.");
+        return tempOut;
+    }
+
+    /// <summary>In-memory backup for download endpoints (deletes temp file after read).</summary>
+    public byte[] ExportDatabaseBackupBytes()
+    {
+        var path = ExportDatabaseBackupToTempFile();
+        try
+        {
+            return File.ReadAllBytes(path);
+        }
+        finally
+        {
+            TryDeleteFile(path);
+        }
+    }
+
+    /// <summary>
+    /// Replace the live database with <paramref name="source"/> (must be a valid Wiser Monitor SQLite file).
+    /// Backs up the current file, then runs <see cref="InitDb"/> so schema migrations apply to older backups.
+    /// </summary>
+    public void RestoreDatabaseFromStream(Stream source, long? declaredMaxBytes = null)
+    {
+        ArgumentNullException.ThrowIfNull(source);
+        var max = declaredMaxBytes is { } d
+            ? Math.Min(d, MaxDatabaseRestoreBytes)
+            : MaxDatabaseRestoreBytes;
+
+        var dir = Path.GetDirectoryName(_path);
+        if (string.IsNullOrEmpty(dir))
+            throw new InvalidOperationException("Invalid database path.");
+        Directory.CreateDirectory(dir);
+
+        var tempNew = Path.Combine(dir, $"wiser-restore-{Guid.NewGuid():N}.sqlite3");
+        var moved = false;
+        try
+        {
+            CopyStreamWithLimit(source, tempNew, max);
+            ValidateRestorableDatabase(tempNew);
+
+            lock (_gate)
+            {
+                RunWalCheckpointFull();
+
+                var stamp = DateTimeOffset.UtcNow.ToString("yyyyMMdd-HHmmss", CultureInfo.InvariantCulture);
+                if (File.Exists(_path))
+                {
+                    var preBackup = Path.Combine(dir, $"wiser_monitor.pre-restore-{stamp}-{Guid.NewGuid():N}.sqlite3");
+                    File.Copy(_path, preBackup, overwrite: true);
+
+                    DeleteWalSidecarFiles(_path);
+                    File.Delete(_path);
+                }
+
+                File.Move(tempNew, _path);
+                moved = true;
+            }
+        }
+        finally
+        {
+            if (!moved)
+                TryDeleteFile(tempNew);
+        }
+
+        InitDb();
+    }
+
+    private static void CopyStreamWithLimit(Stream source, string destPath, long maxBytes)
+    {
+        using var fs = File.Create(destPath);
+        var buffer = ArrayPool<byte>.Shared.Rent(65536);
+        try
+        {
+            long total = 0;
+            int read;
+            while ((read = source.Read(buffer, 0, buffer.Length)) > 0)
+            {
+                total += read;
+                if (total > maxBytes)
+                    throw new InvalidOperationException($"Restore file exceeds maximum size ({maxBytes} bytes).");
+                fs.Write(buffer, 0, read);
+            }
+        }
+        finally
+        {
+            ArrayPool<byte>.Shared.Return(buffer);
+        }
+    }
+
+    private static void ValidateRestorableDatabase(string path)
+    {
+        var len = new FileInfo(path).Length;
+        if (len < 100)
+            throw new InvalidOperationException("File is too small to be a SQLite database.");
+
+        Span<byte> magic = stackalloc byte[16];
+        using (var fs = File.OpenRead(path))
+        {
+            if (fs.Read(magic) < 16)
+                throw new InvalidOperationException("Could not read the uploaded file.");
+        }
+
+        var sig = Encoding.ASCII.GetString(magic);
+        if (!sig.StartsWith("SQLite format 3", StringComparison.Ordinal))
+            throw new InvalidOperationException("Not a SQLite database (wrong file header).");
+
+        var csb = new SqliteConnectionStringBuilder { DataSource = path, Mode = SqliteOpenMode.ReadOnly, Cache = SqliteCacheMode.Shared }.ToString();
+        using var c = new SqliteConnection(csb);
+        c.Open();
+        using var cmd = c.CreateCommand();
+        cmd.CommandText =
+            """
+            SELECT COUNT(*) FROM sqlite_master
+            WHERE type='table' AND name IN ('room_readings','app_settings');
+            """;
+        var n = Convert.ToInt32(cmd.ExecuteScalar(), CultureInfo.InvariantCulture);
+        if (n < 2)
+            throw new InvalidOperationException("This file does not look like a Wiser Monitor database (missing core tables).");
+
+        cmd.CommandText = "PRAGMA quick_check;";
+        using (var r = cmd.ExecuteReader())
+        {
+            if (!r.Read())
+                throw new InvalidOperationException("SQLite integrity check returned no result.");
+            var quick = r.IsDBNull(0) ? null : r.GetString(0);
+            if (!string.Equals(quick, "ok", StringComparison.OrdinalIgnoreCase))
+                throw new InvalidOperationException($"SQLite integrity check failed: {quick ?? "unknown"}");
+        }
+    }
+
+    private static string SqliteVacuumIntoPathLiteral(string fullPath)
+    {
+        var full = Path.GetFullPath(fullPath);
+        return full.Replace("\\", "/", StringComparison.Ordinal).Replace("'", "''", StringComparison.Ordinal);
+    }
+
+    private static void DeleteWalSidecarFiles(string dbPath)
+    {
+        foreach (var suffix in new[] { "-wal", "-shm" })
+        {
+            var p = dbPath + suffix;
+            TryDeleteFile(p);
+        }
+    }
+
+    private static void TryDeleteFile(string? path)
+    {
+        if (string.IsNullOrWhiteSpace(path))
+            return;
+        try
+        {
+            if (File.Exists(path))
+                File.Delete(path);
+        }
+        catch
+        {
+            // best effort
+        }
     }
 
     public void InsertRoom(

@@ -252,17 +252,23 @@
 }
 
 /*
- * Time series charts: default MudChart height is 80% + MatchBoundsToSize fills the main content column
- * (often almost the full viewport). Pin a fixed chart height here.
+ * Heat-calling timeseries: MatchBoundsToSize=true uses parent width; keep a slightly taller band
+ * so °C / valve traces are easier to read on wide screens.
  */
+#rooms-calling-heat-trend .charts-heat-calling-ts {
+    display: block;
+    width: 100%;
+    min-width: 0;
+}
+
 #rooms-calling-heat-trend .charts-heat-calling-ts.mud-chart {
-    height: clamp(160px, 22vh, 240px) !important;
-    max-height: 240px;
+    height: clamp(200px, 26vh, 280px) !important;
+    max-height: 280px;
 }
 
 @media (min-width: 600px) {
     #rooms-calling-heat-trend .charts-heat-calling-ts.mud-chart {
-        height: clamp(170px, 20vh, 240px) !important;
+        height: clamp(220px, 24vh, 280px) !important;
     }
 }
 
@@ -393,6 +399,14 @@
 }
 
 .schedules-page .schedule-input-file-hidden {
+    position: absolute;
+    width: 0;
+    height: 0;
+    overflow: hidden;
+    opacity: 0;
+}
+
+.settings-page .settings-input-file-hidden {
     position: absolute;
     width: 0;
     height: 0;
