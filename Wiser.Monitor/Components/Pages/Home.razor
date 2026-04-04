@@ -69,7 +69,7 @@
             </MudButton>
         </MudStack>
         <MudText Typo="Typo.caption" Class="mud-text-secondary d-block mt-1">
-            Room pins are mapped in Settings. Colors reflect temperature vs each room's recommended range. Icons after the temperature compare the latest reading to the previous stored poll (warmer, cooler, or steady).
+            Room pins are mapped in Settings. Colors reflect temperature vs each room's recommended range. A flame before the temperature means the room is calling for heat (hub demand). Icons after the temperature compare the latest reading to the previous poll (warmer, cooler, or steady).
         </MudText>
         @if (FloorplanImageHref is null)
         {
@@ -98,6 +98,10 @@
                         <span class="home-floorplan-pin-label">
                             <span class="home-floorplan-pin-room">@pin.Room</span><span class="home-floorplan-pin-sep">: </span>
                             <span class="home-floorplan-pin-temp-group">
+                                @if (pin.CallingForHeat)
+                                {
+                                    <i class="fa-solid fa-fire-flame-curved home-floorplan-pin-heat-icon" aria-hidden="true"></i>
+                                }
                                 <span class="home-floorplan-pin-temp">@pin.TempText</span>
                                 @if (pin.TrendIconClass is not null)
                                 {
@@ -659,6 +663,7 @@
                     "#64748b",
                     "—",
                     null,
+                    false,
                     $"{room}: no current reading"));
                 continue;
             }
@@ -667,9 +672,11 @@
             var (rangeMin, rangeMax) = GetRecommendedTempRange(room, isActive);
             var color = ComfortColors.GetGradientColor(latest.TempC, rangeMin, rangeMax);
             var tempText = $"{latest.TempC:0.0}C";
+            var callingHeat = latest.CallingForHeat;
             var tooltip =
                 $"{room}: {latest.TempC:0.0}C. Recommended {rangeMin:0.#}-{rangeMax:0.#}C"
-                + (isActive ? string.Empty : " (inactive profile)");
+                + (isActive ? string.Empty : " (inactive profile)")
+                + (callingHeat ? " · Calling for heat" : string.Empty);
 
             string? trendIcon = null;
             if (TryGetRoomPollTrendDelta(room, out var trendDelta))
@@ -685,6 +692,7 @@
                 color,
                 tempText,
                 trendIcon,
+                callingHeat,
                 tooltip));
         }
     }
@@ -799,6 +807,7 @@
         string Color,
         string TempText,
         string? TrendIconClass,
+        bool CallingForHeat,
         string Tooltip);
 }
 

@@ -1709,8 +1709,8 @@ public sealed record LatestDto(
     long Ts,
     int? PercentageDemand)
 {
-    /// <summary>Hub reports demand via valve % and/or TRV output (see <see cref="HeatDemand"/>).</summary>
-    public bool CallingForHeat => HeatDemand != 0;
+    /// <summary>Hub reports demand via TRV output and/or valve percentage.</summary>
+    public bool CallingForHeat => HeatDemand != 0 || (PercentageDemand ?? 0) > 0;
 }
 
 public sealed record LatestSystemSnapshot(long Ts, bool HeatingRelayOn, bool HeatingActive);
@@ -1724,7 +1724,7 @@ public sealed record RoomSeriesRow(
     int HeatDemand,
     int? PercentageDemand)
 {
-    public bool CallingForHeat => HeatDemand != 0;
+    public bool CallingForHeat => HeatDemand != 0 || (PercentageDemand ?? 0) > 0;
 }
 public sealed record OutdoorSeriesRow(long Ts, double TempC);
 

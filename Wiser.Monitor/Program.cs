@@ -820,7 +820,7 @@ internal sealed record SeriesRoomRowDto(
     int? PercentageDemand,
     double? OutdoorC)
 {
-    public bool CallingForHeat => HeatDemand != 0;
+    public bool CallingForHeat => HeatDemand != 0 || (PercentageDemand ?? 0) > 0;
 }
 
 internal static class BoostPresets
