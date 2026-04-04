@@ -57,6 +57,51 @@
     </MudPaper>
 
     <MudPaper Class="pa-4 status-card">
+        <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center" Wrap="Wrap.Wrap">
+            <MudText Typo="Typo.h6">
+                <i class="fa-solid fa-map-location-dot"></i> Floorplan temperature overlay
+            </MudText>
+            <MudButton Href="/settings"
+                       Variant="Variant.Text"
+                       Color="Color.Primary"
+                       StartIcon="@Icons.Material.Filled.OpenInNew">
+                Configure
+            </MudButton>
+        </MudStack>
+        <MudText Typo="Typo.caption" Class="mud-text-secondary d-block mt-1">
+            Room pins are mapped in Settings. Colors reflect current temperature against each room's recommended range.
+        </MudText>
+        @if (FloorplanImageHref is null)
+        {
+            <MudAlert Severity="Severity.Info" Dense="true" Class="mt-2">
+                Upload a floorplan image and map room pins in Settings to enable this view.
+            </MudAlert>
+        }
+        else if (_homeFloorplanPins.Count == 0)
+        {
+            <MudAlert Severity="Severity.Info" Dense="true" Class="mt-2">
+                No room pins are mapped yet. Add pin coordinates in Settings.
+            </MudAlert>
+        }
+        else
+        {
+            <div class="home-floorplan-wrap mt-2">
+                <img src="@FloorplanImageHref" alt="House floorplan" class="home-floorplan-image" />
+                @foreach (var pin in _homeFloorplanPins)
+                {
+                    <a class="home-floorplan-pin"
+                       href="@GetRoomDetailsHref(pin.Room)"
+                       style="@($"left:{pin.XPercent:0.##}%;top:{pin.YPercent:0.##}%;--pin-color:{pin.Color};")"
+                       title="@pin.Tooltip">
+                        <span class="home-floorplan-pin-dot"></span>
+                        <span class="home-floorplan-pin-label">@pin.Label</span>
+                    </a>
+                }
+            </div>
+        }
+    </MudPaper>
+
+    <MudPaper Class="pa-4 status-card">
         <MudText Typo="Typo.h6">
             <i class="fa-solid fa-cloud-sun"></i> Heating demand outlook (estimate)
         </MudText>
@@ -134,51 +179,6 @@
                        Class="mt-1">
                 Export CSV (14 days)
             </MudButton>
-        }
-    </MudPaper>
-
-    <MudPaper Class="pa-4 status-card">
-        <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center" Wrap="Wrap.Wrap">
-            <MudText Typo="Typo.h6">
-                <i class="fa-solid fa-map-location-dot"></i> Floorplan temperature overlay
-            </MudText>
-            <MudButton Href="/settings"
-                       Variant="Variant.Text"
-                       Color="Color.Primary"
-                       StartIcon="@Icons.Material.Filled.OpenInNew">
-                Configure
-            </MudButton>
-        </MudStack>
-        <MudText Typo="Typo.caption" Class="mud-text-secondary d-block mt-1">
-            Room pins are mapped in Settings. Colors reflect current temperature against each room's recommended range.
-        </MudText>
-        @if (FloorplanImageHref is null)
-        {
-            <MudAlert Severity="Severity.Info" Dense="true" Class="mt-2">
-                Upload a floorplan image and map room pins in Settings to enable this view.
-            </MudAlert>
-        }
-        else if (_homeFloorplanPins.Count == 0)
-        {
-            <MudAlert Severity="Severity.Info" Dense="true" Class="mt-2">
-                No room pins are mapped yet. Add pin coordinates in Settings.
-            </MudAlert>
-        }
-        else
-        {
-            <div class="home-floorplan-wrap mt-2">
-                <img src="@FloorplanImageHref" alt="House floorplan" class="home-floorplan-image" />
-                @foreach (var pin in _homeFloorplanPins)
-                {
-                    <a class="home-floorplan-pin"
-                       href="@GetRoomDetailsHref(pin.Room)"
-                       style="@($"left:{pin.XPercent:0.##}%;top:{pin.YPercent:0.##}%;--pin-color:{pin.Color};")"
-                       title="@pin.Tooltip">
-                        <span class="home-floorplan-pin-dot"></span>
-                        <span class="home-floorplan-pin-label">@pin.Label</span>
-                    </a>
-                }
-            </div>
         }
     </MudPaper>
 
