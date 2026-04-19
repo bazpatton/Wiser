@@ -1324,6 +1324,7 @@
             .ThenBy(static x => x.SortKeyWithinBand)
             .ThenByDescending(static x => x.TrendDeltaC.HasValue)
             .ThenByDescending(static x => x.TrendDeltaC)
+            .ThenBy(static x => RoomDisplayPriority.KindOrder(x.Room))
             .ThenBy(static x => x.Room, StringComparer.OrdinalIgnoreCase));
     }
 
