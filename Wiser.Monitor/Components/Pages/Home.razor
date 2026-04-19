@@ -7,6 +7,7 @@
 @inject TemperatureStore Store
 @inject OutdoorWeatherClient OutdoorWeather
 @inject WiserHubFetch Hub
+@inject RoomsLiveDataCache RoomsCache
 
 <PageTitle>Wiser Monitor</PageTitle>
 
@@ -347,6 +348,8 @@
     private readonly List<DailySummaryRow> _homeDailyRows = [];
     private FloorplanConfig _homeFloorplanConfig = FloorplanConfig.Default;
     private readonly List<HomeFloorplanPin> _homeFloorplanPins = [];
+    /// <summary>Live hub °C per room (same source as <c>/rooms</c>); merged onto DB-backed tiles/floorplan.</summary>
+    private Dictionary<string, HubLiveRoom>? _liveHubByRoom;
     private double? _outlookPastWeekHddSum;
     private double? _outlookForecastWeekHddSum;
 
@@ -366,6 +369,11 @@
             ? "No successful poll yet."
             : $"Last OK: {TimeZoneInfo.ConvertTime(DateTimeOffset.FromUnixTimeSeconds(ok.Value), DisplayZone).ToString("g", CultureInfo.CurrentCulture)}";
         _status = $"Poll interval: {Options.IntervalSec}s · Alerts: {(Options.AlertsEnabled ? "On" : "Off")} · {okText}";
+
+        var liveOverview = await LiveHubRoomTemps.TryFetchOverviewAsync(Hub, Options, CancellationToken.None).ConfigureAwait(false);
+        if (liveOverview is not null)
+            RoomsCache.Update(liveOverview);
+        _liveHubByRoom = liveOverview is null ? null : LiveHubRoomTemps.ToAvailableTempByRoomName(liveOverview);
 
         var quality = Store.GetDataQualitySummary(24);
         _qualityTotal24h = quality.TotalIgnored;
@@ -566,18 +574,21 @@
                 continue;
             }
 
-            var current = rows[^1].TempC;
+            var storedCurrent = rows[^1].TempC;
+            var displayTemp = ResolveDisplayTempC(room, storedCurrent);
             var trendRows = rows
                 .Where(x => !IsWithinIgnoreWindow(x.Ts, ignoreStart, ignoreEnd, DisplayZone))
                 .ToList();
             if (trendRows.Count == 0)
             {
                 var (missingMin, missingMax) = GetRecommendedTempRange(room, isActive);
+                var bandColor = ComfortColors.GetGradientColor(displayTemp, missingMin, missingMax);
+                var (cst, csc) = ComfortColors.GetCurrentState(displayTemp, missingMin, missingMax);
                 tiles.Add(new HomeRoomHeatTile(
                     room,
-                    current,
-                    $"{current:0.0}C",
-                    "#334155",
+                    displayTemp,
+                    $"{displayTemp:0.0}C",
+                    bandColor,
                     $"Recommended {missingMin:0.#} - {missingMax:0.#}C",
                     $"No trend data outside ignored window{(isActive ? string.Empty : ", inactive profile")}",
                     $"Ignored {ignoreStart:hh\\:mm}-{ignoreEnd:hh\\:mm}",
@@ -585,8 +596,8 @@
                     -1,
                     0,
                     0,
-                    "Current state unavailable",
-                    "#94a3b8"));
+                    cst,
+                    csc));
                 continue;
             }
 
@@ -612,12 +623,13 @@
             };
             // Too cold: ascending sort key (smallest gap below range first — closest to OK). Too hot / in range: negate so OrderBy puts larger severity first.
             var sortKeyWithinBand = status == "Too cold" ? severity : -severity;
-            var color = ComfortColors.GetGradientColor(average, rangeMin, rangeMax);
-            var (currentStateText, currentStateColor) = ComfortColors.GetCurrentState(current, rangeMin, rangeMax);
+            // Tile colour matches the shown °C (live hub when available), not the 24h average — avoids mismatch with the Rooms page.
+            var color = ComfortColors.GetGradientColor(displayTemp, rangeMin, rangeMax);
+            var (currentStateText, currentStateColor) = ComfortColors.GetCurrentState(displayTemp, rangeMin, rangeMax);
             tiles.Add(new HomeRoomHeatTile(
                 room,
-                current,
-                $"{current:0.0}C",
+                displayTemp,
+                $"{displayTemp:0.0}C",
                 color,
                 $"Recommended {rangeMin:0.#} - {rangeMax:0.#}C",
                 $"{status} (avg {average:0.0}C over {HomeTrendHours}h){(isActive ? string.Empty : ", inactive profile")}",
@@ -636,6 +648,22 @@
             .ThenByDescending(static x => x.TrendDeltaC.HasValue)
             .ThenByDescending(static x => x.TrendDeltaC)
             .ThenBy(static x => x.Room, StringComparer.OrdinalIgnoreCase));
+    }
+
+    private double ResolveDisplayTempC(string room, double storedTempC)
+    {
+        if (_liveHubByRoom is not null
+            && _liveHubByRoom.TryGetValue(room, out var live)
+            && !LiveHubRoomTemps.IsUnavailableTemp(live.TempC))
+            return live.TempC;
+        return storedTempC;
+    }
+
+    private bool ResolveCallingForHeat(string room, LatestDto latestDb)
+    {
+        if (_liveHubByRoom is not null && _liveHubByRoom.TryGetValue(room, out var live))
+            return live.HeatDemand != 0 || (live.PercentageDemand ?? 0) > 0;
+        return latestDb.CallingForHeat;
     }
 
     private void BuildHomeFloorplanOverlay()
@@ -670,11 +698,12 @@
 
             var isActive = !activityMap.TryGetValue(room, out var activeFlag) || activeFlag;
             var (rangeMin, rangeMax) = GetRecommendedTempRange(room, isActive);
-            var color = ComfortColors.GetGradientColor(latest.TempC, rangeMin, rangeMax);
-            var tempText = $"{latest.TempC:0.0}C";
-            var callingHeat = latest.CallingForHeat;
+            var displayTemp = ResolveDisplayTempC(room, latest.TempC);
+            var color = ComfortColors.GetGradientColor(displayTemp, rangeMin, rangeMax);
+            var tempText = $"{displayTemp:0.0}C";
+            var callingHeat = ResolveCallingForHeat(room, latest);
             var tooltip =
-                $"{room}: {latest.TempC:0.0}C. Recommended {rangeMin:0.#}-{rangeMax:0.#}C"
+                $"{room}: {displayTemp:0.0}C. Recommended {rangeMin:0.#}-{rangeMax:0.#}C"
                 + (isActive ? string.Empty : " (inactive profile)")
                 + (callingHeat ? " · Calling for heat" : string.Empty);
 

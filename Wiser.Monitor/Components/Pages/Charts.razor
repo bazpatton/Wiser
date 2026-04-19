@@ -8,6 +8,8 @@
 @inject TemperatureStore Store
 @inject MonitorOptions Options
 @inject IBrowserViewportService Viewport
+@inject WiserHubFetch Hub
+@inject RoomsLiveDataCache RoomsCache
 
 <PageTitle>Wiser Monitor - Charts</PageTitle>
 
@@ -582,6 +584,7 @@
     private string[] _runtimeDistributionLabels = [];
     private List<ChartSeries<double>> _runtimeDistributionSeries = [];
     private Dictionary<string, bool> _roomIsActiveMap = new(StringComparer.OrdinalIgnoreCase);
+    private Dictionary<string, HubLiveRoom>? _liveHubByRoom;
     private readonly Guid _viewportObserverId = Guid.NewGuid();
     private bool _compactChartAxes;
     private readonly LineChartOptions _roomTrendTempLineOptions = new()
@@ -761,7 +764,7 @@
         return LoadChartAsync();
     }
 
-    private Task LoadChartAsync()
+    private async Task LoadChartAsync()
     {
         _error = null;
         _roomTrendTempSeries = [];
@@ -784,6 +787,11 @@
 
         try
         {
+            var liveOverview = await LiveHubRoomTemps.TryFetchOverviewAsync(Hub, Options, CancellationToken.None).ConfigureAwait(false);
+            if (liveOverview is not null)
+                RoomsCache.Update(liveOverview);
+            _liveHubByRoom = liveOverview is null ? null : LiveHubRoomTemps.ToAvailableTempByRoomName(liveOverview);
+
             LoadRooms();
             LoadGasWeekInsights();
 
@@ -829,8 +837,6 @@
             _error = $"Failed loading chart data: {ex.Message}";
         }
         _lastRefreshAt = DateTimeOffset.Now;
-
-        return Task.CompletedTask;
     }
 
     private Task OnGasWeeksChanged(int weeks)
@@ -1201,6 +1207,15 @@
         StateHasChanged();
     }
 
+    private double ResolveDisplayTempC(string room, double storedTempC)
+    {
+        if (_liveHubByRoom is not null
+            && _liveHubByRoom.TryGetValue(room, out var live)
+            && !LiveHubRoomTemps.IsUnavailableTemp(live.TempC))
+            return live.TempC;
+        return storedTempC;
+    }
+
     private void BuildRoomHeatMap(long sinceTs)
     {
         if (_rooms.Count == 0)
@@ -1236,18 +1251,21 @@
                 continue;
             }
 
-            var current = rows[^1].TempC;
+            var storedCurrent = rows[^1].TempC;
+            var displayTemp = ResolveDisplayTempC(room, storedCurrent);
             var trendRows = rows
                 .Where(x => !IsWithinIgnoreWindow(x.Ts, ignoreStart, ignoreEnd, DisplayZone))
                 .ToList();
             if (trendRows.Count == 0)
             {
                 var (missingMin, missingMax) = GetRecommendedTempRange(room, isActive);
+                var bandColor = ComfortColors.GetGradientColor(displayTemp, missingMin, missingMax);
+                var (cst, csc) = ComfortColors.GetCurrentState(displayTemp, missingMin, missingMax);
                 tiles.Add(new RoomHeatTile(
                     room,
-                    current,
-                    $"{current:0.0}C",
-                    "#334155",
+                    displayTemp,
+                    $"{displayTemp:0.0}C",
+                    bandColor,
                     $"Recommended {missingMin:0.#} - {missingMax:0.#}C",
                     $"No trend data outside ignored window{(isActive ? string.Empty : ", inactive profile")}",
                     $"Ignored {ignoreStart:hh\\:mm}-{ignoreEnd:hh\\:mm}",
@@ -1255,8 +1273,8 @@
                     -1,
                     0,
                     0,
-                    "Current state unavailable",
-                    "#94a3b8"));
+                    cst,
+                    csc));
                 continue;
             }
 
@@ -1283,12 +1301,12 @@
             };
             var sortKeyWithinBand = status == "Too cold" ? severity : -severity;
 
-            var color = ComfortColors.GetGradientColor(average, rangeMin, rangeMax);
-            var (currentStateText, currentStateColor) = ComfortColors.GetCurrentState(current, rangeMin, rangeMax);
+            var color = ComfortColors.GetGradientColor(displayTemp, rangeMin, rangeMax);
+            var (currentStateText, currentStateColor) = ComfortColors.GetCurrentState(displayTemp, rangeMin, rangeMax);
             tiles.Add(new RoomHeatTile(
                 room,
-                current,
-                $"{current:0.0}C",
+                displayTemp,
+                $"{displayTemp:0.0}C",
                 color,
                 $"Recommended {rangeMin:0.#} - {rangeMax:0.#}C",
                 $"{status} (avg {average:0.0}C over {_hours}h){(isActive ? string.Empty : ", inactive profile")}",
