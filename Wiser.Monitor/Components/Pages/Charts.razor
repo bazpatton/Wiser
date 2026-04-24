@@ -466,7 +466,8 @@
                                Class="touch-control">
                         @for (var w = 4; w <= 16; w++)
                         {
-                            <MudSelectItem Value="@w">@w weeks</MudSelectItem>
+                            var weeksOption = w;
+                            <MudSelectItem Value="@weeksOption">@weeksOption weeks</MudSelectItem>
                         }
                     </MudSelect>
                 </MudItem>
