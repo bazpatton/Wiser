@@ -163,6 +163,109 @@
             }
         }
     </MudPaper>
+
+    <MudGrid Spacing="2" Class="charts-two-col-row">
+        <MudItem xs="12" md="6" Class="charts-grid-cell">
+            <MudPaper Class="pa-3 chart-card charts-grid-paper">
+                <MudText Typo="Typo.h6" Class="mb-2">
+                    <i class="fa-solid fa-gauge-high"></i> Per-room efficiency score
+                </MudText>
+                <MudText Typo="Typo.caption" Class="mud-text-secondary d-block mb-2">
+                    Estimated as positive room temperature gain (°C) per boiler relay-on minute in the selected window.
+                    Lower or negative values can indicate underperforming emitters or heat loss.
+                </MudText>
+                @if (_roomEfficiencyRows.Count == 0)
+                {
+                    <MudAlert Severity="Severity.Info" Dense="true">No efficiency rows yet.</MudAlert>
+                }
+                else
+                {
+                    <MudTable T="RoomEfficiencyRow" Dense="true" Hover="true" Breakpoint="Breakpoint.Sm" Items="_roomEfficiencyRows">
+                        <HeaderContent>
+                            <MudTh>Room</MudTh>
+                            <MudTh Class="text-right">Score (°C/min)</MudTh>
+                            <MudTh Class="text-right">vs prev week</MudTh>
+                            <MudTh Class="text-right">Temp gain (°C)</MudTh>
+                            <MudTh Class="text-right">Relay min</MudTh>
+                            <MudTh>Note</MudTh>
+                        </HeaderContent>
+                        <RowTemplate>
+                            <MudTd DataLabel="Room">
+                                <MudLink Href="@GetRoomDetailsHref(context.Room)">@context.Room</MudLink>
+                            </MudTd>
+                            <MudTd DataLabel="Score" Class="text-right">@Fmt(context.ScoreCPerRelayMinute)</MudTd>
+                            <MudTd DataLabel="vs prev week" Class="text-right">@FormatEfficiencyTrend(context.WeeklyDeltaCPerRelayMinute)</MudTd>
+                            <MudTd DataLabel="Temp gain" Class="text-right">@Fmt(context.PositiveTempGainC)</MudTd>
+                            <MudTd DataLabel="Relay min" Class="text-right">@Fmt(context.RelayMinutes)</MudTd>
+                            <MudTd DataLabel="Note">
+                                @if (context.IsLowConfidence)
+                                {
+                                    <MudTooltip Text="Low confidence: relay-on minutes are low in this window, so efficiency can swing more with small temperature changes.">
+                                        <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined" Color="Color.Warning">
+                                            Low confidence
+                                        </MudChip>
+                                    </MudTooltip>
+                                }
+                                else
+                                {
+                                    @context.Note
+                                }
+                            </MudTd>
+                        </RowTemplate>
+                    </MudTable>
+                }
+            </MudPaper>
+        </MudItem>
+        <MudItem xs="12" md="6" Class="charts-grid-cell">
+            <MudPaper Class="pa-3 chart-card charts-grid-paper">
+                <MudText Typo="Typo.h6" Class="mb-2">
+                    <i class="fa-solid fa-arrows-rotate"></i> Boiler cycle health
+                </MudText>
+                <MudText Typo="Typo.caption" Class="mud-text-secondary d-block mb-2">
+                    Short-cycle estimate from relay on/off transitions in poll data. Very short runs can indicate inefficiency.
+                </MudText>
+                @if (_boilerCycleSummary is null)
+                {
+                    <MudAlert Severity="Severity.Info" Dense="true">No boiler cycle data in this window.</MudAlert>
+                }
+                else
+                {
+                    <MudGrid Spacing="1">
+                        <MudItem xs="6" sm="3">
+                            <MudText Typo="Typo.caption" Class="mud-text-secondary">Cycles</MudText>
+                            <MudText Typo="Typo.body1">@_boilerCycleSummary.TotalCycles</MudText>
+                        </MudItem>
+                        <MudItem xs="6" sm="3">
+                            <MudText Typo="Typo.caption" Class="mud-text-secondary">Short cycles</MudText>
+                            <MudText Typo="Typo.body1">@_boilerCycleSummary.ShortCycles</MudText>
+                        </MudItem>
+                        <MudItem xs="6" sm="3">
+                            <MudText Typo="Typo.caption" Class="mud-text-secondary">Short ratio</MudText>
+                            <MudText Typo="Typo.body1">@_boilerCycleSummary.ShortCycleRatioText</MudText>
+                        </MudItem>
+                        <MudItem xs="6" sm="3">
+                            <MudText Typo="Typo.caption" Class="mud-text-secondary">Threshold</MudText>
+                            <MudText Typo="Typo.body1">@($"{_boilerCycleSummary.ShortCycleThresholdMin} min")</MudText>
+                        </MudItem>
+                        <MudItem xs="6" sm="3">
+                            <MudText Typo="Typo.caption" Class="mud-text-secondary">Shortest</MudText>
+                            <MudText Typo="Typo.body1">@Fmt(_boilerCycleSummary.ShortestCycleMinutes)</MudText>
+                        </MudItem>
+                        <MudItem xs="6" sm="3">
+                            <MudText Typo="Typo.caption" Class="mud-text-secondary">Median</MudText>
+                            <MudText Typo="Typo.body1">@Fmt(_boilerCycleSummary.MedianCycleMinutes)</MudText>
+                        </MudItem>
+                    </MudGrid>
+                    @if (_boilerCycleSummary.ShortCycleRatio >= 0.35)
+                    {
+                        <MudAlert Severity="Severity.Warning" Dense="true" Class="mt-2">
+                            High short-cycling ratio in this window.
+                        </MudAlert>
+                    }
+                }
+            </MudPaper>
+        </MudItem>
+    </MudGrid>
     </MudStack>
     </MudTabPanel>
 
@@ -397,108 +500,6 @@
         </MudItem>
     </MudGrid>
 
-    <MudGrid Spacing="2" Class="charts-two-col-row">
-        <MudItem xs="12" md="6" Class="charts-grid-cell">
-            <MudPaper Class="pa-3 chart-card charts-grid-paper">
-                <MudText Typo="Typo.h6" Class="mb-2">
-                    <i class="fa-solid fa-gauge-high"></i> Per-room efficiency score
-                </MudText>
-                <MudText Typo="Typo.caption" Class="mud-text-secondary d-block mb-2">
-                    Estimated as positive room temperature gain (°C) per boiler relay-on minute in the selected window.
-                    Lower or negative values can indicate underperforming emitters or heat loss.
-                </MudText>
-                @if (_roomEfficiencyRows.Count == 0)
-                {
-                    <MudAlert Severity="Severity.Info" Dense="true">No efficiency rows yet.</MudAlert>
-                }
-                else
-                {
-                    <MudTable T="RoomEfficiencyRow" Dense="true" Hover="true" Breakpoint="Breakpoint.Sm" Items="_roomEfficiencyRows">
-                        <HeaderContent>
-                            <MudTh>Room</MudTh>
-                            <MudTh Class="text-right">Score (°C/min)</MudTh>
-                            <MudTh Class="text-right">vs prev week</MudTh>
-                            <MudTh Class="text-right">Temp gain (°C)</MudTh>
-                            <MudTh Class="text-right">Relay min</MudTh>
-                            <MudTh>Note</MudTh>
-                        </HeaderContent>
-                        <RowTemplate>
-                            <MudTd DataLabel="Room">
-                                <MudLink Href="@GetRoomDetailsHref(context.Room)">@context.Room</MudLink>
-                            </MudTd>
-                            <MudTd DataLabel="Score" Class="text-right">@Fmt(context.ScoreCPerRelayMinute)</MudTd>
-                            <MudTd DataLabel="vs prev week" Class="text-right">@FormatEfficiencyTrend(context.WeeklyDeltaCPerRelayMinute)</MudTd>
-                            <MudTd DataLabel="Temp gain" Class="text-right">@Fmt(context.PositiveTempGainC)</MudTd>
-                            <MudTd DataLabel="Relay min" Class="text-right">@Fmt(context.RelayMinutes)</MudTd>
-                            <MudTd DataLabel="Note">
-                                @if (context.IsLowConfidence)
-                                {
-                                    <MudTooltip Text="Low confidence: relay-on minutes are low in this window, so efficiency can swing more with small temperature changes.">
-                                        <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined" Color="Color.Warning">
-                                            Low confidence
-                                        </MudChip>
-                                    </MudTooltip>
-                                }
-                                else
-                                {
-                                    @context.Note
-                                }
-                            </MudTd>
-                        </RowTemplate>
-                    </MudTable>
-                }
-            </MudPaper>
-        </MudItem>
-        <MudItem xs="12" md="6" Class="charts-grid-cell">
-            <MudPaper Class="pa-3 chart-card charts-grid-paper">
-                <MudText Typo="Typo.h6" Class="mb-2">
-                    <i class="fa-solid fa-arrows-rotate"></i> Boiler cycle health
-                </MudText>
-                <MudText Typo="Typo.caption" Class="mud-text-secondary d-block mb-2">
-                    Short-cycle estimate from relay on/off transitions in poll data. Very short runs can indicate inefficiency.
-                </MudText>
-                @if (_boilerCycleSummary is null)
-                {
-                    <MudAlert Severity="Severity.Info" Dense="true">No boiler cycle data in this window.</MudAlert>
-                }
-                else
-                {
-                    <MudGrid Spacing="1">
-                        <MudItem xs="6" sm="3">
-                            <MudText Typo="Typo.caption" Class="mud-text-secondary">Cycles</MudText>
-                            <MudText Typo="Typo.body1">@_boilerCycleSummary.TotalCycles</MudText>
-                        </MudItem>
-                        <MudItem xs="6" sm="3">
-                            <MudText Typo="Typo.caption" Class="mud-text-secondary">Short cycles</MudText>
-                            <MudText Typo="Typo.body1">@_boilerCycleSummary.ShortCycles</MudText>
-                        </MudItem>
-                        <MudItem xs="6" sm="3">
-                            <MudText Typo="Typo.caption" Class="mud-text-secondary">Short ratio</MudText>
-                            <MudText Typo="Typo.body1">@_boilerCycleSummary.ShortCycleRatioText</MudText>
-                        </MudItem>
-                        <MudItem xs="6" sm="3">
-                            <MudText Typo="Typo.caption" Class="mud-text-secondary">Threshold</MudText>
-                            <MudText Typo="Typo.body1">@($"{_boilerCycleSummary.ShortCycleThresholdMin} min")</MudText>
-                        </MudItem>
-                        <MudItem xs="6" sm="3">
-                            <MudText Typo="Typo.caption" Class="mud-text-secondary">Shortest</MudText>
-                            <MudText Typo="Typo.body1">@Fmt(_boilerCycleSummary.ShortestCycleMinutes)</MudText>
-                        </MudItem>
-                        <MudItem xs="6" sm="3">
-                            <MudText Typo="Typo.caption" Class="mud-text-secondary">Median</MudText>
-                            <MudText Typo="Typo.body1">@Fmt(_boilerCycleSummary.MedianCycleMinutes)</MudText>
-                        </MudItem>
-                    </MudGrid>
-                    @if (_boilerCycleSummary.ShortCycleRatio >= 0.35)
-                    {
-                        <MudAlert Severity="Severity.Warning" Dense="true" Class="mt-2">
-                            High short-cycling ratio in this window.
-                        </MudAlert>
-                    }
-                }
-            </MudPaper>
-        </MudItem>
-    </MudGrid>
     </MudStack>
     </MudTabPanel>
 
