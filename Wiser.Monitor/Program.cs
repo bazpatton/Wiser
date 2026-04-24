@@ -300,6 +300,101 @@ app.MapPost("/api/room/mode", async (RoomModeRequest body, WiserHubFetch hub, Mo
     }
 });
 
+app.MapPost("/api/rooms/boost", async (BatchBoostRoomsRequest body, WiserHubFetch hub, MonitorOptions o, CancellationToken ct) =>
+{
+    if (!hubConfigured)
+    {
+        return Results.Json(
+            new { error = "Hub is not configured. Set WISER_IP and WISER_SECRET.", configuration_errors = hubConfigurationErrors },
+            statusCode: StatusCodes.Status503ServiceUnavailable);
+    }
+
+    var roomIds = (body.room_ids ?? [])
+        .Where(static x => x > 0)
+        .Distinct()
+        .ToArray();
+    if (roomIds.Length == 0)
+        return Results.BadRequest(new { error = "room_ids must include at least one valid room id" });
+
+    var minutes = Math.Clamp(body.minutes, 5, 240);
+    var tempC = Math.Clamp(Math.Round(body.temperature_c, 1), 5.0, 30.0);
+    var succeeded = new List<int>(roomIds.Length);
+    var failed = new List<object>();
+
+    foreach (var roomId in roomIds)
+    {
+        try
+        {
+            await hub.PatchRoomBoostAsync(o, roomId, tempC, minutes, ct).ConfigureAwait(false);
+            succeeded.Add(roomId);
+        }
+        catch (Exception ex)
+        {
+            failed.Add(new { room_id = roomId, error = ex.Message });
+        }
+    }
+
+    return Results.Json(new
+    {
+        ok = failed.Count == 0,
+        requested = roomIds.Length,
+        succeeded = succeeded.Count,
+        failed = failed.Count,
+        succeeded_room_ids = succeeded,
+        failures = failed,
+        applied = new { temperature_c = tempC, minutes },
+    });
+});
+
+app.MapPost("/api/rooms/mode", async (BatchRoomModeRequest body, WiserHubFetch hub, MonitorOptions o, CancellationToken ct) =>
+{
+    if (!hubConfigured)
+    {
+        return Results.Json(
+            new { error = "Hub is not configured. Set WISER_IP and WISER_SECRET.", configuration_errors = hubConfigurationErrors },
+            statusCode: StatusCodes.Status503ServiceUnavailable);
+    }
+
+    var roomIds = (body.room_ids ?? [])
+        .Where(static x => x > 0)
+        .Distinct()
+        .ToArray();
+    if (roomIds.Length == 0)
+        return Results.BadRequest(new { error = "room_ids must include at least one valid room id" });
+    if (string.IsNullOrWhiteSpace(body.mode))
+        return Results.BadRequest(new { error = "mode is required" });
+
+    var mode = body.mode.Trim().ToLowerInvariant();
+    if (mode is not ("auto" or "manual" or "off"))
+        return Results.BadRequest(new { error = "mode must be auto, manual, or off" });
+
+    var succeeded = new List<int>(roomIds.Length);
+    var failed = new List<object>();
+    foreach (var roomId in roomIds)
+    {
+        try
+        {
+            await hub.PatchRoomModeAsync(o, roomId, mode, body.temperature_c, ct).ConfigureAwait(false);
+            succeeded.Add(roomId);
+        }
+        catch (Exception ex)
+        {
+            failed.Add(new { room_id = roomId, error = ex.Message });
+        }
+    }
+
+    return Results.Json(new
+    {
+        ok = failed.Count == 0,
+        requested = roomIds.Length,
+        succeeded = succeeded.Count,
+        failed = failed.Count,
+        succeeded_room_ids = succeeded,
+        failures = failed,
+        applied = new { mode, temperature_c = body.temperature_c },
+    });
+});
+
 app.MapPost("/api/schedules/apply", async (
     HttpRequest req,
     WiserHubFetch hub,
@@ -836,5 +931,7 @@ internal static class BoostPresets
 internal sealed record BoostRoomRequest(int room_id, double temperature_c, int minutes);
 internal sealed record CancelRoomOverrideRequest(int room_id);
 internal sealed record RoomModeRequest(int room_id, string mode, double? temperature_c);
+internal sealed record BatchBoostRoomsRequest(int[] room_ids, double temperature_c, int minutes);
+internal sealed record BatchRoomModeRequest(int[] room_ids, string mode, double? temperature_c);
 internal sealed record GasMeterCreateRequest(int vol_credit, decimal amount_gbp, string entry_date, string? ocr_raw_json, string? source_image_path);
 internal sealed record GasMeterUpdateRequest(int vol_credit, decimal amount_gbp, string entry_date);
