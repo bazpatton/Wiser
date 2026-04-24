@@ -173,21 +173,20 @@
         </MudText>
         <MudGrid Spacing="2">
             <MudItem xs="12" md="4">
-                <MudTooltip Text="Type to filter when you have many rooms.">
-                    <MudAutocomplete T="string"
-                                     Label="Room"
-                                     Value="_selectedRoom"
-                                     ValueChanged="OnRoomChanged"
-                                     SearchFunc="SearchRoomsAsync"
-                                     CoerceText="true"
-                                     ResetValueOnEmptyText="true"
-                                     Variant="Variant.Outlined"
-                                     Dense="true"
-                                     Margin="Margin.Dense"
-                                     Class="touch-control"
-                                     Immediate="true"
-                                     AdornmentIcon="@Icons.Material.Filled.Search"
-                                     AdornmentColor="Color.Default" />
+                <MudTooltip Text="Choose a room to update the trend chart.">
+                    <MudSelect T="string"
+                               Label="Room"
+                               Value="_selectedRoom"
+                               ValueChanged="OnRoomChanged"
+                               Variant="Variant.Outlined"
+                               Dense="true"
+                               Margin="Margin.Dense"
+                               Class="touch-control">
+                        @foreach (var room in _rooms)
+                        {
+                            <MudSelectItem Value="@room">@room</MudSelectItem>
+                        }
+                    </MudSelect>
                 </MudTooltip>
             </MudItem>
             <MudItem xs="12" sm="6" md="3">
@@ -742,15 +741,6 @@
     {
         _selectedRoom = room ?? string.Empty;
         return LoadChartAsync();
-    }
-
-    private Task<IEnumerable<string>> SearchRoomsAsync(string value, CancellationToken cancellationToken)
-    {
-        cancellationToken.ThrowIfCancellationRequested();
-        if (string.IsNullOrWhiteSpace(value))
-            return Task.FromResult<IEnumerable<string>>(_rooms);
-        return Task.FromResult<IEnumerable<string>>(
-            _rooms.Where(r => r.Contains(value.Trim(), StringComparison.OrdinalIgnoreCase)));
     }
 
     private Task OnHoursChanged(int hours)
