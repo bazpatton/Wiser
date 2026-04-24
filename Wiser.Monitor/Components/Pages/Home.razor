@@ -3,6 +3,7 @@
 @using System.Globalization
 @using System.Net.Http.Json
 @using System.Text.Json
+@using Microsoft.JSInterop
 
 @inject MonitorState MonitorState
 @inject MonitorOptions Options
@@ -12,6 +13,7 @@
 @inject RoomsLiveDataCache RoomsCache
 @inject HttpClient Http
 @inject ISnackbar Snackbar
+@inject IJSRuntime Js
 
 <PageTitle>Wiser Monitor</PageTitle>
 
@@ -114,8 +116,8 @@
                        StartIcon="@Icons.Material.Filled.CalendarMonth"
                        Class="touch-target"
                        Disabled="@(_quickActionsBusy || _quickActionRooms.Count == 0)"
-                       OnClick="SetAwayModeAutoAsync">
-                Set away mode
+                       OnClick="ToggleAwayModeAsync">
+                @(_awayModeActive ? "Unset away mode" : "Set away mode")
             </MudButton>
             <MudButton Href="/gas-meter"
                        Variant="Variant.Outlined"
@@ -416,8 +418,8 @@
                StartIcon="@Icons.Material.Filled.CalendarMonth"
                Class="touch-target"
                Disabled="@(_quickActionsBusy || _quickActionRooms.Count == 0)"
-               OnClick="SetAwayModeAutoAsync">
-        Away mode
+               OnClick="ToggleAwayModeAsync">
+        @(_awayModeActive ? "Unset away" : "Away mode")
     </MudButton>
 </div>
 
@@ -436,8 +438,12 @@
     private readonly List<HeatingSavingsSuggestion> _savingsSuggestions = [];
     private readonly List<DailySummaryRow> _homeDailyRows = [];
     private readonly List<QuickActionRoom> _quickActionRooms = [];
+    private readonly List<AwayRoomSnapshot> _awayModeSnapshot = [];
     private HashSet<string> _boostRoomNames = new(StringComparer.OrdinalIgnoreCase);
     private bool _quickActionsBusy;
+    private bool _awayModeActive;
+    private const string AwayModeActiveStorageKey = "wiser-away-active";
+    private const string AwayModeSnapshotStorageKey = "wiser-away-snapshot";
     private FloorplanConfig _homeFloorplanConfig = FloorplanConfig.Default;
     private readonly List<HomeFloorplanPin> _homeFloorplanPins = [];
     /// <summary>Live hub °C per room (same source as <c>/rooms</c>); merged onto DB-backed tiles/floorplan.</summary>
@@ -455,6 +461,7 @@
 
     protected override async Task OnInitializedAsync()
     {
+        await TryLoadAwayStateAsync();
         var (err, ok) = MonitorState.Snapshot();
         _lastError = err;
         var okText = ok is null
@@ -472,7 +479,14 @@
             _quickActionRooms.Clear();
             _quickActionRooms.AddRange(liveOverview.Rooms
                 .Where(static r => r.Id > 0)
-                .Select(r => new QuickActionRoom(r.Id, r.Name, favoriteRooms.Contains(r.Name)))
+                .Select(r =>
+                {
+                    var modeKey = ResolveModeKey(r.Mode, r.SetpointC);
+                    var manualTemp = modeKey == "manual" && r.SetpointC is >= 5.0 and var sp
+                        ? WiserSetpointDisplay.ToDisplayTargetC(sp)
+                        : (double?)null;
+                    return new QuickActionRoom(r.Id, r.Name, favoriteRooms.Contains(r.Name), modeKey, manualTemp);
+                })
                 .OrderByDescending(static r => r.IsFavorite)
                 .ThenBy(static r => r.Name, StringComparer.OrdinalIgnoreCase));
             _boostRoomNames = _quickActionRooms
@@ -707,10 +721,22 @@
         }
     }
 
+    private async Task ToggleAwayModeAsync()
+    {
+        if (_awayModeActive)
+            await UnsetAwayModeAsync();
+        else
+            await SetAwayModeAutoAsync();
+    }
+
     private async Task SetAwayModeAutoAsync()
     {
         if (_quickActionRooms.Count == 0)
             return;
+
+        _awayModeSnapshot.Clear();
+        _awayModeSnapshot.AddRange(_quickActionRooms.Select(static r =>
+            new AwayRoomSnapshot(r.Id, r.ModeKey, r.ModeKey == "manual" ? r.ManualTemperatureC : null)));
         var roomIds = _quickActionRooms.Select(static r => r.Id).Distinct().ToArray();
         _quickActionsBusy = true;
         try
@@ -732,6 +758,8 @@
             }
             else
             {
+                _awayModeActive = true;
+                await PersistAwayStateAsync();
                 Snackbar.Add($"Away mode set to Auto for {succeeded} room(s).", Severity.Success);
             }
         }
@@ -742,6 +770,102 @@
         finally
         {
             _quickActionsBusy = false;
+        }
+    }
+
+    private async Task UnsetAwayModeAsync()
+    {
+        if (_awayModeSnapshot.Count == 0)
+        {
+            _awayModeActive = false;
+            await ClearAwayStateAsync();
+            Snackbar.Add("Away mode snapshot was not found. Cleared away state.", Severity.Info);
+            return;
+        }
+
+        _quickActionsBusy = true;
+        var succeeded = 0;
+        var failed = 0;
+        foreach (var room in _awayModeSnapshot)
+        {
+            try
+            {
+                using var resp = await Http.PostAsJsonAsync("/api/room/mode", new
+                {
+                    room_id = room.RoomId,
+                    mode = room.Mode,
+                    temperature_c = room.ManualTemperatureC,
+                });
+                if (resp.IsSuccessStatusCode)
+                    succeeded++;
+                else
+                    failed++;
+            }
+            catch
+            {
+                failed++;
+            }
+        }
+
+        _quickActionsBusy = false;
+        if (failed > 0)
+        {
+            Snackbar.Add($"Unset away mode completed with issues: {succeeded} succeeded, {failed} failed.", Severity.Warning);
+            return;
+        }
+
+        _awayModeActive = false;
+        _awayModeSnapshot.Clear();
+        await ClearAwayStateAsync();
+        Snackbar.Add("Away mode unset and prior room modes restored.", Severity.Success);
+    }
+
+    private async Task TryLoadAwayStateAsync()
+    {
+        try
+        {
+            var activeRaw = await Js.InvokeAsync<string?>("localStorage.getItem", AwayModeActiveStorageKey);
+            _awayModeActive = activeRaw == "1";
+            var snapshotRaw = await Js.InvokeAsync<string?>("localStorage.getItem", AwayModeSnapshotStorageKey);
+            if (!string.IsNullOrWhiteSpace(snapshotRaw))
+            {
+                var parsed = JsonSerializer.Deserialize<List<AwayRoomSnapshot>>(snapshotRaw);
+                _awayModeSnapshot.Clear();
+                if (parsed is not null)
+                    _awayModeSnapshot.AddRange(parsed.Where(static x => x.RoomId > 0));
+            }
+        }
+        catch
+        {
+            _awayModeActive = false;
+            _awayModeSnapshot.Clear();
+        }
+    }
+
+    private async Task PersistAwayStateAsync()
+    {
+        try
+        {
+            await Js.InvokeVoidAsync("localStorage.setItem", AwayModeActiveStorageKey, _awayModeActive ? "1" : "0");
+            var json = JsonSerializer.Serialize(_awayModeSnapshot);
+            await Js.InvokeVoidAsync("localStorage.setItem", AwayModeSnapshotStorageKey, json);
+        }
+        catch
+        {
+            // best effort
+        }
+    }
+
+    private async Task ClearAwayStateAsync()
+    {
+        try
+        {
+            await Js.InvokeVoidAsync("localStorage.setItem", AwayModeActiveStorageKey, "0");
+            await Js.InvokeVoidAsync("localStorage.removeItem", AwayModeSnapshotStorageKey);
+        }
+        catch
+        {
+            // best effort
         }
     }
 
@@ -1038,7 +1162,17 @@
         bool CallingForHeat,
         string Tooltip);
 
-    private sealed record QuickActionRoom(int Id, string Name, bool IsFavorite);
+    private static string ResolveModeKey(string? mode, double? setpointC)
+    {
+        if (string.Equals(mode, "Auto", StringComparison.OrdinalIgnoreCase))
+            return "auto";
+        if (setpointC is double sp && sp < 5.0)
+            return "off";
+        return "manual";
+    }
+
+    private sealed record QuickActionRoom(int Id, string Name, bool IsFavorite, string ModeKey, double? ManualTemperatureC);
+    private sealed record AwayRoomSnapshot(int RoomId, string Mode, double? ManualTemperatureC);
 }
 
 <style>
