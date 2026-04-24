@@ -308,7 +308,7 @@
 
         <MudText Typo="Typo.subtitle1" Class="mb-2">Room activity profile</MudText>
         <MudText Typo="Typo.body2" Class="mud-text-secondary mb-2">
-            Active affects chart recommendation ranges. Priority marks rooms where comfort matters most for schedule suggestions.
+            Active affects chart recommendation ranges. Favourite rooms are used as defaults for Home quick actions and also guide schedule suggestions.
         </MudText>
         @if (_rooms.Count == 0)
         {
@@ -320,7 +320,7 @@
                 <HeaderContent>
                     <MudTh>Room</MudTh>
                     <MudTh>Active</MudTh>
-                    <MudTh>Priority</MudTh>
+                    <MudTh>Favourite</MudTh>
                     <MudTh>Status</MudTh>
                 </HeaderContent>
                 <RowTemplate>
@@ -331,7 +331,7 @@
                                    ValueChanged="@((value) => context.IsActive = value)"
                                    Color="Color.Primary" />
                     </MudTd>
-                    <MudTd DataLabel="Priority">
+                    <MudTd DataLabel="Favourite">
                         <MudSwitch T="bool"
                                    Value="@context.IsPriority"
                                    ValueChanged="@((value) => OnRoomPriorityChanged(context, value))"

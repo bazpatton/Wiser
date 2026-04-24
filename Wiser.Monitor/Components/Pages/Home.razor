@@ -88,7 +88,7 @@
                        Disabled="_quickActionsBusy">
                 @foreach (var room in _quickActionRooms)
                 {
-                    <MudSelectItem T="string" Value="@room.Name">@room.Name</MudSelectItem>
+                    <MudSelectItem T="string" Value="@room.Name">@GetQuickActionRoomLabel(room)</MudSelectItem>
                 }
             </MudSelect>
         }
@@ -439,14 +439,25 @@
         if (liveOverview is not null)
         {
             RoomsCache.Update(liveOverview);
+            var favoriteRooms = Store.GetHeatingSavingsProfile()
+                .PriorityRooms
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
             _quickActionRooms.Clear();
             _quickActionRooms.AddRange(liveOverview.Rooms
                 .Where(static r => r.Id > 0)
-                .OrderBy(static r => r.Name, StringComparer.OrdinalIgnoreCase)
-                .Select(static r => new QuickActionRoom(r.Id, r.Name)));
+                .Select(r => new QuickActionRoom(r.Id, r.Name, favoriteRooms.Contains(r.Name)))
+                .OrderByDescending(static r => r.IsFavorite)
+                .ThenBy(static r => r.Name, StringComparer.OrdinalIgnoreCase));
             _boostRoomNames = _quickActionRooms
+                .Where(static r => r.IsFavorite)
                 .Select(static r => r.Name)
                 .ToHashSet(StringComparer.OrdinalIgnoreCase);
+            if (_boostRoomNames.Count == 0)
+            {
+                _boostRoomNames = _quickActionRooms
+                    .Select(static r => r.Name)
+                    .ToHashSet(StringComparer.OrdinalIgnoreCase);
+            }
         }
         _liveHubByRoom = liveOverview is null ? null : LiveHubRoomTemps.ToAvailableTempByRoomName(liveOverview);
 
@@ -1000,7 +1011,10 @@
         bool CallingForHeat,
         string Tooltip);
 
-    private sealed record QuickActionRoom(int Id, string Name);
+    private static string GetQuickActionRoomLabel(QuickActionRoom room) =>
+        room.IsFavorite ? $"{room.Name} (favourite)" : room.Name;
+
+    private sealed record QuickActionRoom(int Id, string Name, bool IsFavorite);
 }
 
 <style>
