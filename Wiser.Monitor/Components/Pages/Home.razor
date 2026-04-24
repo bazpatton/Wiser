@@ -15,7 +15,7 @@
 
 <PageTitle>Wiser Monitor</PageTitle>
 
-<MudStack Spacing="3">
+<MudStack Spacing="3" Class="home-page-stack">
     @if (_gasMeterReadingBannerText is not null)
     {
         <MudAlert Severity="Severity.Warning"
@@ -88,7 +88,15 @@
                        Disabled="_quickActionsBusy">
                 @foreach (var room in _quickActionRooms)
                 {
-                    <MudSelectItem T="string" Value="@room.Name">@GetQuickActionRoomLabel(room)</MudSelectItem>
+                    <MudSelectItem T="string" Value="@room.Name">
+                        <span class="home-quick-room-option">
+                            @if (room.IsFavorite)
+                            {
+                                <MudIcon Icon="@Icons.Material.Filled.Star" Size="Size.Small" Class="home-quick-room-fav-icon" />
+                            }
+                            @room.Name
+                        </span>
+                    </MudSelectItem>
                 }
             </MudSelect>
         }
@@ -393,6 +401,25 @@
         }
     </MudPaper>
 </MudStack>
+
+<div class="home-sticky-actionbar">
+    <MudButton Variant="Variant.Filled"
+               Color="Color.Primary"
+               StartIcon="@Icons.Material.Filled.Bolt"
+               Class="touch-target"
+               Disabled="@(_quickActionsBusy || _quickActionRooms.Count == 0)"
+               OnClick="ApplyQuickBoostAsync">
+        Boost
+    </MudButton>
+    <MudButton Variant="Variant.Outlined"
+               Color="Color.Primary"
+               StartIcon="@Icons.Material.Filled.CalendarMonth"
+               Class="touch-target"
+               Disabled="@(_quickActionsBusy || _quickActionRooms.Count == 0)"
+               OnClick="SetAwayModeAutoAsync">
+        Away mode
+    </MudButton>
+</div>
 
 @code {
     private const int HomeTrendHours = 24;
@@ -1011,9 +1038,6 @@
         bool CallingForHeat,
         string Tooltip);
 
-    private static string GetQuickActionRoomLabel(QuickActionRoom room) =>
-        room.IsFavorite ? $"{room.Name} (favourite)" : room.Name;
-
     private sealed record QuickActionRoom(int Id, string Name, bool IsFavorite);
 }
 
@@ -1077,5 +1101,40 @@
         font-size: 0.76rem;
         opacity: 0.92;
         line-height: 1.2;
+    }
+
+    .home-quick-room-option {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+    }
+
+    .home-quick-room-fav-icon {
+        color: var(--mud-palette-warning);
+    }
+
+    .home-sticky-actionbar {
+        display: none;
+    }
+
+    @@media (max-width: 959.98px) {
+        .home-sticky-actionbar {
+            position: fixed;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            z-index: 1200;
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 8px;
+            padding: 10px;
+            border-top: 1px solid var(--mud-palette-lines-default);
+            background: color-mix(in srgb, var(--mud-palette-background) 86%, var(--mud-palette-surface) 14%);
+            backdrop-filter: blur(8px);
+        }
+
+        .home-page-stack {
+            padding-bottom: calc(72px + env(safe-area-inset-bottom, 0px));
+        }
     }
 </style>

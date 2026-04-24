@@ -398,6 +398,21 @@
 }
 
 @media (max-width: 959.98px) {
+    .touch-target.mud-button-root,
+    .touch-target {
+        min-height: 48px;
+    }
+
+    .touch-target-icon.mud-icon-button {
+        min-width: 48px;
+        min-height: 48px;
+    }
+
+    .touch-control.mud-select .mud-input-slot,
+    .touch-control.mud-input-control {
+        min-height: 48px;
+    }
+
     .desktop-tagline {
         display: none;
     }
@@ -410,6 +425,12 @@
     .hero-card .mud-typography-h4 {
         font-size: 1.75rem;
         line-height: 2rem;
+    }
+
+    .status-card,
+    .chart-card,
+    .table-card {
+        margin-bottom: 0.5rem;
     }
 
     .mud-table-root .mud-table-cell {
@@ -435,6 +456,32 @@
     .room-card .mud-chip {
         margin-top: 0.35rem;
     }
+}
+
+.compact-ui .main-container {
+    padding-top: 0.55rem;
+    padding-bottom: calc(1rem + env(safe-area-inset-bottom, 0px));
+}
+
+.compact-ui .page-header-card,
+.compact-ui .hero-card,
+.compact-ui .status-card,
+.compact-ui .chart-card,
+.compact-ui .table-card,
+.compact-ui .room-card {
+    border-radius: 10px;
+}
+
+.compact-ui .pa-5 {
+    padding: 1rem !important;
+}
+
+.compact-ui .pa-4 {
+    padding: 0.8rem !important;
+}
+
+.compact-ui .pa-3 {
+    padding: 0.65rem !important;
 }
 
 .schedules-page .schedule-week-table .schedule-day-cell {

@@ -10,6 +10,7 @@
 @inject IBrowserViewportService Viewport
 @inject WiserHubFetch Hub
 @inject RoomsLiveDataCache RoomsCache
+@inject IJSRuntime Js
 
 <PageTitle>Wiser Monitor - Charts</PageTitle>
 
@@ -416,16 +417,33 @@
                         <HeaderContent>
                             <MudTh>Room</MudTh>
                             <MudTh Class="text-right">Score (°C/min)</MudTh>
+                            <MudTh Class="text-right">vs prev week</MudTh>
                             <MudTh Class="text-right">Temp gain (°C)</MudTh>
                             <MudTh Class="text-right">Relay min</MudTh>
                             <MudTh>Note</MudTh>
                         </HeaderContent>
                         <RowTemplate>
-                            <MudTd DataLabel="Room">@context.Room</MudTd>
+                            <MudTd DataLabel="Room">
+                                <MudLink Href="@GetRoomDetailsHref(context.Room)">@context.Room</MudLink>
+                            </MudTd>
                             <MudTd DataLabel="Score" Class="text-right">@Fmt(context.ScoreCPerRelayMinute)</MudTd>
+                            <MudTd DataLabel="vs prev week" Class="text-right">@FormatEfficiencyTrend(context.WeeklyDeltaCPerRelayMinute)</MudTd>
                             <MudTd DataLabel="Temp gain" Class="text-right">@Fmt(context.PositiveTempGainC)</MudTd>
                             <MudTd DataLabel="Relay min" Class="text-right">@Fmt(context.RelayMinutes)</MudTd>
-                            <MudTd DataLabel="Note">@context.Note</MudTd>
+                            <MudTd DataLabel="Note">
+                                @if (context.IsLowConfidence)
+                                {
+                                    <MudTooltip Text="Low confidence: relay-on minutes are low in this window, so efficiency can swing more with small temperature changes.">
+                                        <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined" Color="Color.Warning">
+                                            Low confidence
+                                        </MudChip>
+                                    </MudTooltip>
+                                }
+                                else
+                                {
+                                    @context.Note
+                                }
+                            </MudTd>
                         </RowTemplate>
                     </MudTable>
                 }
@@ -678,6 +696,9 @@
     private readonly Guid _viewportObserverId = Guid.NewGuid();
     private bool _compactChartAxes;
     private const double ShortCycleThresholdMinutes = 5.0;
+    private const string ChartRoomStorageKey = "wiser-chart-room";
+    private const string ChartHoursStorageKey = "wiser-chart-hours";
+    private const string ChartOutdoorStorageKey = "wiser-chart-include-outdoor";
     private readonly LineChartOptions _roomTrendTempLineOptions = new()
     {
         InterpolationOption = InterpolationOption.Straight,
@@ -813,7 +834,9 @@
 
     protected override async Task OnInitializedAsync()
     {
+        await TryLoadPersistedChartFiltersAsync();
         LoadRooms();
+        ValidateChartFilters();
         LoadDailyRows();
         await LoadChartAsync();
     }
@@ -831,19 +854,77 @@
     private Task OnRoomChanged(string? room)
     {
         _selectedRoom = room ?? string.Empty;
+        _ = PersistChartFiltersAsync();
         return LoadChartAsync();
     }
 
     private Task OnHoursChanged(int hours)
     {
         _hours = hours;
+        _ = PersistChartFiltersAsync();
         return LoadChartAsync();
     }
 
     private Task OnOutdoorChanged(bool include)
     {
         _includeOutdoor = include;
+        _ = PersistChartFiltersAsync();
         return LoadChartAsync();
+    }
+
+    private void ValidateChartFilters()
+    {
+        if (_hours is not (12 or 24 or 48 or 168))
+            _hours = 24;
+
+        if (_rooms.Count == 0)
+        {
+            _selectedRoom = string.Empty;
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(_selectedRoom)
+            || !_rooms.Contains(_selectedRoom, StringComparer.OrdinalIgnoreCase))
+        {
+            _selectedRoom = _rooms[0];
+        }
+    }
+
+    private async Task TryLoadPersistedChartFiltersAsync()
+    {
+        try
+        {
+            var room = await Js.InvokeAsync<string?>("localStorage.getItem", ChartRoomStorageKey);
+            var hoursRaw = await Js.InvokeAsync<string?>("localStorage.getItem", ChartHoursStorageKey);
+            var outdoorRaw = await Js.InvokeAsync<string?>("localStorage.getItem", ChartOutdoorStorageKey);
+
+            if (!string.IsNullOrWhiteSpace(room))
+                _selectedRoom = room.Trim();
+            if (int.TryParse(hoursRaw, out var h))
+                _hours = h;
+            if (outdoorRaw == "0")
+                _includeOutdoor = false;
+            else if (outdoorRaw == "1")
+                _includeOutdoor = true;
+        }
+        catch
+        {
+            // Ignore storage errors (e.g. JS unavailable on early render).
+        }
+    }
+
+    private async Task PersistChartFiltersAsync()
+    {
+        try
+        {
+            await Js.InvokeVoidAsync("localStorage.setItem", ChartRoomStorageKey, _selectedRoom ?? string.Empty);
+            await Js.InvokeVoidAsync("localStorage.setItem", ChartHoursStorageKey, _hours.ToString(CultureInfo.InvariantCulture));
+            await Js.InvokeVoidAsync("localStorage.setItem", ChartOutdoorStorageKey, _includeOutdoor ? "1" : "0");
+        }
+        catch
+        {
+            // Ignore persistence failures.
+        }
     }
 
     private async Task LoadChartAsync()
@@ -1561,21 +1642,23 @@
     private void BuildRoomEfficiencyScores(long sinceTs)
     {
         _roomEfficiencyRows.Clear();
-        var relayMinutes = _systemRowsWindow.Count(static x => x.HeatingRelayOn != 0) * (Math.Max(10, Options.IntervalSec) / 60.0);
+        var minutesPerSample = Math.Max(10, Options.IntervalSec) / 60.0;
+        var relayMinutes = RelayMinutesWithin(_systemRowsWindow, sinceTs, long.MaxValue, minutesPerSample);
+        var previousWindowStart = sinceTs - (7L * 24 * 3600);
+        var previousSystemRows = Store.SeriesSystem(previousWindowStart);
+        var previousRelayMinutes = RelayMinutesWithin(previousSystemRows, previousWindowStart, sinceTs, minutesPerSample);
         foreach (var room in _rooms)
         {
             var rows = Store.SeriesRoom(room, sinceTs);
-            if (rows.Count < 2)
+            if (rows.Count < 2 && previousRelayMinutes <= 0)
                 continue;
-            double positiveGain = 0;
-            for (var i = 1; i < rows.Count; i++)
-            {
-                var delta = rows[i].TempC - rows[i - 1].TempC;
-                if (delta > 0)
-                    positiveGain += delta;
-            }
+            var positiveGain = PositiveGainWithin(rows, sinceTs, long.MaxValue);
 
             var score = relayMinutes > 0 ? positiveGain / relayMinutes : double.NaN;
+            var prevRows = Store.SeriesRoom(room, previousWindowStart);
+            var prevPositiveGain = PositiveGainWithin(prevRows, previousWindowStart, sinceTs);
+            var prevScore = previousRelayMinutes > 0 ? prevPositiveGain / previousRelayMinutes : double.NaN;
+            var weeklyDelta = !double.IsNaN(score) && !double.IsNaN(prevScore) ? score - prevScore : (double?)null;
             var note = relayMinutes switch
             {
                 <= 0 => "No relay-on samples in window",
@@ -1583,10 +1666,46 @@
                 _ when positiveGain <= 0 => "No positive gain observed",
                 _ => "OK",
             };
-            _roomEfficiencyRows.Add(new RoomEfficiencyRow(room, score, positiveGain, relayMinutes, note));
+            _roomEfficiencyRows.Add(new RoomEfficiencyRow(room, score, weeklyDelta, positiveGain, relayMinutes, relayMinutes < 30, note));
         }
 
         _roomEfficiencyRows.Sort(static (a, b) => b.ScoreCPerRelayMinute.CompareTo(a.ScoreCPerRelayMinute));
+    }
+
+    private static double RelayMinutesWithin(IReadOnlyList<SystemSeriesRow> rows, long fromInclusiveTs, long untilExclusiveTs, double minutesPerSample)
+    {
+        if (rows.Count == 0)
+            return 0;
+        var onSamples = rows.Count(x => x.Ts >= fromInclusiveTs && x.Ts < untilExclusiveTs && x.HeatingRelayOn != 0);
+        return onSamples * minutesPerSample;
+    }
+
+    private static double PositiveGainWithin(IReadOnlyList<RoomSeriesRow> rows, long fromInclusiveTs, long untilExclusiveTs)
+    {
+        if (rows.Count < 2)
+            return 0;
+        double gain = 0;
+        for (var i = 1; i < rows.Count; i++)
+        {
+            if (rows[i].Ts < fromInclusiveTs || rows[i].Ts >= untilExclusiveTs)
+                continue;
+            var delta = rows[i].TempC - rows[i - 1].TempC;
+            if (delta > 0)
+                gain += delta;
+        }
+
+        return gain;
+    }
+
+    private static string FormatEfficiencyTrend(double? delta)
+    {
+        if (delta is null || double.IsNaN(delta.Value))
+            return "—";
+        if (Math.Abs(delta.Value) < 0.02)
+            return $"steady ({delta.Value:+0.00;-0.00;0.00})";
+        return delta.Value > 0
+            ? $"up (+{delta.Value:0.00})"
+            : $"down ({delta.Value:0.00})";
     }
 
     private void BuildBoilerCycleHealth()
@@ -1712,8 +1831,10 @@
     private sealed record RoomEfficiencyRow(
         string Room,
         double ScoreCPerRelayMinute,
+        double? WeeklyDeltaCPerRelayMinute,
         double PositiveTempGainC,
         double RelayMinutes,
+        bool IsLowConfidence,
         string Note);
 
     private sealed record BoilerCycleSummary(
