@@ -2,6 +2,7 @@ using System.Text.Json;
 using System.Globalization;
 using System.Text;
 using Microsoft.AspNetCore.Components;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Http.Features;
 using Microsoft.AspNetCore.Mvc;
 using MudBlazor.Services;
@@ -58,10 +59,37 @@ builder.WebHost.ConfigureKestrel(o =>
 {
     o.Limits.MaxRequestBodySize = TemperatureStore.MaxDatabaseRestoreBytes;
 });
+builder.Services.AddHttpContextAccessor();
 builder.Services.AddScoped(sp =>
 {
+    // Blazor Interactive Server runs API calls on the host. Using NavigationManager.BaseUri
+    // (e.g. http://wiser-pi.local:8080/) makes HttpClient resolve the client hostname on the
+    // server, where mDNS *.local often fails ("Name or service not known"). Prefer loopback
+    // on the actual Kestrel port, with optional SELF_HTTP_BASE for reverse-proxy setups.
+    var cfg = sp.GetRequiredService<IConfiguration>();
+    var selfBase = cfg["SELF_HTTP_BASE"]?.Trim();
+    if (!string.IsNullOrWhiteSpace(selfBase))
+    {
+        if (!selfBase.EndsWith('/'))
+            selfBase += "/";
+        return new HttpClient { BaseAddress = new Uri(selfBase) };
+    }
+
     var nav = sp.GetRequiredService<NavigationManager>();
-    return new HttpClient { BaseAddress = new Uri(nav.BaseUri) };
+    var accessor = sp.GetRequiredService<IHttpContextAccessor>();
+    var ctx = accessor.HttpContext;
+    var localPort = ctx?.Connection.LocalPort ?? 0;
+    if (localPort > 0 && ctx is not null)
+    {
+        var scheme = ctx.Request.Scheme;
+        return new HttpClient { BaseAddress = new Uri($"{scheme}://127.0.0.1:{localPort}/") };
+    }
+
+    var browserBase = new Uri(nav.BaseUri);
+    var port = browserBase.IsDefaultPort
+        ? (string.Equals(browserBase.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase) ? 443 : 80)
+        : browserBase.Port;
+    return new HttpClient { BaseAddress = new Uri($"{browserBase.Scheme}://127.0.0.1:{port}/") };
 });
 builder.Services.AddHttpClient<WiserHubFetch>(c => c.Timeout = TimeSpan.FromSeconds(15));
 builder.Services.AddHttpClient<OutdoorWeatherClient>(c => c.Timeout = TimeSpan.FromSeconds(20));
