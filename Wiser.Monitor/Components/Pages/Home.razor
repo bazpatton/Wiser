@@ -4,6 +4,8 @@
 @using System.Net.Http.Json
 @using System.Text.Json
 @using Microsoft.JSInterop
+@using Wiser.Monitor.Services
+@implements IAsyncDisposable
 
 @inject MonitorState MonitorState
 @inject MonitorOptions Options
@@ -14,6 +16,7 @@
 @inject HttpClient Http
 @inject ISnackbar Snackbar
 @inject IJSRuntime Js
+@inject IDialogService DialogService
 
 <PageTitle>Wiser Monitor</PageTitle>
 
@@ -36,6 +39,40 @@
                     Gas meter
                 </MudButton>
             </div>
+        </MudAlert>
+    }
+
+    @{
+        var timedAway = Store.TryGetActiveTimedAwaySession();
+    }
+    @if (timedAway is not null)
+    {
+        <MudAlert Severity="Severity.Info"
+                  Dense="true"
+                  Class="home-timed-away-banner"
+                  ShowCloseIcon="false">
+            <MudText Typo="Typo.body2">
+                <strong>Timed away</strong> until @FormatTimedAwayLocal(timedAway.EndsAtUnix)
+                (@timedAway.Source, limit @timedAway.AwayLimitC.ToString("F1", CultureInfo.InvariantCulture) °C).
+                <MudLink Href="/settings">Settings</MudLink>
+                ·
+                <MudButton Variant="Variant.Text"
+                           Color="Color.Primary"
+                           Size="Size.Small"
+                           Class="pa-0 ma-0"
+                           Disabled="@_timedAwayActionBusy"
+                           OnClick="@(() => QuickExtendTimedAwayAsync(60))">
+                    +1h
+                </MudButton>
+                <MudButton Variant="Variant.Text"
+                           Color="Color.Primary"
+                           Size="Size.Small"
+                           Class="pa-0 ma-0"
+                           Disabled="@_timedAwayActionBusy"
+                           OnClick="@(() => QuickExtendTimedAwayAsync(180))">
+                    +3h
+                </MudButton>
+            </MudText>
         </MudAlert>
     }
 
@@ -454,6 +491,10 @@
     private double? _outlookForecastWeekHddSum;
 
     private string? _gasMeterReadingBannerText;
+    private PeriodicTimer? _homeUiRefreshTimer;
+    private CancellationTokenSource? _homeUiRefreshCts;
+    private Guid? _extendPromptShownForSession;
+    private bool _timedAwayActionBusy;
 
     private TimeZoneInfo DisplayZone => TimeZoneResolver.Resolve(Options.TimeZoneId);
     private string? FloorplanImageHref =>
@@ -516,6 +557,95 @@
         UpdateGasMeterReadingBanner();
         await LoadHeatingOutlookAsync();
         await LoadSavingsSuggestionsAsync();
+        await TryPromptExtendNearEndOnceAsync();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender)
+            return;
+        _homeUiRefreshCts = new CancellationTokenSource();
+        _homeUiRefreshTimer = new PeriodicTimer(TimeSpan.FromSeconds(45));
+        _ = PumpHomeUiRefreshAsync();
+        await Task.CompletedTask;
+    }
+
+    private async Task PumpHomeUiRefreshAsync()
+    {
+        try
+        {
+            while (_homeUiRefreshTimer is not null &&
+                   await _homeUiRefreshTimer.WaitForNextTickAsync(_homeUiRefreshCts?.Token ?? default))
+            {
+                await InvokeAsync(StateHasChanged);
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // ignore
+        }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        _homeUiRefreshCts?.Cancel();
+        _homeUiRefreshCts?.Dispose();
+        _homeUiRefreshTimer?.Dispose();
+        await Task.CompletedTask;
+    }
+
+    private string FormatTimedAwayLocal(long unix)
+    {
+        var z = DisplayZone;
+        var local = TimeZoneInfo.ConvertTime(DateTimeOffset.FromUnixTimeSeconds(unix), z);
+        return local.ToString("g", CultureInfo.CurrentCulture);
+    }
+
+    private async Task TryPromptExtendNearEndOnceAsync()
+    {
+        var s = Store.TryGetActiveTimedAwaySession();
+        if (s is null)
+            return;
+        var policy = Store.GetTimedAwayPolicy();
+        var now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+        var leadSec = Math.Max(1, policy.ExtensionLeadMinutes) * 60L;
+        if (now < s.EndsAtUnix - leadSec || now >= s.EndsAtUnix)
+            return;
+        if (_extendPromptShownForSession == s.SessionId)
+            return;
+        _extendPromptShownForSession = s.SessionId;
+        var endLocal = TimeZoneInfo.ConvertTime(DateTimeOffset.FromUnixTimeSeconds(s.EndsAtUnix), DisplayZone);
+        var confirm = await DialogService.ShowMessageBoxAsync(
+            "Extend away mode?",
+            $"Monitor away ends at {endLocal:g} ({DisplayZone.Id}). Add one hour?",
+            yesText: "Extend 1 hour",
+            cancelText: "Not now");
+        if (confirm == true)
+            await QuickExtendTimedAwayAsync(60);
+    }
+
+    private async Task QuickExtendTimedAwayAsync(int minutes)
+    {
+        _timedAwayActionBusy = true;
+        try
+        {
+            using var resp = await Http.PostAsJsonAsync("/api/away/extend", new { extend_minutes = minutes });
+            if (!resp.IsSuccessStatusCode)
+            {
+                Snackbar.Add(await resp.Content.ReadAsStringAsync(), Severity.Warning);
+                return;
+            }
+
+            Snackbar.Add($"Away extended by {minutes} minutes.", Severity.Success);
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+        finally
+        {
+            _timedAwayActionBusy = false;
+        }
     }
 
     private void LoadHomeDailySummary()

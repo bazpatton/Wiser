@@ -215,6 +215,13 @@
                                 Home
                             </MudButton>
                         </MudStack>
+                        @if (Store.TryGetActiveTimedAwaySession() is { } monAway)
+                        {
+                            <MudText Typo="Typo.caption" Class="mud-text-secondary mt-2 d-block">
+                                Monitor will return Home at @FormatMonitorTimedAwayEnd(monAway.EndsAtUnix) (@monAway.Source).
+                                <MudLink Href="/settings">Change in Settings</MudLink>
+                            </MudText>
+                        }
                     </MudPaper>
                 </MudItem>
             }
@@ -555,6 +562,10 @@
 
     /// <summary>Same zone as Charts / daily summary (<c>TIME_ZONE</c>), not the server OS timezone.</summary>
     private TimeZoneInfo DisplayZone => TimeZoneResolver.Resolve(Options.TimeZoneId);
+
+    private string FormatMonitorTimedAwayEnd(long unix) =>
+        TimeZoneInfo.ConvertTime(DateTimeOffset.FromUnixTimeSeconds(unix), DisplayZone)
+            .ToString("g", CultureInfo.CurrentCulture);
 
     private bool IsFocusedRoomView =>
         !string.IsNullOrWhiteSpace(RoomSlug) &&

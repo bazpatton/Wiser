@@ -120,6 +120,18 @@ public sealed class TemperatureStore
                         latched_low INTEGER NOT NULL DEFAULT 0,
                         updated_ts INTEGER NOT NULL
                     );
+
+                    CREATE TABLE IF NOT EXISTS timed_away_session (
+                        session_id TEXT PRIMARY KEY,
+                        ends_at_unix INTEGER NOT NULL,
+                        away_limit_c REAL NOT NULL,
+                        source TEXT NOT NULL,
+                        created_at_unix INTEGER NOT NULL,
+                        extension_prompt_at_unix INTEGER,
+                        cancelled_at_unix INTEGER,
+                        completed_at_unix INTEGER,
+                        smart_profile_version INTEGER NOT NULL DEFAULT 1
+                    );
                     """;
                 cmd.ExecuteNonQuery();
             }
@@ -1612,6 +1624,283 @@ public sealed class TemperatureStore
                 r.GetInt64(0),
                 r.GetInt32(1) != 0,
                 r.GetInt32(2) != 0);
+        }
+    }
+
+    private static readonly JsonSerializerOptions TimedAwayJson = new()
+    {
+        WriteIndented = false,
+    };
+
+    private const string TimedAwayPolicyKey = "timed_away_policy_v1";
+    private const string LastSmartAwayEndKey = "timed_away_last_smart_end_unix";
+
+    public TimedAwayPolicy GetTimedAwayPolicy()
+    {
+        lock (_gate)
+        {
+            using var c = Open();
+            using var cmd = c.CreateCommand();
+            cmd.CommandText = "SELECT value FROM app_settings WHERE key = $k LIMIT 1";
+            cmd.Parameters.AddWithValue("$k", TimedAwayPolicyKey);
+            var raw = cmd.ExecuteScalar() as string;
+            if (string.IsNullOrWhiteSpace(raw))
+                return TimedAwayPolicy.Default;
+            try
+            {
+                var p = JsonSerializer.Deserialize<TimedAwayPolicy>(raw, TimedAwayJson);
+                return p ?? TimedAwayPolicy.Default;
+            }
+            catch
+            {
+                return TimedAwayPolicy.Default;
+            }
+        }
+    }
+
+    public void SetTimedAwayPolicy(TimedAwayPolicy policy)
+    {
+        var json = JsonSerializer.Serialize(policy, TimedAwayJson);
+        var ts = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+        lock (_gate)
+        {
+            using var c = Open();
+            UpsertSetting(c, TimedAwayPolicyKey, json, ts);
+        }
+    }
+
+    public long? GetLastSmartAwayEndedUnix()
+    {
+        lock (_gate)
+        {
+            using var c = Open();
+            using var cmd = c.CreateCommand();
+            cmd.CommandText = "SELECT value FROM app_settings WHERE key = $k LIMIT 1";
+            cmd.Parameters.AddWithValue("$k", LastSmartAwayEndKey);
+            var raw = cmd.ExecuteScalar() as string;
+            if (string.IsNullOrWhiteSpace(raw) || !long.TryParse(raw, CultureInfo.InvariantCulture, out var v))
+                return null;
+            return v;
+        }
+    }
+
+    public void SetLastSmartAwayEndedUnix(long unixTs)
+    {
+        lock (_gate)
+        {
+            using var c = Open();
+            UpsertSetting(c, LastSmartAwayEndKey, unixTs.ToString(CultureInfo.InvariantCulture), unixTs);
+        }
+    }
+
+    public TimedAwaySessionRow? TryGetActiveTimedAwaySession()
+    {
+        lock (_gate)
+        {
+            using var c = Open();
+            using var cmd = c.CreateCommand();
+            cmd.CommandText =
+                """
+                SELECT session_id, ends_at_unix, away_limit_c, source, created_at_unix,
+                       extension_prompt_at_unix, cancelled_at_unix, completed_at_unix, smart_profile_version
+                FROM timed_away_session
+                WHERE cancelled_at_unix IS NULL AND completed_at_unix IS NULL
+                ORDER BY created_at_unix DESC
+                LIMIT 1
+                """;
+            using var r = cmd.ExecuteReader();
+            if (!r.Read())
+                return null;
+            return ReadTimedAwaySession(r);
+        }
+    }
+
+    private static TimedAwaySessionRow ReadTimedAwaySession(SqliteDataReader r)
+    {
+        var idStr = r.GetString(0);
+        var sid = Guid.TryParse(idStr, CultureInfo.InvariantCulture, out var g) ? g : Guid.Empty;
+        var source = string.Equals(r.GetString(3), "smart", StringComparison.OrdinalIgnoreCase)
+            ? TimedAwaySource.Smart
+            : TimedAwaySource.Manual;
+        return new TimedAwaySessionRow(
+            sid,
+            r.GetInt64(1),
+            r.GetDouble(2),
+            source,
+            r.GetInt64(4),
+            r.IsDBNull(5) ? null : r.GetInt64(5),
+            r.IsDBNull(6) ? null : r.GetInt64(6),
+            r.IsDBNull(7) ? null : r.GetInt64(7),
+            r.GetInt32(8));
+    }
+
+    /// <summary>Starts a new monitor-managed away session; cancels any previous active session.</summary>
+    public TimedAwaySessionRow StartTimedAwaySession(long endsAtUnix, double awayLimitC, TimedAwaySource source, int smartProfileVersion = 1)
+    {
+        var now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+        var sessionId = Guid.NewGuid();
+        lock (_gate)
+        {
+            using var c = Open();
+            using (var cancel = c.CreateCommand())
+            {
+                cancel.CommandText =
+                    """
+                    UPDATE timed_away_session
+                    SET cancelled_at_unix = $now
+                    WHERE completed_at_unix IS NULL AND cancelled_at_unix IS NULL
+                    """;
+                cancel.Parameters.AddWithValue("$now", now);
+                cancel.ExecuteNonQuery();
+            }
+
+            using var ins = c.CreateCommand();
+            ins.CommandText =
+                """
+                INSERT INTO timed_away_session (
+                    session_id, ends_at_unix, away_limit_c, source, created_at_unix,
+                    extension_prompt_at_unix, cancelled_at_unix, completed_at_unix, smart_profile_version)
+                VALUES ($id, $ends, $limit, $src, $created, NULL, NULL, NULL, $ver)
+                """;
+            ins.Parameters.AddWithValue("$id", sessionId.ToString());
+            ins.Parameters.AddWithValue("$ends", endsAtUnix);
+            ins.Parameters.AddWithValue("$limit", awayLimitC);
+            ins.Parameters.AddWithValue("$src", source == TimedAwaySource.Smart ? "smart" : "manual");
+            ins.Parameters.AddWithValue("$created", now);
+            ins.Parameters.AddWithValue("$ver", smartProfileVersion);
+            ins.ExecuteNonQuery();
+        }
+
+        return new TimedAwaySessionRow(
+            sessionId,
+            endsAtUnix,
+            awayLimitC,
+            source,
+            now,
+            null,
+            null,
+            null,
+            smartProfileVersion);
+    }
+
+    public bool CancelTimedAwaySession(Guid sessionId)
+    {
+        var now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+        lock (_gate)
+        {
+            using var c = Open();
+            using var cmd = c.CreateCommand();
+            cmd.CommandText =
+                """
+                UPDATE timed_away_session
+                SET cancelled_at_unix = $now
+                WHERE session_id = $id AND completed_at_unix IS NULL AND cancelled_at_unix IS NULL
+                """;
+            cmd.Parameters.AddWithValue("$now", now);
+            cmd.Parameters.AddWithValue("$id", sessionId.ToString());
+            return cmd.ExecuteNonQuery() > 0;
+        }
+    }
+
+    public bool CompleteTimedAwaySession(Guid sessionId)
+    {
+        var now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+        lock (_gate)
+        {
+            using var c = Open();
+            using var cmd = c.CreateCommand();
+            cmd.CommandText =
+                """
+                UPDATE timed_away_session
+                SET completed_at_unix = $now
+                WHERE session_id = $id AND completed_at_unix IS NULL AND cancelled_at_unix IS NULL
+                """;
+            cmd.Parameters.AddWithValue("$now", now);
+            cmd.Parameters.AddWithValue("$id", sessionId.ToString());
+            return cmd.ExecuteNonQuery() > 0;
+        }
+    }
+
+    public bool ExtendTimedAwaySession(Guid sessionId, long newEndsAtUnix)
+    {
+        lock (_gate)
+        {
+            using var c = Open();
+            using var cmd = c.CreateCommand();
+            cmd.CommandText =
+                """
+                UPDATE timed_away_session
+                SET ends_at_unix = $ends, extension_prompt_at_unix = NULL
+                WHERE session_id = $id AND completed_at_unix IS NULL AND cancelled_at_unix IS NULL
+                """;
+            cmd.Parameters.AddWithValue("$ends", newEndsAtUnix);
+            cmd.Parameters.AddWithValue("$id", sessionId.ToString());
+            return cmd.ExecuteNonQuery() > 0;
+        }
+    }
+
+    public bool MarkTimedAwayExtensionPromptSent(Guid sessionId, long sentAtUnix)
+    {
+        lock (_gate)
+        {
+            using var c = Open();
+            using var cmd = c.CreateCommand();
+            cmd.CommandText =
+                """
+                UPDATE timed_away_session
+                SET extension_prompt_at_unix = $sent
+                WHERE session_id = $id AND completed_at_unix IS NULL AND cancelled_at_unix IS NULL
+                """;
+            cmd.Parameters.AddWithValue("$sent", sentAtUnix);
+            cmd.Parameters.AddWithValue("$id", sessionId.ToString());
+            return cmd.ExecuteNonQuery() > 0;
+        }
+    }
+
+    /// <summary>Mean of latest room temperatures (one sample per room).</summary>
+    public double? GetLatestRoomsAverageTempC()
+    {
+        var latest = LatestByRoom();
+        if (latest.Count == 0)
+            return null;
+        var sum = 0.0;
+        var n = 0;
+        foreach (var kv in latest)
+        {
+            sum += kv.Value.TempC;
+            n++;
+        }
+
+        return n == 0 ? null : sum / n;
+    }
+
+    /// <summary>Last <paramref name="maxRows"/> system rows, newest first.</summary>
+    public IReadOnlyList<LatestSystemSnapshot> GetRecentSystemSnapshots(int maxRows)
+    {
+        maxRows = Math.Clamp(maxRows, 1, 500);
+        lock (_gate)
+        {
+            using var c = Open();
+            using var cmd = c.CreateCommand();
+            cmd.CommandText =
+                """
+                SELECT ts, heating_relay_on, heating_active
+                FROM system_readings
+                ORDER BY ts DESC
+                LIMIT $n
+                """;
+            cmd.Parameters.AddWithValue("$n", maxRows);
+            using var r = cmd.ExecuteReader();
+            var list = new List<LatestSystemSnapshot>();
+            while (r.Read())
+            {
+                list.Add(new LatestSystemSnapshot(
+                    r.GetInt64(0),
+                    r.GetInt32(1) != 0,
+                    r.GetInt32(2) != 0));
+            }
+
+            return list;
         }
     }
 

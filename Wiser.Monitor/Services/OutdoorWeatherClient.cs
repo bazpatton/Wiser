@@ -13,6 +13,11 @@ public sealed class OutdoorWeatherClient(HttpClient http)
     private DateTimeOffset _forecastCachedAt;
     private IReadOnlyList<DailyForecastHddDay>? _forecastCache;
 
+    private readonly object _hourlyGate = new();
+    private string? _hourlyCacheKey;
+    private DateTimeOffset _hourlyCachedAt;
+    private IReadOnlyList<double>? _hourlyTempsCache;
+
     public async Task<double?> GetCurrentTempCAsync(double lat, double lon, CancellationToken ct)
     {
         var uri = new Uri(
@@ -107,6 +112,69 @@ public sealed class OutdoorWeatherClient(HttpClient http)
         }
 
         return outlook;
+    }
+
+    /// <summary>
+    /// Minimum hourly temperature (°C) over the next <paramref name="hours"/> hours. Cached ~15 minutes per lat/lon/hours key.
+    /// Returns null if Open-Meteo response cannot be parsed.
+    /// </summary>
+    public async Task<double?> GetMinHourlyTempCNextHoursAsync(
+        double lat,
+        double lon,
+        int hours,
+        string? timeZoneId,
+        CancellationToken ct)
+    {
+        hours = Math.Clamp(hours, 1, 48);
+        var zone = TimeZoneResolver.Resolve(timeZoneId);
+        var tzParam = ToOpenMeteoTimeZone(zone);
+        var cacheKey = string.Create(CultureInfo.InvariantCulture, $"{lat:R}|{lon:R}|{hours}|{tzParam}");
+
+        lock (_hourlyGate)
+        {
+            if (_hourlyTempsCache is { } temps &&
+                _hourlyCacheKey == cacheKey &&
+                DateTimeOffset.UtcNow - _hourlyCachedAt < TimeSpan.FromMinutes(15))
+                return temps.Count == 0 ? null : temps.Min();
+        }
+
+        var uri =
+            "https://api.open-meteo.com/v1/forecast?" +
+            $"latitude={Uri.EscapeDataString(lat.ToString(CultureInfo.InvariantCulture))}" +
+            $"&longitude={Uri.EscapeDataString(lon.ToString(CultureInfo.InvariantCulture))}" +
+            "&hourly=temperature_2m" +
+            $"&forecast_hours={hours.ToString(CultureInfo.InvariantCulture)}" +
+            $"&timezone={Uri.EscapeDataString(tzParam)}";
+
+        using var resp = await http.GetAsync(uri, HttpCompletionOption.ResponseHeadersRead, ct).ConfigureAwait(false);
+        resp.EnsureSuccessStatusCode();
+        await using var stream = await resp.Content.ReadAsStreamAsync(ct).ConfigureAwait(false);
+        using var doc = await JsonDocument.ParseAsync(stream, cancellationToken: ct).ConfigureAwait(false);
+        if (!doc.RootElement.TryGetProperty("hourly", out var hourly) ||
+            !hourly.TryGetProperty("temperature_2m", out var tEl) ||
+            tEl.ValueKind != JsonValueKind.Array)
+            return null;
+
+        var n = Math.Min(tEl.GetArrayLength(), hours);
+        if (n == 0)
+            return null;
+
+        var list = new List<double>(n);
+        for (var i = 0; i < n; i++)
+        {
+            if (!tEl[i].TryGetDouble(out var v))
+                return null;
+            list.Add(v);
+        }
+
+        lock (_hourlyGate)
+        {
+            _hourlyCacheKey = cacheKey;
+            _hourlyCachedAt = DateTimeOffset.UtcNow;
+            _hourlyTempsCache = list;
+        }
+
+        return list.Min();
     }
 
     private static string ToOpenMeteoTimeZone(TimeZoneInfo zone)

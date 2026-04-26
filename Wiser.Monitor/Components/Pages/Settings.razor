@@ -4,6 +4,7 @@
 @using System.Net.Http
 @using System.Text.Json
 @using Microsoft.AspNetCore.Components.Web
+@using Wiser.Monitor.Services
 
 @inject TemperatureStore Store
 @inject MonitorOptions Options
@@ -81,6 +82,162 @@
                           Margin="Margin.Dense"
                           HelperText="Comma-separated HH:mm, 24-hour. Uses TIME_ZONE from your environment / Docker." />
         </MudStack>
+
+        <MudDivider Class="my-3" />
+
+        <MudText Typo="Typo.subtitle1" Class="mb-2">Timed and smart away (whole house)</MudText>
+        <MudText Typo="Typo.body2" Class="mud-text-secondary mb-2">
+            The monitor calls hub <strong>Away</strong> with your limit temperature, then <strong>Home</strong> when the end time is reached.
+            Smart auto uses Open-Meteo hourly forecasts and recent indoor data (requires <code>OPEN_METEO_LAT</code> / <code>OPEN_METEO_LON</code>).
+            Pre-end ntfy reminders use the same topic as temperature alerts.
+        </MudText>
+        @if (!HubConfigured)
+        {
+            <MudAlert Severity="Severity.Warning" Dense="true" Class="mb-2">
+                Configure <code>WISER_IP</code> and <code>WISER_SECRET</code> to schedule away from here.
+            </MudAlert>
+        }
+        @if (Options.OpenMeteoLat is null || Options.OpenMeteoLon is null)
+        {
+            <MudAlert Severity="Severity.Info" Dense="true" Class="mb-2">
+                Smart auto away needs Open-Meteo coordinates in the environment.
+            </MudAlert>
+        }
+        <MudSwitch T="bool"
+                   @bind-Value="_taSmartAuto"
+                   Color="Color.Primary"
+                   Class="touch-control"
+                   Label="Smart auto away (opt-in)" />
+        <MudGrid Spacing="2" Class="mt-2">
+            <MudItem xs="12" sm="6" md="4">
+                <MudNumericField T="double"
+                                 @bind-Value="_taAwayLimit"
+                                 Label="Away limit °C"
+                                 Variant="Variant.Outlined"
+                                 Margin="Margin.Dense"
+                                 Step="0.5"
+                                 Adornment="Adornment.End"
+                                 AdornmentText="°C" />
+            </MudItem>
+            <MudItem xs="12" sm="6" md="4">
+                <MudNumericField T="int"
+                                 @bind-Value="_taSmartDurationMin"
+                                 Label="Smart session length (min)"
+                                 Variant="Variant.Outlined"
+                                 Margin="Margin.Dense"
+                                 Min="30"
+                                 Max="10080" />
+            </MudItem>
+            <MudItem xs="12" sm="6" md="4">
+                <MudNumericField T="int"
+                                 @bind-Value="_taExtensionLeadMin"
+                                 Label="Ntfy lead time (min)"
+                                 Variant="Variant.Outlined"
+                                 Margin="Margin.Dense"
+                                 Min="5"
+                                 Max="1440" />
+            </MudItem>
+            <MudItem xs="12" sm="6" md="4">
+                <MudNumericField T="int"
+                                 @bind-Value="_taForecastHours"
+                                 Label="Forecast horizon (h)"
+                                 Variant="Variant.Outlined"
+                                 Margin="Margin.Dense"
+                                 Min="1"
+                                 Max="48" />
+            </MudItem>
+            <MudItem xs="12" sm="6" md="4">
+                <MudNumericField T="double"
+                                 @bind-Value="_taMinForecastTemp"
+                                 Label="Min outdoor °C (smart)"
+                                 Variant="Variant.Outlined"
+                                 Margin="Margin.Dense"
+                                 Step="0.5"
+                                 HelperText="Arm only if hourly min in window is ≥ this" />
+            </MudItem>
+            <MudItem xs="12" sm="6" md="4">
+                <MudNumericField T="int"
+                                 @bind-Value="_taHeatingIdlePolls"
+                                 Label="Heating idle polls"
+                                 Variant="Variant.Outlined"
+                                 Margin="Margin.Dense"
+                                 Min="1"
+                                 Max="50"
+                                 HelperText="Consecutive polls with heating inactive" />
+            </MudItem>
+            <MudItem xs="12" sm="6" md="4">
+                <MudNumericField T="double"
+                                 @bind-Value="_taIndoorMinAvg"
+                                 Label="Min indoor avg °C"
+                                 Variant="Variant.Outlined"
+                                 Margin="Margin.Dense"
+                                 Step="0.5" />
+            </MudItem>
+            <MudItem xs="12" sm="6" md="4">
+                <MudNumericField T="int"
+                                 @bind-Value="_taSmartCooldownHours"
+                                 Label="Smart cooldown (h)"
+                                 Variant="Variant.Outlined"
+                                 Margin="Margin.Dense"
+                                 Min="0"
+                                 Max="168" />
+            </MudItem>
+        </MudGrid>
+
+        <MudDivider Class="my-3" />
+        <MudText Typo="Typo.subtitle2" Class="mb-2">Manual away until (local)</MudText>
+        @if (_taActiveSession is not null)
+        {
+            <MudAlert Severity="Severity.Info" Dense="true" Class="mb-2">
+                Active monitor session until <strong>@FormatLocalEnds(_taActiveSession.EndsAtUnix)</strong>
+                (@_taActiveSession.Source, limit @_taActiveSession.AwayLimitC.ToString("F1", CultureInfo.InvariantCulture) °C).
+            </MudAlert>
+            <MudStack Row="true" Spacing="1" Wrap="Wrap.Wrap" Class="mb-2">
+                <MudButton Variant="Variant.Outlined"
+                           Color="Color.Primary"
+                           Disabled="@(!HubConfigured || _timedAwayBusy)"
+                           OnClick="@(() => ExtendTimedAwayAsync(60))">
+                    +1 hour
+                </MudButton>
+                <MudButton Variant="Variant.Outlined"
+                           Color="Color.Primary"
+                           Disabled="@(!HubConfigured || _timedAwayBusy)"
+                           OnClick="@(() => ExtendTimedAwayAsync(180))">
+                    +3 hours
+                </MudButton>
+                <MudButton Variant="Variant.Filled"
+                           Color="Color.Error"
+                           Disabled="@(!HubConfigured || _timedAwayBusy)"
+                           OnClick="CancelTimedAwayAsync">
+                    Cancel away (Home)
+                </MudButton>
+            </MudStack>
+        }
+        <MudGrid Spacing="2">
+            <MudItem xs="12" sm="6" md="4">
+                <MudDatePicker @bind-Date="_taEndDate"
+                               Label="End date"
+                               Variant="Variant.Outlined"
+                               Margin="Margin.Dense"
+                               Disabled="@(!HubConfigured || _timedAwayBusy)" />
+            </MudItem>
+            <MudItem xs="12" sm="6" md="4">
+                <MudTimePicker @bind-Time="_taEndTime"
+                               Label="End time"
+                               Variant="Variant.Outlined"
+                               Margin="Margin.Dense"
+                               Disabled="@(!HubConfigured || _timedAwayBusy)" />
+            </MudItem>
+            <MudItem xs="12" sm="6" md="4" Class="d-flex align-end">
+                <MudButton Variant="Variant.Filled"
+                           Color="Color.Primary"
+                           Class="touch-target"
+                           Disabled="@(!HubConfigured || _timedAwayBusy)"
+                           OnClick="ScheduleTimedAwayAsync">
+                    Apply away until selected time
+                </MudButton>
+            </MudItem>
+        </MudGrid>
 
         <MudDivider Class="my-3" />
 
@@ -386,6 +543,24 @@
     private string _weekendAwayStartText = "10:00";
     private string _weekendAwayEndText = "16:00";
     private bool _nightSetbackOk = true;
+    private bool _taSmartAuto;
+    private double _taAwayLimit = 10;
+    private int _taSmartDurationMin = 240;
+    private int _taExtensionLeadMin = 30;
+    private int _taForecastHours = 6;
+    private double _taMinForecastTemp = 8;
+    private int _taHeatingIdlePolls = 3;
+    private double _taIndoorMinAvg = 18;
+    private int _taSmartCooldownHours = 12;
+    private DateTime? _taEndDate;
+    private TimeSpan? _taEndTime = new TimeSpan(18, 0, 0);
+    private TimedAwaySessionRow? _taActiveSession;
+    private bool _timedAwayBusy;
+
+    private bool HubConfigured =>
+        !string.IsNullOrWhiteSpace(Options.WiserIp) && Options.WiserIp != "192.168.x.x" &&
+        !string.IsNullOrWhiteSpace(Options.WiserSecret) && Options.WiserSecret != "your-secret-here";
+
     private string? FloorplanImageHref =>
         string.IsNullOrWhiteSpace(_floorplanImageName)
             ? null
@@ -566,7 +741,136 @@
                 !activity.TryGetValue(room, out var isActive) || isActive,
                 prioritySet.Contains(room)));
         LoadFloorplanMapping(rooms);
+        LoadTimedAwayFields();
         return Task.CompletedTask;
+    }
+
+    private void LoadTimedAwayFields()
+    {
+        var p = Store.GetTimedAwayPolicy();
+        _taSmartAuto = p.SmartAutoEnabled;
+        _taAwayLimit = p.AwayLimitC;
+        _taSmartDurationMin = p.SmartDefaultDurationMinutes;
+        _taExtensionLeadMin = p.ExtensionLeadMinutes;
+        _taForecastHours = p.ForecastHorizonHours;
+        _taMinForecastTemp = p.MinForecastTempCTrigger;
+        _taHeatingIdlePolls = p.HeatingIdlePollsRequired;
+        _taIndoorMinAvg = p.IndoorMinAvgTempC;
+        _taSmartCooldownHours = p.SmartCooldownHours;
+        _taActiveSession = Store.TryGetActiveTimedAwaySession();
+        var zone = TimeZoneResolver.Resolve(Options.TimeZoneId);
+        var nowL = TimeZoneInfo.ConvertTime(DateTimeOffset.UtcNow, zone).DateTime;
+        _taEndDate = nowL.Date.AddDays(1);
+        _taEndTime = new TimeSpan(18, 0, 0);
+    }
+
+    private string FormatLocalEnds(long unix)
+    {
+        var zone = TimeZoneResolver.Resolve(Options.TimeZoneId);
+        var local = TimeZoneInfo.ConvertTime(DateTimeOffset.FromUnixTimeSeconds(unix), zone);
+        return local.ToString("g", CultureInfo.CurrentCulture);
+    }
+
+    private async Task ScheduleTimedAwayAsync()
+    {
+        if (_taEndDate is null || _taEndTime is null)
+        {
+            Snackbar.Add("Pick end date and time.", Severity.Warning);
+            return;
+        }
+
+        var zone = TimeZoneResolver.Resolve(Options.TimeZoneId);
+        var localWall = _taEndDate.Value.Date + _taEndTime.Value;
+        var localUnspec = DateTime.SpecifyKind(localWall, DateTimeKind.Unspecified);
+        var nowLocal = TimeZoneInfo.ConvertTime(DateTimeOffset.UtcNow, zone);
+        if (localUnspec <= nowLocal.DateTime)
+        {
+            Snackbar.Add("End must be in the future (local time).", Severity.Warning);
+            return;
+        }
+
+        var utc = TimeZoneInfo.ConvertTimeToUtc(localUnspec, zone);
+        var unix = new DateTimeOffset(utc, TimeSpan.Zero).ToUnixTimeSeconds();
+        _timedAwayBusy = true;
+        await InvokeAsync(StateHasChanged);
+        try
+        {
+            using var resp = await Http.PostAsJsonAsync(
+                "/api/away/schedule",
+                new { ends_at_unix = unix, temperature_c = _taAwayLimit });
+            if (!resp.IsSuccessStatusCode)
+            {
+                var err = await resp.Content.ReadAsStringAsync();
+                Snackbar.Add($"Schedule failed: {err}", Severity.Error);
+                return;
+            }
+
+            Snackbar.Add("Away scheduled on the hub until the chosen time.", Severity.Success);
+            LoadTimedAwayFields();
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+        finally
+        {
+            _timedAwayBusy = false;
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private async Task CancelTimedAwayAsync()
+    {
+        _timedAwayBusy = true;
+        await InvokeAsync(StateHasChanged);
+        try
+        {
+            using var resp = await Http.PostAsync("/api/away/cancel", null);
+            if (!resp.IsSuccessStatusCode)
+            {
+                Snackbar.Add(await resp.Content.ReadAsStringAsync(), Severity.Warning);
+                return;
+            }
+
+            Snackbar.Add("Away cancelled; hub set to Home.", Severity.Success);
+            LoadTimedAwayFields();
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+        finally
+        {
+            _timedAwayBusy = false;
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private async Task ExtendTimedAwayAsync(int minutes)
+    {
+        _timedAwayBusy = true;
+        await InvokeAsync(StateHasChanged);
+        try
+        {
+            using var resp = await Http.PostAsJsonAsync("/api/away/extend", new { extend_minutes = minutes });
+            if (!resp.IsSuccessStatusCode)
+            {
+                Snackbar.Add(await resp.Content.ReadAsStringAsync(), Severity.Warning);
+                return;
+            }
+
+            Snackbar.Add($"Away extended by {minutes} minutes.", Severity.Success);
+            LoadTimedAwayFields();
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+        finally
+        {
+            _timedAwayBusy = false;
+            await InvokeAsync(StateHasChanged);
+        }
     }
 
     private void LoadFloorplanMapping(IReadOnlyList<string> rooms)
@@ -745,6 +1049,16 @@
             _nightSetbackOk,
             priorityRooms,
             0));
+        Store.SetTimedAwayPolicy(new TimedAwayPolicy(
+            _taSmartAuto,
+            Math.Round(_taAwayLimit, 1),
+            Math.Clamp(_taSmartDurationMin, 30, 10080),
+            Math.Clamp(_taExtensionLeadMin, 1, 1440),
+            Math.Clamp(_taForecastHours, 1, 48),
+            _taMinForecastTemp,
+            Math.Clamp(_taHeatingIdlePolls, 1, 50),
+            _taIndoorMinAvg,
+            Math.Clamp(_taSmartCooldownHours, 0, 168)));
         Snackbar.Add("Settings saved.", Severity.Success);
         return Task.CompletedTask;
     }

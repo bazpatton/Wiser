@@ -100,6 +100,7 @@ builder.Services.AddSingleton<ApiRoomsNamesCache>();
 if (hubConfigured)
     builder.Services.AddHostedService<WiserPollWorker>();
 builder.Services.AddHostedService<GasMeterReminderWorker>();
+builder.Services.AddHostedService<TimedAwayWorker>();
 
 var app = builder.Build();
 
@@ -451,6 +452,119 @@ app.MapPost("/api/rooms/mode", async (BatchRoomModeRequest body, WiserHubFetch h
         applied = new { mode, temperature_c = body.temperature_c },
     });
 });
+
+app.MapGet("/api/away/status", (TemperatureStore store) =>
+{
+    var session = store.TryGetActiveTimedAwaySession();
+    var policy = store.GetTimedAwayPolicy();
+    if (session is null)
+    {
+        return Results.Json(new
+        {
+            active = false,
+            policy,
+        });
+    }
+
+    return Results.Json(new
+    {
+        active = true,
+        session_id = session.SessionId.ToString(),
+        ends_at_unix = session.EndsAtUnix,
+        away_limit_c = session.AwayLimitC,
+        source = session.Source.ToString().ToLowerInvariant(),
+        created_at_unix = session.CreatedAtUnix,
+        extension_prompt_at_unix = session.ExtensionPromptAtUnix,
+        policy,
+    });
+});
+
+app.MapPost("/api/away/schedule", async (
+    TimedAwayScheduleRequest body,
+    WiserHubFetch hub,
+    TemperatureStore store,
+    MonitorOptions o,
+    CancellationToken ct) =>
+{
+    if (!hubConfigured)
+    {
+        return Results.Json(
+            new { error = "Hub is not configured. Set WISER_IP and WISER_SECRET.", configuration_errors = hubConfigurationErrors },
+            statusCode: StatusCodes.Status503ServiceUnavailable);
+    }
+
+    var now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+    if (body.ends_at_unix <= now)
+        return Results.BadRequest(new { error = "ends_at_unix must be in the future" });
+
+    var limit = body.temperature_c ?? store.GetTimedAwayPolicy().AwayLimitC;
+    try
+    {
+        await hub.PatchSystemHomeAwayAsync(o, "AWAY", limit, ct).ConfigureAwait(false);
+    }
+    catch (Exception ex)
+    {
+        return Results.Json(new { error = ex.Message }, statusCode: StatusCodes.Status502BadGateway);
+    }
+
+    var row = store.StartTimedAwaySession(body.ends_at_unix, limit, TimedAwaySource.Manual);
+    return Results.Json(new
+    {
+        ok = true,
+        session_id = row.SessionId.ToString(),
+        ends_at_unix = row.EndsAtUnix,
+        away_limit_c = row.AwayLimitC,
+    });
+}).DisableAntiforgery();
+
+app.MapPost("/api/away/cancel", async (WiserHubFetch hub, TemperatureStore store, MonitorOptions o, CancellationToken ct) =>
+{
+    if (!hubConfigured)
+    {
+        return Results.Json(
+            new { error = "Hub is not configured. Set WISER_IP and WISER_SECRET.", configuration_errors = hubConfigurationErrors },
+            statusCode: StatusCodes.Status503ServiceUnavailable);
+    }
+
+    var session = store.TryGetActiveTimedAwaySession();
+    if (session is null)
+        return Results.Json(new { error = "no_active_session" }, statusCode: StatusCodes.Status404NotFound);
+
+    try
+    {
+        await hub.PatchSystemHomeAwayAsync(o, "HOME", null, ct).ConfigureAwait(false);
+    }
+    catch (Exception ex)
+    {
+        return Results.Json(new { error = ex.Message }, statusCode: StatusCodes.Status502BadGateway);
+    }
+
+    store.CancelTimedAwaySession(session.SessionId);
+    if (session.Source == TimedAwaySource.Smart)
+        store.SetLastSmartAwayEndedUnix(DateTimeOffset.UtcNow.ToUnixTimeSeconds());
+    return Results.Json(new { ok = true });
+}).DisableAntiforgery();
+
+app.MapPost("/api/away/extend", (
+    TimedAwayExtendRequest body,
+    TemperatureStore store) =>
+{
+    var session = store.TryGetActiveTimedAwaySession();
+    if (session is null)
+        return Results.Json(new { error = "no_active_session" }, statusCode: StatusCodes.Status404NotFound);
+
+    var add = Math.Clamp(body.extend_minutes, 15, 10080);
+    var newEnd = session.EndsAtUnix + add * 60L;
+    if (!store.ExtendTimedAwaySession(session.SessionId, newEnd))
+        return Results.Json(new { error = "extend_failed" }, statusCode: StatusCodes.Status500InternalServerError);
+    return Results.Json(new { ok = true, ends_at_unix = newEnd });
+}).DisableAntiforgery();
+
+app.MapPost("/api/away/policy", (TimedAwayPolicy body, TemperatureStore store) =>
+{
+    store.SetTimedAwayPolicy(body);
+    return Results.Json(new { ok = true });
+}).DisableAntiforgery();
 
 app.MapPost("/api/schedules/apply", async (
     HttpRequest req,
@@ -991,5 +1105,7 @@ internal sealed record RoomModeRequest(int room_id, string mode, double? tempera
 internal sealed record SystemHomeAwayRequest(string mode, double? temperature_c);
 internal sealed record BatchBoostRoomsRequest(int[] room_ids, double temperature_c, int minutes);
 internal sealed record BatchRoomModeRequest(int[] room_ids, string mode, double? temperature_c);
+internal sealed record TimedAwayScheduleRequest(long ends_at_unix, double? temperature_c);
+internal sealed record TimedAwayExtendRequest(int extend_minutes);
 internal sealed record GasMeterCreateRequest(int vol_credit, decimal amount_gbp, string entry_date, string? ocr_raw_json, string? source_image_path);
 internal sealed record GasMeterUpdateRequest(int vol_credit, decimal amount_gbp, string entry_date);
