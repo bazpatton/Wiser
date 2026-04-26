@@ -169,6 +169,52 @@
                                 </MudChip>
                             </MudTooltip>
                         </MudStack>
+                        <MudDivider Class="my-3" />
+                        <MudText Typo="Typo.subtitle2" Class="mb-1">
+                            <MudIcon Icon="@Icons.Material.Filled.HomeWork" Class="room-inline-icon" Size="Size.Small" aria-hidden="true" />
+                            Whole house (away mode)
+                        </MudText>
+                        <MudText Typo="Typo.caption" Class="mud-text-secondary d-block mb-2">
+                            Uses the same hub request as Wiser Control: applies system away to all zones. Use <strong>-20</strong> in the field for heating off while away.
+                        </MudText>
+                        <MudStack Row="true" Spacing="2" AlignItems="AlignItems.Center" Wrap="Wrap.Wrap">
+                            <MudTooltip Text="From hub System.OverrideType and AwayModeSetPointLimit.">
+                                <MudChip T="string"
+                                         Color="@(_systemAway ? Color.Warning : Color.Success)"
+                                         Variant="Variant.Filled"
+                                         Icon="@(_systemAway ? Icons.Material.Filled.Luggage : Icons.Material.Filled.Home)">
+                                    @SystemAwayChipLabel
+                                </MudChip>
+                            </MudTooltip>
+                            <MudNumericField T="double"
+                                             @bind-Value="_systemAwayTemp"
+                                             Label="Away °C"
+                                             Variant="Variant.Outlined"
+                                             Margin="Margin.Dense"
+                                             HideSpinButtons="true"
+                                             Min="-20"
+                                             Max="30"
+                                             Step="0.5"
+                                             Class="touch-control system-away-temp-field"
+                                             Style="max-width: 7.5rem;"
+                                             Disabled="@(_busySystemHomeAway || !IsHubLive)" />
+                            <MudButton Variant="Variant.Filled"
+                                       Color="Color.Warning"
+                                       Class="touch-target"
+                                       StartIcon="@Icons.Material.Filled.Luggage"
+                                       Disabled="@(_busySystemHomeAway || !IsHubLive)"
+                                       OnClick="@SetSystemAwayFromUiAsync">
+                                Away
+                            </MudButton>
+                            <MudButton Variant="Variant.Outlined"
+                                       Color="Color.Primary"
+                                       Class="touch-target"
+                                       StartIcon="@Icons.Material.Filled.Home"
+                                       Disabled="@(_busySystemHomeAway || !IsHubLive)"
+                                       OnClick="@SetSystemHomeAsync">
+                                Home
+                            </MudButton>
+                        </MudStack>
                     </MudPaper>
                 </MudItem>
             }
@@ -474,6 +520,10 @@
 
     private bool _heatingRelayOn;
     private bool _heatingActive;
+    private bool _systemAway;
+    private double? _awaySetpointLimitC;
+    private double _systemAwayTemp = 10;
+    private bool _busySystemHomeAway;
     private bool _loading = true;
     private bool _hasLoadedOnce;
     private bool _isRefreshing;
@@ -495,6 +545,13 @@
     private int _detailBoostMinutes = 60;
     private const double RoomTargetSliderMin = 5;
     private const double RoomTargetSliderMax = 30;
+
+    private bool IsHubLive => _rooms.Any(r => r.Id > 0);
+
+    private string SystemAwayChipLabel =>
+        _systemAway
+            ? (_awaySetpointLimitC is { } lim ? $"Away · limit {lim.ToString("F1", CultureInfo.CurrentCulture)} °C" : "Away")
+            : "Home";
 
     /// <summary>Same zone as Charts / daily summary (<c>TIME_ZONE</c>), not the server OS timezone.</summary>
     private TimeZoneInfo DisplayZone => TimeZoneResolver.Resolve(Options.TimeZoneId);
@@ -619,6 +676,8 @@
         _rooms.AddRange(overview.Rooms);
         _heatingRelayOn = overview.HeatingRelayOn;
         _heatingActive = overview.HeatingActive;
+        _systemAway = overview.SystemAway;
+        _awaySetpointLimitC = overview.AwaySetpointLimitC;
     }
 
     private bool TryHydrateFromServiceCache()
@@ -983,6 +1042,8 @@
             _rooms.AddRange(overview.Rooms);
             _heatingRelayOn = overview.HeatingRelayOn;
             _heatingActive = overview.HeatingActive;
+            _systemAway = overview.SystemAway;
+            _awaySetpointLimitC = overview.AwaySetpointLimitC;
         }
         catch (Exception ex)
         {
@@ -1012,6 +1073,8 @@
                 var latestSystem = Store.GetLatestSystem();
                 _heatingRelayOn = latestSystem?.HeatingRelayOn ?? false;
                 _heatingActive = latestSystem?.HeatingActive ?? _rooms.Any(r => r.HeatDemand != 0);
+                _systemAway = false;
+                _awaySetpointLimitC = null;
             }
         }
         finally
@@ -1077,6 +1140,66 @@
         finally
         {
             _busyRoomId = null;
+        }
+    }
+
+    private async Task SetSystemHomeAsync()
+    {
+        if (!IsHubLive)
+        {
+            Snackbar.Add("Hub is offline — cannot change system mode.", Severity.Warning);
+            return;
+        }
+
+        _actionMessage = null;
+        _actionError = false;
+        _busySystemHomeAway = true;
+        try
+        {
+            await Hub.PatchSystemHomeAwayAsync(Options, "HOME", null, CancellationToken.None);
+            _actionMessage = "Whole-house mode set to Home.";
+            Snackbar.Add(_actionMessage!, Severity.Success);
+            await RefreshAsync();
+        }
+        catch (Exception ex)
+        {
+            _actionError = true;
+            _actionMessage = $"Action failed: {ex.Message}";
+            Snackbar.Add(_actionMessage!, Severity.Error);
+        }
+        finally
+        {
+            _busySystemHomeAway = false;
+        }
+    }
+
+    private async Task SetSystemAwayFromUiAsync()
+    {
+        if (!IsHubLive)
+        {
+            Snackbar.Add("Hub is offline — cannot change system mode.", Severity.Warning);
+            return;
+        }
+
+        _actionMessage = null;
+        _actionError = false;
+        _busySystemHomeAway = true;
+        try
+        {
+            await Hub.PatchSystemHomeAwayAsync(Options, "AWAY", _systemAwayTemp, CancellationToken.None);
+            _actionMessage = $"Whole-house Away applied at {_systemAwayTemp.ToString("F1", CultureInfo.CurrentCulture)} °C.";
+            Snackbar.Add(_actionMessage!, Severity.Success);
+            await RefreshAsync();
+        }
+        catch (Exception ex)
+        {
+            _actionError = true;
+            _actionMessage = $"Action failed: {ex.Message}";
+            Snackbar.Add(_actionMessage!, Severity.Error);
+        }
+        finally
+        {
+            _busySystemHomeAway = false;
         }
     }
 

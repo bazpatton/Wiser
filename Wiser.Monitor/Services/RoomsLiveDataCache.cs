@@ -29,7 +29,9 @@ public sealed class RoomsLiveDataCache
             overview.Rooms.ToList(),
             overview.HeatingRelayOn,
             overview.HeatingActive,
-            overview.BoostPresets);
+            overview.BoostPresets,
+            overview.SystemAway,
+            overview.AwaySetpointLimitC);
         _cachedAt = DateTimeOffset.Now;
     }
 }

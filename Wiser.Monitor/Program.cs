@@ -123,6 +123,8 @@ app.MapGet("/api/hub-live-rooms", async (WiserHubFetch hub, MonitorOptions o, Ca
         heating_relay_on = overview.HeatingRelayOn,
         heating_active = overview.HeatingActive,
         boost_presets = overview.BoostPresets,
+        system_away = overview.SystemAway,
+        away_setpoint_limit_c = overview.AwaySetpointLimitC,
     });
 });
 
@@ -292,6 +294,33 @@ app.MapPost("/api/room/mode", async (RoomModeRequest body, WiserHubFetch hub, Mo
     try
     {
         await hub.PatchRoomModeAsync(o, body.room_id, body.mode, body.temperature_c, ct).ConfigureAwait(false);
+        return Results.Json(new { ok = true });
+    }
+    catch (Exception ex)
+    {
+        return Results.Json(new { error = ex.Message }, statusCode: StatusCodes.Status502BadGateway);
+    }
+});
+
+app.MapPost("/api/system/home-away", async (SystemHomeAwayRequest body, WiserHubFetch hub, MonitorOptions o, CancellationToken ct) =>
+{
+    if (!hubConfigured)
+    {
+        return Results.Json(
+            new { error = "Hub is not configured. Set WISER_IP and WISER_SECRET.", configuration_errors = hubConfigurationErrors },
+            statusCode: StatusCodes.Status503ServiceUnavailable);
+    }
+
+    if (string.IsNullOrWhiteSpace(body.mode))
+        return Results.BadRequest(new { error = "mode is required" });
+    var m = body.mode.Trim().ToUpperInvariant();
+    if (m is not ("HOME" or "AWAY"))
+        return Results.BadRequest(new { error = "mode must be HOME or AWAY" });
+    if (m == "AWAY" && body.temperature_c is null)
+        return Results.BadRequest(new { error = "temperature_c is required for AWAY" });
+    try
+    {
+        await hub.PatchSystemHomeAwayAsync(o, m, body.temperature_c, ct).ConfigureAwait(false);
         return Results.Json(new { ok = true });
     }
     catch (Exception ex)
@@ -836,5 +865,6 @@ internal static class BoostPresets
 internal sealed record BoostRoomRequest(int room_id, double temperature_c, int minutes);
 internal sealed record CancelRoomOverrideRequest(int room_id);
 internal sealed record RoomModeRequest(int room_id, string mode, double? temperature_c);
+internal sealed record SystemHomeAwayRequest(string mode, double? temperature_c);
 internal sealed record GasMeterCreateRequest(int vol_credit, decimal amount_gbp, string entry_date, string? ocr_raw_json, string? source_image_path);
 internal sealed record GasMeterUpdateRequest(int vol_credit, decimal amount_gbp, string entry_date);

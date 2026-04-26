@@ -153,9 +153,34 @@ public sealed class WiserHubFetch(HttpClient http)
         }
     }
 
-    private async Task PatchRoomAsync(MonitorOptions options, int roomId, object body, CancellationToken ct)
+    /// <summary>Whole-house away / home — PATCH <c>System/RequestOverride</c> with numeric <c>type</c> / <c>setPoint</c> (matches the Control app).</summary>
+    public async Task PatchSystemHomeAwayAsync(MonitorOptions options, string mode, double? awayTemperatureC, CancellationToken ct)
     {
-        var url = $"http://{options.WiserIp}/data/domain/Room/{roomId}";
+        mode = mode.Trim().ToUpperInvariant();
+        object body = mode switch
+        {
+            "AWAY" when awayTemperatureC is null => throw new ArgumentException("Away temperature required.", nameof(awayTemperatureC)),
+            "AWAY" when !IsValidSystemAwayTemperature(awayTemperatureC.Value) => throw new ArgumentOutOfRangeException(nameof(awayTemperatureC)),
+            "AWAY" => new { type = 2, setPoint = ToHubTenths(awayTemperatureC!.Value) },
+            "HOME" => new { type = 0, setPoint = 0 },
+            _ => throw new ArgumentException("Mode must be HOME or AWAY.", nameof(mode)),
+        };
+
+        await PatchHubDomainPathAsync(options, "System/RequestOverride", body, ct).ConfigureAwait(false);
+    }
+
+    private static int ToHubTenths(double celsius) =>
+        (int)Math.Round(celsius * 10, MidpointRounding.AwayFromZero);
+
+    private static bool IsValidSystemAwayTemperature(double celsius) =>
+        Math.Abs(celsius - TempOffC) < 0.001 || (celsius >= TempMinimumC && celsius <= TempMaximumC);
+
+    private async Task PatchRoomAsync(MonitorOptions options, int roomId, object body, CancellationToken ct) =>
+        await PatchHubDomainPathAsync(options, $"Room/{roomId}", body, ct).ConfigureAwait(false);
+
+    private async Task PatchHubDomainPathAsync(MonitorOptions options, string domainPath, object body, CancellationToken ct)
+    {
+        var url = $"http://{options.WiserIp}/data/domain/{domainPath.TrimStart('/')}";
         using var req = new HttpRequestMessage(HttpMethod.Patch, url);
         req.Headers.TryAddWithoutValidation("SECRET", options.WiserSecret);
         var json = JsonSerializer.Serialize(body, PatchJson);

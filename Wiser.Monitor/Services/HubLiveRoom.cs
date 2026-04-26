@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
@@ -21,7 +22,9 @@ public sealed record HubLiveOverview(
     IReadOnlyList<HubLiveRoom> Rooms,
     bool HeatingRelayOn,
     bool HeatingActive,
-    IReadOnlyList<BoostPresetInfo> BoostPresets);
+    IReadOnlyList<BoostPresetInfo> BoostPresets,
+    bool SystemAway = false,
+    double? AwaySetpointLimitC = null);
 
 public sealed record BoostPresetInfo(
     [property: JsonPropertyName("name")] string Name,
@@ -40,7 +43,68 @@ public static class HubLiveRoomsParser
         var rooms = ParseRooms(root);
         var relay = ParseHeatingRelayOn(root);
         var active = relay || rooms.Any(r => r.HeatDemand != 0);
-        return new HubLiveOverview(rooms, relay, active, boostPresets);
+        var (systemAway, awayLimitC) = ParseSystemAwayState(root);
+        return new HubLiveOverview(rooms, relay, active, boostPresets, systemAway, awayLimitC);
+    }
+
+    /// <summary>Matches aioWiserHeatAPI: <c>OverrideType == "Away"</c> and optional <c>AwayModeSetPointLimit</c> (tenths °C).</summary>
+    private static (bool Away, double? LimitC) ParseSystemAwayState(JsonElement root)
+    {
+        if (!TryGetSystemObject(root, out var sys))
+            return (false, null);
+
+        var away = false;
+        if (TryGetStringProperty(sys, "OverrideType", out var ot)
+            && string.Equals(ot, "Away", StringComparison.OrdinalIgnoreCase))
+            away = true;
+
+        double? limitC = null;
+        if (TryGetIntProperty(sys, "AwayModeSetPointLimit", out var tenths))
+            limitC = tenths / 10.0;
+
+        return (away, limitC);
+    }
+
+    private static bool TryGetSystemObject(JsonElement root, out JsonElement sys)
+    {
+        sys = default;
+        if (root.ValueKind != JsonValueKind.Object)
+            return false;
+        if (root.TryGetProperty("System", out var s) && s.ValueKind == JsonValueKind.Object)
+        {
+            sys = s;
+            return true;
+        }
+
+        if (root.TryGetProperty("system", out s) && s.ValueKind == JsonValueKind.Object)
+        {
+            sys = s;
+            return true;
+        }
+
+        return false;
+    }
+
+    private static bool TryGetStringProperty(JsonElement obj, string name, out string value)
+    {
+        value = "";
+        if (obj.ValueKind != JsonValueKind.Object || !obj.TryGetProperty(name, out var p))
+            return false;
+        if (p.ValueKind != JsonValueKind.String)
+            return false;
+        value = p.GetString()?.Trim() ?? "";
+        return !string.IsNullOrEmpty(value);
+    }
+
+    private static bool TryGetIntProperty(JsonElement obj, string name, out int value)
+    {
+        value = 0;
+        if (obj.ValueKind != JsonValueKind.Object || !obj.TryGetProperty(name, out var p))
+            return false;
+        if (p.ValueKind == JsonValueKind.Number && p.TryGetInt32(out value))
+            return true;
+        return p.ValueKind == JsonValueKind.String
+            && int.TryParse(p.GetString(), NumberStyles.Integer, CultureInfo.InvariantCulture, out value);
     }
 
     public static IReadOnlyList<HubLiveRoom> ParseRooms(JsonElement root)
