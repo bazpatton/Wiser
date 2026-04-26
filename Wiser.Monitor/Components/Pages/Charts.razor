@@ -659,7 +659,7 @@
         // Default grid step is 20 — Room °C in a ~15–25 band was pinned to 0–40. Use 1 °C steps; Clamp expands if the span is huge.
         YAxisTicks = 1,
         MaxNumYAxisTicks = 22,
-        YAxisFormat = "F0",
+        YAxisFormat = "F2",
     };
     private readonly TimeSeriesChartOptions _heatCallingValveTsOptions = new()
     {
@@ -707,7 +707,7 @@
         YAxisTitle = "°C",
         YAxisTicks = 1,
         MaxNumYAxisTicks = 22,
-        YAxisFormat = "F0",
+        YAxisFormat = "F2",
     };
     private readonly LineChartOptions _roomTrendValveLineOptions = new()
     {
