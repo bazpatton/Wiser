@@ -117,7 +117,7 @@
                        Class="touch-target"
                        Disabled="@(_quickActionsBusy || _quickActionRooms.Count == 0)"
                        OnClick="ToggleAwayModeAsync">
-                @(_awayModeActive ? "Unset away mode" : "Set away mode")
+                @(AwayQuickActionShowsActive ? "Unset away mode" : "Set away mode")
             </MudButton>
             <MudButton Href="/gas-meter"
                        Variant="Variant.Outlined"
@@ -419,7 +419,7 @@
                Class="touch-target"
                Disabled="@(_quickActionsBusy || _quickActionRooms.Count == 0)"
                OnClick="ToggleAwayModeAsync">
-        @(_awayModeActive ? "Unset away" : "Away mode")
+        @(AwayQuickActionShowsActive ? "Unset away" : "Away mode")
     </MudButton>
 </div>
 
@@ -442,6 +442,8 @@
     private HashSet<string> _boostRoomNames = new(StringComparer.OrdinalIgnoreCase);
     private bool _quickActionsBusy;
     private bool _awayModeActive;
+    /// <summary>Hub whole-house away (<see cref="HubLiveOverview.SystemAway"/>), distinct from quick-action "all rooms auto" state.</summary>
+    private bool _hubSystemAway;
     private const string AwayModeActiveStorageKey = "wiser-away-active";
     private const string AwayModeSnapshotStorageKey = "wiser-away-snapshot";
     private FloorplanConfig _homeFloorplanConfig = FloorplanConfig.Default;
@@ -459,6 +461,8 @@
             ? null
             : $"/api/floorplan/image?v={_homeFloorplanConfig.UpdatedTs}";
 
+    private bool AwayQuickActionShowsActive => _awayModeActive || _hubSystemAway;
+
     protected override async Task OnInitializedAsync()
     {
         await TryLoadAwayStateAsync();
@@ -470,6 +474,7 @@
         _status = $"Poll interval: {Options.IntervalSec}s · Alerts: {(Options.AlertsEnabled ? "On" : "Off")} · {okText}";
 
         var liveOverview = await LiveHubRoomTemps.TryFetchOverviewAsync(Hub, Options, CancellationToken.None).ConfigureAwait(false);
+        _hubSystemAway = liveOverview?.SystemAway ?? false;
         if (liveOverview is not null)
         {
             RoomsCache.Update(liveOverview);
@@ -723,10 +728,43 @@
 
     private async Task ToggleAwayModeAsync()
     {
-        if (_awayModeActive)
-            await UnsetAwayModeAsync();
-        else
+        if (!AwayQuickActionShowsActive)
+        {
             await SetAwayModeAutoAsync();
+            return;
+        }
+
+        _quickActionsBusy = true;
+        try
+        {
+            var hadHubAway = _hubSystemAway;
+            if (_hubSystemAway)
+            {
+                await Hub.PatchSystemHomeAwayAsync(Options, "HOME", null, CancellationToken.None).ConfigureAwait(false);
+                var refreshed = await LiveHubRoomTemps.TryFetchOverviewAsync(Hub, Options, CancellationToken.None).ConfigureAwait(false);
+                if (refreshed is not null)
+                {
+                    RoomsCache.Update(refreshed);
+                    _hubSystemAway = refreshed.SystemAway;
+                }
+                else
+                    _hubSystemAway = false;
+
+                if (hadHubAway && !_hubSystemAway)
+                    Snackbar.Add("Whole-house away cleared on the hub.", Severity.Success);
+            }
+
+            if (_awayModeActive || _awayModeSnapshot.Count > 0)
+                await UnsetSavedQuickActionAwayAsync();
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Could not update away mode: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            _quickActionsBusy = false;
+        }
     }
 
     private async Task SetAwayModeAutoAsync()
@@ -773,17 +811,16 @@
         }
     }
 
-    private async Task UnsetAwayModeAsync()
+    private async Task UnsetSavedQuickActionAwayAsync()
     {
         if (_awayModeSnapshot.Count == 0)
         {
             _awayModeActive = false;
             await ClearAwayStateAsync();
-            Snackbar.Add("Away mode snapshot was not found. Cleared away state.", Severity.Info);
+            Snackbar.Add("Away mode snapshot was not found. Cleared saved away state.", Severity.Info);
             return;
         }
 
-        _quickActionsBusy = true;
         var succeeded = 0;
         var failed = 0;
         foreach (var room in _awayModeSnapshot)
@@ -807,7 +844,6 @@
             }
         }
 
-        _quickActionsBusy = false;
         if (failed > 0)
         {
             Snackbar.Add($"Unset away mode completed with issues: {succeeded} succeeded, {failed} failed.", Severity.Warning);
