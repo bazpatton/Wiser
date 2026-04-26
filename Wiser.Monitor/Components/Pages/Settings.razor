@@ -91,6 +91,9 @@
             Smart auto uses Open-Meteo hourly forecasts and recent indoor data (requires <code>OPEN_METEO_LAT</code> / <code>OPEN_METEO_LON</code>).
             Pre-end ntfy reminders use the same topic as temperature alerts.
         </MudText>
+        <MudText Typo="Typo.caption" Class="mud-text-secondary d-block mb-2">
+            These options (toggle and numbers) are saved to the database as soon as you change them. The main <strong>Save</strong> button at the bottom still saves room activity, gas reminders, and heating routine.
+        </MudText>
         @if (!HubConfigured)
         {
             <MudAlert Severity="Severity.Warning" Dense="true" Class="mb-2">
@@ -104,14 +107,16 @@
             </MudAlert>
         }
         <MudSwitch T="bool"
-                   @bind-Value="_taSmartAuto"
+                   Value="_taSmartAuto"
+                   ValueChanged="OnTimedAwaySmartAutoChanged"
                    Color="Color.Primary"
                    Class="touch-control"
                    Label="Smart auto away (opt-in)" />
         <MudGrid Spacing="2" Class="mt-2">
             <MudItem xs="12" sm="6" md="4">
                 <MudNumericField T="double"
-                                 @bind-Value="_taAwayLimit"
+                                 Value="_taAwayLimit"
+                                 ValueChanged="OnTaAwayLimitChanged"
                                  Label="Away limit °C"
                                  Variant="Variant.Outlined"
                                  Margin="Margin.Dense"
@@ -121,7 +126,8 @@
             </MudItem>
             <MudItem xs="12" sm="6" md="4">
                 <MudNumericField T="int"
-                                 @bind-Value="_taSmartDurationMin"
+                                 Value="_taSmartDurationMin"
+                                 ValueChanged="OnTaSmartDurationChanged"
                                  Label="Smart session length (min)"
                                  Variant="Variant.Outlined"
                                  Margin="Margin.Dense"
@@ -130,7 +136,8 @@
             </MudItem>
             <MudItem xs="12" sm="6" md="4">
                 <MudNumericField T="int"
-                                 @bind-Value="_taExtensionLeadMin"
+                                 Value="_taExtensionLeadMin"
+                                 ValueChanged="OnTaExtensionLeadChanged"
                                  Label="Ntfy lead time (min)"
                                  Variant="Variant.Outlined"
                                  Margin="Margin.Dense"
@@ -139,7 +146,8 @@
             </MudItem>
             <MudItem xs="12" sm="6" md="4">
                 <MudNumericField T="int"
-                                 @bind-Value="_taForecastHours"
+                                 Value="_taForecastHours"
+                                 ValueChanged="OnTaForecastHoursChanged"
                                  Label="Forecast horizon (h)"
                                  Variant="Variant.Outlined"
                                  Margin="Margin.Dense"
@@ -148,7 +156,8 @@
             </MudItem>
             <MudItem xs="12" sm="6" md="4">
                 <MudNumericField T="double"
-                                 @bind-Value="_taMinForecastTemp"
+                                 Value="_taMinForecastTemp"
+                                 ValueChanged="OnTaMinForecastTempChanged"
                                  Label="Min outdoor °C (smart)"
                                  Variant="Variant.Outlined"
                                  Margin="Margin.Dense"
@@ -157,7 +166,8 @@
             </MudItem>
             <MudItem xs="12" sm="6" md="4">
                 <MudNumericField T="int"
-                                 @bind-Value="_taHeatingIdlePolls"
+                                 Value="_taHeatingIdlePolls"
+                                 ValueChanged="OnTaHeatingIdlePollsChanged"
                                  Label="Heating idle polls"
                                  Variant="Variant.Outlined"
                                  Margin="Margin.Dense"
@@ -167,7 +177,8 @@
             </MudItem>
             <MudItem xs="12" sm="6" md="4">
                 <MudNumericField T="double"
-                                 @bind-Value="_taIndoorMinAvg"
+                                 Value="_taIndoorMinAvg"
+                                 ValueChanged="OnTaIndoorMinAvgChanged"
                                  Label="Min indoor avg °C"
                                  Variant="Variant.Outlined"
                                  Margin="Margin.Dense"
@@ -175,7 +186,8 @@
             </MudItem>
             <MudItem xs="12" sm="6" md="4">
                 <MudNumericField T="int"
-                                 @bind-Value="_taSmartCooldownHours"
+                                 Value="_taSmartCooldownHours"
+                                 ValueChanged="OnTaSmartCooldownChanged"
                                  Label="Smart cooldown (h)"
                                  Variant="Variant.Outlined"
                                  Margin="Margin.Dense"
@@ -757,11 +769,97 @@
         _taHeatingIdlePolls = p.HeatingIdlePollsRequired;
         _taIndoorMinAvg = p.IndoorMinAvgTempC;
         _taSmartCooldownHours = p.SmartCooldownHours;
-        _taActiveSession = Store.TryGetActiveTimedAwaySession();
+        ResetTimedAwayManualEndPickers();
+        RefreshTimedAwayActiveSessionOnly();
+    }
+
+    private void ResetTimedAwayManualEndPickers()
+    {
         var zone = TimeZoneResolver.Resolve(Options.TimeZoneId);
         var nowL = TimeZoneInfo.ConvertTime(DateTimeOffset.UtcNow, zone).DateTime;
         _taEndDate = nowL.Date.AddDays(1);
         _taEndTime = new TimeSpan(18, 0, 0);
+    }
+
+    private void RefreshTimedAwayActiveSessionOnly() =>
+        _taActiveSession = Store.TryGetActiveTimedAwaySession();
+
+    private TimedAwayPolicy BuildTimedAwayPolicyFromFields() =>
+        new(
+            _taSmartAuto,
+            Math.Round(_taAwayLimit, 1),
+            Math.Clamp(_taSmartDurationMin, 30, 10080),
+            Math.Clamp(_taExtensionLeadMin, 1, 1440),
+            Math.Clamp(_taForecastHours, 1, 48),
+            _taMinForecastTemp,
+            Math.Clamp(_taHeatingIdlePolls, 1, 50),
+            _taIndoorMinAvg,
+            Math.Clamp(_taSmartCooldownHours, 0, 168));
+
+    private void PersistTimedAwayPolicyToStore() =>
+        Store.SetTimedAwayPolicy(BuildTimedAwayPolicyFromFields());
+
+    private Task OnTimedAwaySmartAutoChanged(bool value)
+    {
+        _taSmartAuto = value;
+        PersistTimedAwayPolicyToStore();
+        return Task.CompletedTask;
+    }
+
+    private Task OnTaAwayLimitChanged(double v)
+    {
+        _taAwayLimit = v;
+        PersistTimedAwayPolicyToStore();
+        return Task.CompletedTask;
+    }
+
+    private Task OnTaSmartDurationChanged(int v)
+    {
+        _taSmartDurationMin = v;
+        PersistTimedAwayPolicyToStore();
+        return Task.CompletedTask;
+    }
+
+    private Task OnTaExtensionLeadChanged(int v)
+    {
+        _taExtensionLeadMin = v;
+        PersistTimedAwayPolicyToStore();
+        return Task.CompletedTask;
+    }
+
+    private Task OnTaForecastHoursChanged(int v)
+    {
+        _taForecastHours = v;
+        PersistTimedAwayPolicyToStore();
+        return Task.CompletedTask;
+    }
+
+    private Task OnTaMinForecastTempChanged(double v)
+    {
+        _taMinForecastTemp = v;
+        PersistTimedAwayPolicyToStore();
+        return Task.CompletedTask;
+    }
+
+    private Task OnTaHeatingIdlePollsChanged(int v)
+    {
+        _taHeatingIdlePolls = v;
+        PersistTimedAwayPolicyToStore();
+        return Task.CompletedTask;
+    }
+
+    private Task OnTaIndoorMinAvgChanged(double v)
+    {
+        _taIndoorMinAvg = v;
+        PersistTimedAwayPolicyToStore();
+        return Task.CompletedTask;
+    }
+
+    private Task OnTaSmartCooldownChanged(int v)
+    {
+        _taSmartCooldownHours = v;
+        PersistTimedAwayPolicyToStore();
+        return Task.CompletedTask;
     }
 
     private string FormatLocalEnds(long unix)
@@ -806,7 +904,7 @@
             }
 
             Snackbar.Add("Away scheduled on the hub until the chosen time.", Severity.Success);
-            LoadTimedAwayFields();
+            RefreshTimedAwayActiveSessionOnly();
         }
         catch (Exception ex)
         {
@@ -833,7 +931,7 @@
             }
 
             Snackbar.Add("Away cancelled; hub set to Home.", Severity.Success);
-            LoadTimedAwayFields();
+            RefreshTimedAwayActiveSessionOnly();
         }
         catch (Exception ex)
         {
@@ -860,7 +958,7 @@
             }
 
             Snackbar.Add($"Away extended by {minutes} minutes.", Severity.Success);
-            LoadTimedAwayFields();
+            RefreshTimedAwayActiveSessionOnly();
         }
         catch (Exception ex)
         {
@@ -1049,16 +1147,7 @@
             _nightSetbackOk,
             priorityRooms,
             0));
-        Store.SetTimedAwayPolicy(new TimedAwayPolicy(
-            _taSmartAuto,
-            Math.Round(_taAwayLimit, 1),
-            Math.Clamp(_taSmartDurationMin, 30, 10080),
-            Math.Clamp(_taExtensionLeadMin, 1, 1440),
-            Math.Clamp(_taForecastHours, 1, 48),
-            _taMinForecastTemp,
-            Math.Clamp(_taHeatingIdlePolls, 1, 50),
-            _taIndoorMinAvg,
-            Math.Clamp(_taSmartCooldownHours, 0, 168)));
+        PersistTimedAwayPolicyToStore();
         Snackbar.Add("Settings saved.", Severity.Success);
         return Task.CompletedTask;
     }
