@@ -12,7 +12,7 @@
 <MudDialogProvider />
 <MudSnackbarProvider />
 
-<MudLayout>
+<MudLayout Class="@(_compactMode ? "compact-ui" : string.Empty)">
     <MudAppBar Elevation="0" Class="top-appbar">
         <MudIconButton Icon="@Icons.Material.Filled.Menu"
                        Color="Color.Inherit"
@@ -42,6 +42,11 @@
                        Class="touch-target-icon"
                        OnClick="ToggleDarkModeAsync"
                        aria-label="@(_isDarkMode ? "Switch to light theme" : "Switch to dark theme")" />
+        <MudIconButton Icon="@(_compactMode ? Icons.Material.Filled.DensityMedium : Icons.Material.Filled.DensitySmall)"
+                       Color="Color.Inherit"
+                       Class="touch-target-icon"
+                       OnClick="ToggleCompactModeAsync"
+                       aria-label="@(_compactMode ? "Disable compact mode" : "Enable compact mode")" />
         <MudText Typo="Typo.body2" Class="fa-header desktop-tagline">
             <i class="fa-solid fa-temperature-half" aria-hidden="true"></i>
             Heat hub dashboard
@@ -78,10 +83,12 @@
 
 @code {
     private const string ThemeStorageKey = "wiser-monitor-dark";
+    private const string CompactStorageKey = "wiser-monitor-compact";
 
     private bool _drawerOpen;
     private bool _isDarkMode;
     private bool _themeHydrated;
+    private bool _compactMode;
     private MudThemeProvider? _themeProvider;
 
     private readonly MudTheme _theme = new()
@@ -141,6 +148,9 @@
             else
                 _isDarkMode = await _themeProvider.GetSystemDarkModeAsync();
 
+            var compactStored = await JS.InvokeAsync<string?>("localStorage.getItem", CompactStorageKey);
+            _compactMode = compactStored == "1";
+
             _themeHydrated = true;
             StateHasChanged();
         }
@@ -170,6 +180,19 @@
         catch
         {
             // ignore (e.g. prerender without JS)
+        }
+    }
+
+    private async Task ToggleCompactModeAsync()
+    {
+        _compactMode = !_compactMode;
+        try
+        {
+            await JS.InvokeVoidAsync("localStorage.setItem", CompactStorageKey, _compactMode ? "1" : "0");
+        }
+        catch
+        {
+            // ignore
         }
     }
 

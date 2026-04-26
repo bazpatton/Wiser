@@ -10,6 +10,7 @@
 @inject IBrowserViewportService Viewport
 @inject WiserHubFetch Hub
 @inject RoomsLiveDataCache RoomsCache
+@inject IJSRuntime Js
 
 <PageTitle>Wiser Monitor - Charts</PageTitle>
 
@@ -162,6 +163,109 @@
             }
         }
     </MudPaper>
+
+    <MudGrid Spacing="2" Class="charts-two-col-row">
+        <MudItem xs="12" md="6" Class="charts-grid-cell">
+            <MudPaper Class="pa-3 chart-card charts-grid-paper">
+                <MudText Typo="Typo.h6" Class="mb-2">
+                    <i class="fa-solid fa-gauge-high"></i> Per-room efficiency score
+                </MudText>
+                <MudText Typo="Typo.caption" Class="mud-text-secondary d-block mb-2">
+                    Estimated as positive room temperature gain (°C) per boiler relay-on minute in the selected window.
+                    Lower or negative values can indicate underperforming emitters or heat loss.
+                </MudText>
+                @if (_roomEfficiencyRows.Count == 0)
+                {
+                    <MudAlert Severity="Severity.Info" Dense="true">No efficiency rows yet.</MudAlert>
+                }
+                else
+                {
+                    <MudTable T="RoomEfficiencyRow" Dense="true" Hover="true" Breakpoint="Breakpoint.Sm" Items="_roomEfficiencyRows">
+                        <HeaderContent>
+                            <MudTh>Room</MudTh>
+                            <MudTh Class="text-right">Score (°C/min)</MudTh>
+                            <MudTh Class="text-right">vs prev week</MudTh>
+                            <MudTh Class="text-right">Temp gain (°C)</MudTh>
+                            <MudTh Class="text-right">Relay min</MudTh>
+                            <MudTh>Note</MudTh>
+                        </HeaderContent>
+                        <RowTemplate>
+                            <MudTd DataLabel="Room">
+                                <MudLink Href="@GetRoomDetailsHref(context.Room)">@context.Room</MudLink>
+                            </MudTd>
+                            <MudTd DataLabel="Score" Class="text-right">@Fmt(context.ScoreCPerRelayMinute)</MudTd>
+                            <MudTd DataLabel="vs prev week" Class="text-right">@FormatEfficiencyTrend(context.WeeklyDeltaCPerRelayMinute)</MudTd>
+                            <MudTd DataLabel="Temp gain" Class="text-right">@Fmt(context.PositiveTempGainC)</MudTd>
+                            <MudTd DataLabel="Relay min" Class="text-right">@Fmt(context.RelayMinutes)</MudTd>
+                            <MudTd DataLabel="Note">
+                                @if (context.IsLowConfidence)
+                                {
+                                    <MudTooltip Text="Low confidence: relay-on minutes are low in this window, so efficiency can swing more with small temperature changes.">
+                                        <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined" Color="Color.Warning">
+                                            Low confidence
+                                        </MudChip>
+                                    </MudTooltip>
+                                }
+                                else
+                                {
+                                    @context.Note
+                                }
+                            </MudTd>
+                        </RowTemplate>
+                    </MudTable>
+                }
+            </MudPaper>
+        </MudItem>
+        <MudItem xs="12" md="6" Class="charts-grid-cell">
+            <MudPaper Class="pa-3 chart-card charts-grid-paper">
+                <MudText Typo="Typo.h6" Class="mb-2">
+                    <i class="fa-solid fa-arrows-rotate"></i> Boiler cycle health
+                </MudText>
+                <MudText Typo="Typo.caption" Class="mud-text-secondary d-block mb-2">
+                    Short-cycle estimate from relay on/off transitions in poll data. Very short runs can indicate inefficiency.
+                </MudText>
+                @if (_boilerCycleSummary is null)
+                {
+                    <MudAlert Severity="Severity.Info" Dense="true">No boiler cycle data in this window.</MudAlert>
+                }
+                else
+                {
+                    <MudGrid Spacing="1">
+                        <MudItem xs="6" sm="3">
+                            <MudText Typo="Typo.caption" Class="mud-text-secondary">Cycles</MudText>
+                            <MudText Typo="Typo.body1">@_boilerCycleSummary.TotalCycles</MudText>
+                        </MudItem>
+                        <MudItem xs="6" sm="3">
+                            <MudText Typo="Typo.caption" Class="mud-text-secondary">Short cycles</MudText>
+                            <MudText Typo="Typo.body1">@_boilerCycleSummary.ShortCycles</MudText>
+                        </MudItem>
+                        <MudItem xs="6" sm="3">
+                            <MudText Typo="Typo.caption" Class="mud-text-secondary">Short ratio</MudText>
+                            <MudText Typo="Typo.body1">@_boilerCycleSummary.ShortCycleRatioText</MudText>
+                        </MudItem>
+                        <MudItem xs="6" sm="3">
+                            <MudText Typo="Typo.caption" Class="mud-text-secondary">Threshold</MudText>
+                            <MudText Typo="Typo.body1">@($"{_boilerCycleSummary.ShortCycleThresholdMin} min")</MudText>
+                        </MudItem>
+                        <MudItem xs="6" sm="3">
+                            <MudText Typo="Typo.caption" Class="mud-text-secondary">Shortest</MudText>
+                            <MudText Typo="Typo.body1">@Fmt(_boilerCycleSummary.ShortestCycleMinutes)</MudText>
+                        </MudItem>
+                        <MudItem xs="6" sm="3">
+                            <MudText Typo="Typo.caption" Class="mud-text-secondary">Median</MudText>
+                            <MudText Typo="Typo.body1">@Fmt(_boilerCycleSummary.MedianCycleMinutes)</MudText>
+                        </MudItem>
+                    </MudGrid>
+                    @if (_boilerCycleSummary.ShortCycleRatio >= 0.35)
+                    {
+                        <MudAlert Severity="Severity.Warning" Dense="true" Class="mt-2">
+                            High short-cycling ratio in this window.
+                        </MudAlert>
+                    }
+                }
+            </MudPaper>
+        </MudItem>
+    </MudGrid>
     </MudStack>
     </MudTabPanel>
 
@@ -172,22 +276,22 @@
             <i class="fa-solid fa-wave-square"></i> Room trend chart
         </MudText>
         <MudGrid Spacing="2">
-            <MudItem xs="12" md="4">
-                <MudTooltip Text="Type to filter when you have many rooms.">
-                    <MudAutocomplete T="string"
-                                     Label="Room"
-                                     Value="_selectedRoom"
-                                     ValueChanged="OnRoomChanged"
-                                     SearchFunc="SearchRoomsAsync"
-                                     CoerceText="true"
-                                     ResetValueOnEmptyText="true"
-                                     Variant="Variant.Outlined"
-                                     Dense="true"
-                                     Margin="Margin.Dense"
-                                     Class="touch-control"
-                                     Immediate="true"
-                                     AdornmentIcon="@Icons.Material.Filled.Search"
-                                     AdornmentColor="Color.Default" />
+            <MudItem xs="12" md="5">
+                <MudTooltip Text="Choose a room to update the trend chart.">
+                    <MudSelect T="string"
+                               Label="Room"
+                               Value="_selectedRoom"
+                               ValueChanged="OnRoomChanged"
+                               FullWidth="true"
+                               Variant="Variant.Outlined"
+                               Dense="true"
+                               Margin="Margin.Dense"
+                               Class="touch-control">
+                        @foreach (var room in _rooms)
+                        {
+                            <MudSelectItem Value="@room">@room</MudSelectItem>
+                        }
+                    </MudSelect>
                 </MudTooltip>
             </MudItem>
             <MudItem xs="12" sm="6" md="3">
@@ -205,7 +309,7 @@
                     <MudSelectItem Value="168">7 days</MudSelectItem>
                 </MudSelect>
             </MudItem>
-            <MudItem xs="12" sm="6" md="3" Class="d-flex align-center charts-outdoor-wrap">
+            <MudItem xs="12" sm="6" md="2" Class="d-flex align-center charts-outdoor-wrap">
                 <MudCheckBox T="bool"
                              Label="Include outdoor"
                              Value="_includeOutdoor"
@@ -395,6 +499,7 @@
             </MudPaper>
         </MudItem>
     </MudGrid>
+
     </MudStack>
     </MudTabPanel>
 
@@ -466,7 +571,8 @@
                                Class="touch-control">
                         @for (var w = 4; w <= 16; w++)
                         {
-                            <MudSelectItem Value="@w">@w weeks</MudSelectItem>
+                            var weeksOption = w;
+                            <MudSelectItem Value="@weeksOption">@weeksOption weeks</MudSelectItem>
                         }
                     </MudSelect>
                 </MudItem>
@@ -574,6 +680,9 @@
     private readonly List<RoomHeatTile> _roomTiles = [];
     private readonly List<DailySummaryRow> _dailyRows = [];
     private readonly List<GasWeekInsightRow> _gasWeekRows = [];
+    private readonly List<RoomEfficiencyRow> _roomEfficiencyRows = [];
+    private BoilerCycleSummary? _boilerCycleSummary;
+    private IReadOnlyList<SystemSeriesRow> _systemRowsWindow = [];
     private int _gasWeeksToShow = 8;
     private bool _gasWeekHasReceipt;
     private int _gasWeekReadingPairs;
@@ -587,6 +696,10 @@
     private Dictionary<string, HubLiveRoom>? _liveHubByRoom;
     private readonly Guid _viewportObserverId = Guid.NewGuid();
     private bool _compactChartAxes;
+    private const double ShortCycleThresholdMinutes = 5.0;
+    private const string ChartRoomStorageKey = "wiser-chart-room";
+    private const string ChartHoursStorageKey = "wiser-chart-hours";
+    private const string ChartOutdoorStorageKey = "wiser-chart-include-outdoor";
     private readonly LineChartOptions _roomTrendTempLineOptions = new()
     {
         InterpolationOption = InterpolationOption.Straight,
@@ -722,7 +835,9 @@
 
     protected override async Task OnInitializedAsync()
     {
+        await TryLoadPersistedChartFiltersAsync();
         LoadRooms();
+        ValidateChartFilters();
         LoadDailyRows();
         await LoadChartAsync();
     }
@@ -740,28 +855,77 @@
     private Task OnRoomChanged(string? room)
     {
         _selectedRoom = room ?? string.Empty;
+        _ = PersistChartFiltersAsync();
         return LoadChartAsync();
-    }
-
-    private Task<IEnumerable<string>> SearchRoomsAsync(string value, CancellationToken cancellationToken)
-    {
-        cancellationToken.ThrowIfCancellationRequested();
-        if (string.IsNullOrWhiteSpace(value))
-            return Task.FromResult<IEnumerable<string>>(_rooms);
-        return Task.FromResult<IEnumerable<string>>(
-            _rooms.Where(r => r.Contains(value.Trim(), StringComparison.OrdinalIgnoreCase)));
     }
 
     private Task OnHoursChanged(int hours)
     {
         _hours = hours;
+        _ = PersistChartFiltersAsync();
         return LoadChartAsync();
     }
 
     private Task OnOutdoorChanged(bool include)
     {
         _includeOutdoor = include;
+        _ = PersistChartFiltersAsync();
         return LoadChartAsync();
+    }
+
+    private void ValidateChartFilters()
+    {
+        if (_hours is not (12 or 24 or 48 or 168))
+            _hours = 24;
+
+        if (_rooms.Count == 0)
+        {
+            _selectedRoom = string.Empty;
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(_selectedRoom)
+            || !_rooms.Contains(_selectedRoom, StringComparer.OrdinalIgnoreCase))
+        {
+            _selectedRoom = _rooms[0];
+        }
+    }
+
+    private async Task TryLoadPersistedChartFiltersAsync()
+    {
+        try
+        {
+            var room = await Js.InvokeAsync<string?>("localStorage.getItem", ChartRoomStorageKey);
+            var hoursRaw = await Js.InvokeAsync<string?>("localStorage.getItem", ChartHoursStorageKey);
+            var outdoorRaw = await Js.InvokeAsync<string?>("localStorage.getItem", ChartOutdoorStorageKey);
+
+            if (!string.IsNullOrWhiteSpace(room))
+                _selectedRoom = room.Trim();
+            if (int.TryParse(hoursRaw, out var h))
+                _hours = h;
+            if (outdoorRaw == "0")
+                _includeOutdoor = false;
+            else if (outdoorRaw == "1")
+                _includeOutdoor = true;
+        }
+        catch
+        {
+            // Ignore storage errors (e.g. JS unavailable on early render).
+        }
+    }
+
+    private async Task PersistChartFiltersAsync()
+    {
+        try
+        {
+            await Js.InvokeVoidAsync("localStorage.setItem", ChartRoomStorageKey, _selectedRoom ?? string.Empty);
+            await Js.InvokeVoidAsync("localStorage.setItem", ChartHoursStorageKey, _hours.ToString(CultureInfo.InvariantCulture));
+            await Js.InvokeVoidAsync("localStorage.setItem", ChartOutdoorStorageKey, _includeOutdoor ? "1" : "0");
+        }
+        catch
+        {
+            // Ignore persistence failures.
+        }
     }
 
     private async Task LoadChartAsync()
@@ -783,6 +947,9 @@
         _currentDeviationSeries = [];
         _runtimeDistributionLabels = [];
         _runtimeDistributionSeries = [];
+        _roomEfficiencyRows.Clear();
+        _boilerCycleSummary = null;
+        _systemRowsWindow = [];
         _roomIsActiveMap = new(StringComparer.OrdinalIgnoreCase);
 
         try
@@ -800,6 +967,7 @@
             LoadDataQualitySummary();
 
             var since = DateTimeOffset.UtcNow.ToUnixTimeSeconds() - (_hours * 3600L);
+            _systemRowsWindow = Store.SeriesSystem(since);
 
             if (!string.IsNullOrWhiteSpace(_selectedRoom))
             {
@@ -830,7 +998,9 @@
             BuildRoomHeatMap(since);
             BuildComfortComplianceTimeline(days: 7);
             BuildCurrentDeviationChart();
+            BuildRoomEfficiencyScores(since);
             BuildHeatingRuntimeDistribution();
+            BuildBoilerCycleHealth();
         }
         catch (Exception ex)
         {
@@ -1441,8 +1611,7 @@
 
     private void BuildHeatingRuntimeDistribution()
     {
-        var since = DateTimeOffset.UtcNow.ToUnixTimeSeconds() - (_hours * 3600L);
-        var systemRows = Store.SeriesSystem(since);
+        var systemRows = _systemRowsWindow;
         if (systemRows.Count == 0)
             return;
 
@@ -1469,6 +1638,126 @@
                 Data = minutesByHour,
             },
         ];
+    }
+
+    private void BuildRoomEfficiencyScores(long sinceTs)
+    {
+        _roomEfficiencyRows.Clear();
+        var minutesPerSample = Math.Max(10, Options.IntervalSec) / 60.0;
+        var relayMinutes = RelayMinutesWithin(_systemRowsWindow, sinceTs, long.MaxValue, minutesPerSample);
+        var previousWindowStart = sinceTs - (7L * 24 * 3600);
+        var previousSystemRows = Store.SeriesSystem(previousWindowStart);
+        var previousRelayMinutes = RelayMinutesWithin(previousSystemRows, previousWindowStart, sinceTs, minutesPerSample);
+        foreach (var room in _rooms)
+        {
+            var rows = Store.SeriesRoom(room, sinceTs);
+            if (rows.Count < 2 && previousRelayMinutes <= 0)
+                continue;
+            var positiveGain = PositiveGainWithin(rows, sinceTs, long.MaxValue);
+
+            var score = relayMinutes > 0 ? positiveGain / relayMinutes : double.NaN;
+            var prevRows = Store.SeriesRoom(room, previousWindowStart);
+            var prevPositiveGain = PositiveGainWithin(prevRows, previousWindowStart, sinceTs);
+            var prevScore = previousRelayMinutes > 0 ? prevPositiveGain / previousRelayMinutes : double.NaN;
+            var weeklyDelta = !double.IsNaN(score) && !double.IsNaN(prevScore) ? score - prevScore : (double?)null;
+            var note = relayMinutes switch
+            {
+                <= 0 => "No relay-on samples in window",
+                < 30 => "Low confidence (little relay runtime)",
+                _ when positiveGain <= 0 => "No positive gain observed",
+                _ => "OK",
+            };
+            _roomEfficiencyRows.Add(new RoomEfficiencyRow(room, score, weeklyDelta, positiveGain, relayMinutes, relayMinutes < 30, note));
+        }
+
+        _roomEfficiencyRows.Sort(static (a, b) => b.ScoreCPerRelayMinute.CompareTo(a.ScoreCPerRelayMinute));
+    }
+
+    private static double RelayMinutesWithin(IReadOnlyList<SystemSeriesRow> rows, long fromInclusiveTs, long untilExclusiveTs, double minutesPerSample)
+    {
+        if (rows.Count == 0)
+            return 0;
+        var onSamples = rows.Count(x => x.Ts >= fromInclusiveTs && x.Ts < untilExclusiveTs && x.HeatingRelayOn != 0);
+        return onSamples * minutesPerSample;
+    }
+
+    private static double PositiveGainWithin(IReadOnlyList<RoomSeriesRow> rows, long fromInclusiveTs, long untilExclusiveTs)
+    {
+        if (rows.Count < 2)
+            return 0;
+        double gain = 0;
+        for (var i = 1; i < rows.Count; i++)
+        {
+            if (rows[i].Ts < fromInclusiveTs || rows[i].Ts >= untilExclusiveTs)
+                continue;
+            var delta = rows[i].TempC - rows[i - 1].TempC;
+            if (delta > 0)
+                gain += delta;
+        }
+
+        return gain;
+    }
+
+    private static string FormatEfficiencyTrend(double? delta)
+    {
+        if (delta is null || double.IsNaN(delta.Value))
+            return "—";
+        if (Math.Abs(delta.Value) < 0.02)
+            return $"steady ({delta.Value:+0.00;-0.00;0.00})";
+        return delta.Value > 0
+            ? $"up (+{delta.Value:0.00})"
+            : $"down ({delta.Value:0.00})";
+    }
+
+    private void BuildBoilerCycleHealth()
+    {
+        _boilerCycleSummary = null;
+        if (_systemRowsWindow.Count < 2)
+            return;
+
+        var durationsMin = new List<double>();
+        long? cycleStartTs = null;
+        var previousOn = _systemRowsWindow[0].HeatingRelayOn != 0;
+        if (previousOn)
+            cycleStartTs = _systemRowsWindow[0].Ts;
+
+        for (var i = 1; i < _systemRowsWindow.Count; i++)
+        {
+            var row = _systemRowsWindow[i];
+            var isOn = row.HeatingRelayOn != 0;
+            if (!previousOn && isOn)
+            {
+                cycleStartTs = row.Ts;
+            }
+            else if (previousOn && !isOn && cycleStartTs is { } start)
+            {
+                var durationMin = Math.Max(0, (row.Ts - start) / 60.0);
+                if (durationMin > 0)
+                    durationsMin.Add(durationMin);
+                cycleStartTs = null;
+            }
+
+            previousOn = isOn;
+        }
+
+        if (durationsMin.Count == 0)
+            return;
+
+        durationsMin.Sort();
+        var shortCycles = durationsMin.Count(x => x < ShortCycleThresholdMinutes);
+        var ratio = shortCycles / (double)durationsMin.Count;
+        var median = durationsMin.Count % 2 == 1
+            ? durationsMin[durationsMin.Count / 2]
+            : (durationsMin[(durationsMin.Count / 2) - 1] + durationsMin[durationsMin.Count / 2]) / 2.0;
+
+        _boilerCycleSummary = new BoilerCycleSummary(
+            durationsMin.Count,
+            shortCycles,
+            ratio,
+            $"{ratio * 100:0.#}%",
+            ShortCycleThresholdMinutes,
+            durationsMin[0],
+            median);
     }
 
     private void LoadDailyRows()
@@ -1539,6 +1828,24 @@
         double SortKeyWithinBand,
         string CurrentStateText,
         string CurrentStateColor);
+
+    private sealed record RoomEfficiencyRow(
+        string Room,
+        double ScoreCPerRelayMinute,
+        double? WeeklyDeltaCPerRelayMinute,
+        double PositiveTempGainC,
+        double RelayMinutes,
+        bool IsLowConfidence,
+        string Note);
+
+    private sealed record BoilerCycleSummary(
+        int TotalCycles,
+        int ShortCycles,
+        double ShortCycleRatio,
+        string ShortCycleRatioText,
+        double ShortCycleThresholdMin,
+        double ShortestCycleMinutes,
+        double MedianCycleMinutes);
 }
 
 <style>
