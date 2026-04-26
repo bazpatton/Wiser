@@ -143,6 +143,14 @@
     color: var(--mud-palette-info) !important;
 }
 
+.room-climate-icon--comfort {
+    color: var(--mud-palette-primary) !important;
+}
+
+.room-climate-icon--warm {
+    color: var(--mud-palette-success) !important;
+}
+
 .room-climate-icon--offline {
     color: var(--mud-palette-warning) !important;
 }
@@ -185,8 +193,8 @@
 .boost-preset-btn .boost-preset-btn-text {
     display: flex;
     flex-direction: column;
-    align-items: flex-start;
-    text-align: left;
+    align-items: center;
+    text-align: center;
     line-height: 1.25;
     gap: 0.05rem;
 }
@@ -208,13 +216,16 @@
 }
 
 .rooms-page .boost-button-row {
-    gap: 0.35rem !important;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
+    gap: 0.45rem !important;
+    width: 100%;
 }
 
 .rooms-page .boost-preset-btn.mud-button-root {
-    flex: 1 1 auto;
-    min-width: min(100%, 9.5rem);
-    align-items: flex-start;
+    width: 100%;
+    justify-content: center;
+    min-height: 54px;
 }
 
 .rooms-page .boost-preset-btn.mud-button-root .mud-button-label {

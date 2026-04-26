@@ -284,10 +284,10 @@
                                     }
                                     <MudChip T="string"
                                              Size="Size.Small"
-                                             Icon="@(room.HeatDemand != 0 ? Icons.Material.Filled.LocalFireDepartment : Icons.Material.Filled.AcUnit)"
-                                             Color="@(room.HeatDemand != 0 ? Color.Warning : Color.Info)"
+                                             Icon="@RoomStateChipIcon(room)"
+                                             Color="@RoomStateChipColor(room)"
                                              Variant="@(room.HeatDemand != 0 ? Variant.Filled : Variant.Outlined)">
-                                        @(room.HeatDemand != 0 ? "Calling heat" : "Idle")
+                                        @(room.HeatDemand != 0 ? "Calling heat" : RoomIdleLabel(room))
                                     </MudChip>
                                 </MudStack>
                             </MudStack>
@@ -854,7 +854,12 @@
         if (room.RadiatorState.Equals("on", StringComparison.OrdinalIgnoreCase))
             return Icons.Material.Filled.LocalFireDepartment;
         if (room.RadiatorState.Equals("off", StringComparison.OrdinalIgnoreCase))
-            return Icons.Material.Filled.AcUnit;
+            return RoomTempBand(room.TempC) switch
+            {
+                "warm" => Icons.Material.Filled.WbSunny,
+                "cool" => Icons.Material.Filled.DeviceThermostat,
+                _ => Icons.Material.Filled.AcUnit,
+            };
         return Icons.Material.Filled.DeviceThermostat;
     }
 
@@ -865,8 +870,62 @@
         if (room.RadiatorState.Equals("on", StringComparison.OrdinalIgnoreCase))
             return "room-climate-icon room-climate-icon--heat";
         if (room.RadiatorState.Equals("off", StringComparison.OrdinalIgnoreCase))
-            return "room-climate-icon room-climate-icon--cool";
+            return RoomTempBand(room.TempC) switch
+            {
+                "warm" => "room-climate-icon room-climate-icon--warm",
+                "cool" => "room-climate-icon room-climate-icon--comfort",
+                _ => "room-climate-icon room-climate-icon--cool",
+            };
         return "room-climate-icon";
+    }
+
+    private static string RoomTempBand(double tempC)
+    {
+        if (tempC >= 20.0)
+            return "warm";
+        if (tempC >= 16.0)
+            return "cool";
+        return "cold";
+    }
+
+    private static Color RoomStateChipColor(HubLiveRoom room)
+    {
+        if (room.HeatDemand != 0)
+            return Color.Warning;
+        if (IsOfflineTemperature(room.TempC))
+            return Color.Default;
+        return RoomTempBand(room.TempC) switch
+        {
+            "warm" => Color.Success,
+            "cool" => Color.Primary,
+            _ => Color.Info,
+        };
+    }
+
+    private static string RoomStateChipIcon(HubLiveRoom room)
+    {
+        if (room.HeatDemand != 0)
+            return Icons.Material.Filled.LocalFireDepartment;
+        if (IsOfflineTemperature(room.TempC))
+            return Icons.Material.Filled.SensorsOff;
+        return RoomTempBand(room.TempC) switch
+        {
+            "warm" => Icons.Material.Filled.WbSunny,
+            "cool" => Icons.Material.Filled.DeviceThermostat,
+            _ => Icons.Material.Filled.AcUnit,
+        };
+    }
+
+    private static string RoomIdleLabel(HubLiveRoom room)
+    {
+        if (IsOfflineTemperature(room.TempC))
+            return "Idle (offline)";
+        return RoomTempBand(room.TempC) switch
+        {
+            "warm" => "Idle (warm)",
+            "cool" => "Idle (steady)",
+            _ => "Idle (cool)",
+        };
     }
 
     private static string ModeActivatorIcon(HubLiveRoom room) =>
