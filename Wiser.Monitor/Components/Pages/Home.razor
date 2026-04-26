@@ -72,6 +72,27 @@
                            OnClick="@(() => QuickExtendTimedAwayAsync(180))">
                     +3h
                 </MudButton>
+                <MudButton Variant="Variant.Text"
+                           Color="Color.Error"
+                           Size="Size.Small"
+                           Class="pa-0 ma-0"
+                           Disabled="@(_timedAwayActionBusy || !HubConfiguredForApi)"
+                           OnClick="CancelMonitorTimedAwayAsync">
+                    Cancel
+                </MudButton>
+            </MudText>
+        </MudAlert>
+    }
+
+    @if (_homeBoilerSummary is { ShortCycleRatio: >= 0.35 } boil)
+    {
+        <MudAlert Severity="Severity.Warning"
+                  Dense="true"
+                  Class="home-boiler-cycle-banner"
+                  ShowCloseIcon="false">
+            <MudText Typo="Typo.body2">
+                Boiler short-cycle ratio is high over the last @HomeTrendHours h (@boil.ShortCycleRatioText, threshold @boil.ShortCycleThresholdMin.ToString("F0", CultureInfo.InvariantCulture) min).
+                <MudLink Href="/charts">Open Charts</MudLink> for cycle detail.
             </MudText>
         </MudAlert>
     }
@@ -495,6 +516,9 @@
     private CancellationTokenSource? _homeUiRefreshCts;
     private Guid? _extendPromptShownForSession;
     private bool _timedAwayActionBusy;
+    private BoilerCycleSummary? _homeBoilerSummary;
+
+    private bool HubConfiguredForApi => HubConfiguration.IsConfigured(Options);
 
     private TimeZoneInfo DisplayZone => TimeZoneResolver.Resolve(Options.TimeZoneId);
     private string? FloorplanImageHref =>
@@ -555,9 +579,16 @@
         BuildHomeRoomHeatMap();
         BuildHomeFloorplanOverlay();
         UpdateGasMeterReadingBanner();
+        LoadHomeBoilerSummary();
         await LoadHeatingOutlookAsync();
         await LoadSavingsSuggestionsAsync();
         await TryPromptExtendNearEndOnceAsync();
+    }
+
+    private void LoadHomeBoilerSummary()
+    {
+        var since = DateTimeOffset.UtcNow.ToUnixTimeSeconds() - HomeTrendHours * 3600L;
+        _homeBoilerSummary = BoilerCycleAnalyzer.Summarize(Store.SeriesSystem(since), 5.0);
     }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
@@ -577,7 +608,12 @@
             while (_homeUiRefreshTimer is not null &&
                    await _homeUiRefreshTimer.WaitForNextTickAsync(_homeUiRefreshCts?.Token ?? default))
             {
-                await InvokeAsync(StateHasChanged);
+                await InvokeAsync(() =>
+                {
+                    LoadHomeBoilerSummary();
+                    StateHasChanged();
+                    return Task.CompletedTask;
+                });
             }
         }
         catch (OperationCanceledException)
@@ -637,6 +673,30 @@
             }
 
             Snackbar.Add($"Away extended by {minutes} minutes.", Severity.Success);
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+        finally
+        {
+            _timedAwayActionBusy = false;
+        }
+    }
+
+    private async Task CancelMonitorTimedAwayAsync()
+    {
+        _timedAwayActionBusy = true;
+        try
+        {
+            using var resp = await Http.PostAsync("/api/away/cancel", null);
+            if (!resp.IsSuccessStatusCode)
+            {
+                Snackbar.Add(await resp.Content.ReadAsStringAsync(), Severity.Warning);
+                return;
+            }
+
+            Snackbar.Add("Timed away cancelled; hub set to Home.", Severity.Success);
         }
         catch (Exception ex)
         {

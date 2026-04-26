@@ -33,11 +33,7 @@ catch (InvalidOperationException ex)
 }
 
 var valErrors = monitorOptions.Validate();
-var hubConfigurationErrors = new List<string>();
-if (string.IsNullOrWhiteSpace(monitorOptions.WiserIp) || monitorOptions.WiserIp == "192.168.x.x")
-    hubConfigurationErrors.Add("Set WISER_IP to your hub LAN address.");
-if (string.IsNullOrWhiteSpace(monitorOptions.WiserSecret) || monitorOptions.WiserSecret == "your-secret-here")
-    hubConfigurationErrors.Add("Set WISER_SECRET to your hub SECRET.");
+var hubConfigurationErrors = HubConfiguration.GetConfigurationErrors(monitorOptions).ToList();
 var hubConfigured = hubConfigurationErrors.Count == 0;
 if (!hubConfigured)
 {
@@ -478,6 +474,33 @@ app.MapGet("/api/away/status", (TemperatureStore store) =>
         policy,
     });
 });
+
+app.MapGet("/api/away/diagnostics", (TemperatureStore store) => Results.Json(store.GetTimedAwayDiagnostics()));
+
+app.MapGet("/api/away/policy/export", (TemperatureStore store) =>
+{
+    var p = store.GetTimedAwayPolicy();
+    var json = JsonSerializer.Serialize(
+        p,
+        new JsonSerializerOptions { WriteIndented = true });
+    return Results.Text(json, "application/json; charset=utf-8", Encoding.UTF8);
+});
+
+app.MapPost("/api/away/policy/import", async (HttpRequest req, TemperatureStore store) =>
+{
+    try
+    {
+        var p = await JsonSerializer.DeserializeAsync<TimedAwayPolicy>(req.Body, cancellationToken: req.HttpContext.RequestAborted).ConfigureAwait(false);
+        if (p is null)
+            return Results.BadRequest(new { error = "empty_policy" });
+        store.SetTimedAwayPolicy(TimedAwayPolicy.Normalize(p));
+        return Results.Json(new { ok = true });
+    }
+    catch (JsonException jx)
+    {
+        return Results.BadRequest(new { error = "invalid_json", detail = jx.Message });
+    }
+}).DisableAntiforgery();
 
 app.MapPost("/api/away/schedule", async (
     TimedAwayScheduleRequest body,

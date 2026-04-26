@@ -3,11 +3,14 @@
 @using System.Globalization
 @using System.Net.Http
 @using System.Text.Json
+@using Microsoft.AspNetCore.Components.Forms
 @using Microsoft.AspNetCore.Components.Web
+@using MudBlazor
 @using Wiser.Monitor.Services
 
 @inject TemperatureStore Store
 @inject MonitorOptions Options
+@inject MonitorState MonitorState
 @inject ISnackbar Snackbar
 @inject IDialogService DialogService
 @inject HttpClient Http
@@ -24,6 +27,32 @@
         <MudText Typo="Typo.body2" Class="mt-1">
             Mark rooms as inactive to apply a lower recommended average range in charts.
         </MudText>
+    </MudPaper>
+
+    <MudPaper Class="pa-3 mb-1" Elevation="0" Outlined="true">
+        <MudStack Row="true" Spacing="2" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center">
+            <MudChip T="string"
+                     Size="Size.Small"
+                     Variant="Variant.Outlined"
+                     Color="@(HubConfigured ? Color.Success : Color.Warning)">
+                Hub @(HubConfigured ? "configured" : "not configured")
+            </MudChip>
+            <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined" Color="Color.Default">
+                @_settingsPollStatusText
+            </MudChip>
+            <MudChip T="string"
+                     Size="Size.Small"
+                     Variant="Variant.Outlined"
+                     Color="@(_openMeteoConfigured ? Color.Success : Color.Default)">
+                Open-Meteo @(_openMeteoConfigured ? "lat/lon set" : "not set")
+            </MudChip>
+            @if (string.IsNullOrWhiteSpace(Options.AppPublicBaseUrl))
+            {
+                <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined" Color="Color.Info">
+                    <code>APP_PUBLIC_BASE_URL</code> unset — ntfy timed-away links disabled
+                </MudChip>
+            }
+        </MudStack>
     </MudPaper>
 
     <MudPaper Class="pa-4 card-soft">
@@ -85,6 +114,7 @@
 
         <MudDivider Class="my-3" />
 
+        <div id="timed-away">
         <MudText Typo="Typo.subtitle1" Class="mb-2">Timed and smart away (whole house)</MudText>
         <MudText Typo="Typo.body2" Class="mud-text-secondary mb-2">
             The monitor calls hub <strong>Away</strong> with your limit temperature, then <strong>Home</strong> when the end time is reached.
@@ -196,6 +226,57 @@
             </MudItem>
         </MudGrid>
 
+        <MudText Typo="Typo.subtitle2" Class="mb-2 mt-3">Smart away — last check</MudText>
+        @if (_taDiagnostics is null)
+        {
+            <MudText Typo="Typo.caption" Class="mud-text-secondary">No evaluation recorded yet.</MudText>
+        }
+        else
+        {
+            <MudText Typo="Typo.body2" Class="mb-1">
+                <strong>Local time:</strong> @FormatDiagnosticsLocalTime(_taDiagnostics.EvaluatedAtUnix)
+                · <strong>Outcome:</strong> @_taDiagnostics.Outcome
+            </MudText>
+            @if (!string.IsNullOrWhiteSpace(_taDiagnostics.SkipReason))
+            {
+                <MudText Typo="Typo.body2" Class="mb-1 mud-text-secondary">
+                    <strong>Reason:</strong> @HumanizeTimedAwaySkipReason(_taDiagnostics.SkipReason)
+                </MudText>
+            }
+            @if (_taDiagnostics.MinForecastC is not null || _taDiagnostics.IndoorAvgC is not null || _taDiagnostics.HeatingIdlePollCount is not null)
+            {
+                <MudText Typo="Typo.caption" Class="mud-text-secondary">
+                    @FormatDiagnosticsSnapshot(_taDiagnostics)
+                </MudText>
+            }
+            @if (!string.IsNullOrWhiteSpace(_taDiagnostics.ErrorMessage))
+            {
+                <MudAlert Severity="Severity.Warning" Dense="true" Class="mt-2">@_taDiagnostics.ErrorMessage</MudAlert>
+            }
+        }
+
+        <MudStack Row="true" Spacing="2" Class="flex-wrap mt-2">
+            <MudButton Variant="Variant.Outlined"
+                       Color="Color.Primary"
+                       Size="Size.Small"
+                       StartIcon="@Icons.Material.Filled.Download"
+                       OnClick="DownloadTimedAwayPolicyAsync">
+                Download policy JSON
+            </MudButton>
+            <MudButton Variant="Variant.Outlined"
+                       Color="Color.Primary"
+                       Size="Size.Small"
+                       HtmlTag="label"
+                       for="@_timedAwayPolicyImportId"
+                       StartIcon="@Icons.Material.Filled.UploadFile">
+                Upload policy JSON
+            </MudButton>
+            <InputFile id="@_timedAwayPolicyImportId"
+                       OnChange="OnTimedAwayPolicyImportAsync"
+                       accept=".json,application/json"
+                       class="settings-input-file-hidden" />
+        </MudStack>
+
         <MudDivider Class="my-3" />
         <MudText Typo="Typo.subtitle2" Class="mb-2">Manual away until (local)</MudText>
         @if (_taActiveSession is not null)
@@ -250,6 +331,8 @@
                 </MudButton>
             </MudItem>
         </MudGrid>
+
+        </div>
 
         <MudDivider Class="my-3" />
 
@@ -531,6 +614,7 @@
 @code {
     private readonly List<RoomActivitySetting> _rooms = [];
     private readonly string _restoreFileId = $"restore-db-{Guid.NewGuid():N}";
+    private readonly string _timedAwayPolicyImportId = $"ta-policy-import-{Guid.NewGuid():N}";
     private readonly string _floorplanUploadFileId = $"floorplan-upload-{Guid.NewGuid():N}";
     private readonly string _floorplanPreviewSurfaceId = $"floorplan-surface-{Guid.NewGuid():N}";
     private readonly List<FloorplanPinSetting> _floorplanPins = [];
@@ -568,10 +652,13 @@
     private TimeSpan? _taEndTime = new TimeSpan(18, 0, 0);
     private TimedAwaySessionRow? _taActiveSession;
     private bool _timedAwayBusy;
+    private TimedAwayDiagnostics? _taDiagnostics;
+    private string _settingsPollStatusText = "";
+    private bool _openMeteoConfigured;
 
-    private bool HubConfigured =>
-        !string.IsNullOrWhiteSpace(Options.WiserIp) && Options.WiserIp != "192.168.x.x" &&
-        !string.IsNullOrWhiteSpace(Options.WiserSecret) && Options.WiserSecret != "your-secret-here";
+    private bool HubConfigured => HubConfiguration.IsConfigured(Options);
+
+    private TimeZoneInfo DisplayZone => TimeZoneResolver.Resolve(Options.TimeZoneId);
 
     private string? FloorplanImageHref =>
         string.IsNullOrWhiteSpace(_floorplanImageName)
@@ -586,6 +673,8 @@
             return;
 
         await RefreshFloorplanPreviewSizeAsync();
+        if (Nav.Uri.Contains("#timed-away", StringComparison.Ordinal))
+            await Js.InvokeVoidAsync("wiserScrollToId", "timed-away");
     }
 
     private Task OnGasReminderEnabledChanged(bool value)
@@ -753,12 +842,24 @@
                 !activity.TryGetValue(room, out var isActive) || isActive,
                 prioritySet.Contains(room)));
         LoadFloorplanMapping(rooms);
+        var snap = MonitorState.Snapshot();
+        _openMeteoConfigured = Options.OpenMeteoLat is not null && Options.OpenMeteoLon is not null;
+        if (snap.LastOkUnix is null)
+            _settingsPollStatusText = "Last poll: no successful poll yet";
+        else
+        {
+            var local = TimeZoneInfo.ConvertTime(DateTimeOffset.FromUnixTimeSeconds(snap.LastOkUnix.Value), DisplayZone);
+            _settingsPollStatusText = $"Last poll OK: {local.ToString("g", CultureInfo.CurrentCulture)}";
+        }
+        if (!string.IsNullOrWhiteSpace(snap.LastError))
+            _settingsPollStatusText += $" · last error: {snap.LastError}";
         LoadTimedAwayFields();
         return Task.CompletedTask;
     }
 
     private void LoadTimedAwayFields()
     {
+        _taDiagnostics = Store.GetTimedAwayDiagnostics();
         var p = Store.GetTimedAwayPolicy();
         _taSmartAuto = p.SmartAutoEnabled;
         _taAwayLimit = p.AwayLimitC;
@@ -783,6 +884,72 @@
 
     private void RefreshTimedAwayActiveSessionOnly() =>
         _taActiveSession = Store.TryGetActiveTimedAwaySession();
+
+    private string FormatDiagnosticsLocalTime(long unix) =>
+        TimeZoneInfo.ConvertTime(DateTimeOffset.FromUnixTimeSeconds(unix), DisplayZone)
+            .ToString("g", CultureInfo.CurrentCulture);
+
+    private static string HumanizeTimedAwaySkipReason(string? code) => code switch
+    {
+        null or "" => "—",
+        "disabled" => "Smart auto away is disabled",
+        "no_hub" => "Hub IP/secret not configured",
+        "no_open_meteo" => "Open-Meteo latitude/longitude not set",
+        "cooldown" => "Smart away cooldown after last session",
+        "forecast_low" => "Forecast minimum below your threshold",
+        "indoor_low" => "Indoor average below minimum",
+        "heating_not_idle" => "Heating was active in recent polls",
+        "forecast_error" => "Weather forecast request failed",
+        "hub_already_away" => "Hub is already in whole-house away (no monitor session)",
+        "hub_fetch_failed" => "Could not read hub state",
+        "hub_away_failed" => "Hub rejected away command",
+        _ => code,
+    };
+
+    private static string FormatDiagnosticsSnapshot(TimedAwayDiagnostics d)
+    {
+        var parts = new List<string>();
+        if (d.MinForecastC is { } fc)
+            parts.Add($"Forecast min: {fc.ToString("F1", CultureInfo.InvariantCulture)} °C");
+        if (d.IndoorAvgC is { } ia)
+            parts.Add($"Indoor avg: {ia.ToString("F1", CultureInfo.InvariantCulture)} °C");
+        if (d.HeatingIdlePollCount is { } ipc)
+            parts.Add($"Idle poll count: {ipc}");
+        return parts.Count == 0 ? "" : string.Join(" · ", parts);
+    }
+
+    private async Task DownloadTimedAwayPolicyAsync()
+    {
+        var p = Store.GetTimedAwayPolicy();
+        var json = JsonSerializer.Serialize(p, new JsonSerializerOptions { WriteIndented = true });
+        await Js.InvokeVoidAsync("wiserDownloadTextFile", "timed_away_policy.json", json);
+    }
+
+    private async Task OnTimedAwayPolicyImportAsync(InputFileChangeEventArgs e)
+    {
+        var file = e.File;
+        if (file is null)
+            return;
+        try
+        {
+            await using var stream = file.OpenReadStream(1024 * 1024);
+            var p = await JsonSerializer.DeserializeAsync<TimedAwayPolicy>(stream).ConfigureAwait(false);
+            if (p is null)
+            {
+                Snackbar.Add("Policy file was empty.", Severity.Warning);
+                return;
+            }
+
+            Store.SetTimedAwayPolicy(TimedAwayPolicy.Normalize(p));
+            Snackbar.Add("Timed away policy imported.", Severity.Success);
+            LoadTimedAwayFields();
+            await InvokeAsync(StateHasChanged);
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Import failed: {ex.Message}", Severity.Error);
+        }
+    }
 
     private TimedAwayPolicy BuildTimedAwayPolicyFromFields() =>
         new(

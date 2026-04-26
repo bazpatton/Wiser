@@ -38,6 +38,7 @@ WISER_IP=10.0.0.1 WISER_SECRET=dev-secret DATA_DIR=./data python -m uvicorn wise
 - SQLite databases are stored in `DATA_DIR` (defaults to `./data`).
 - No automated test suite exists in the repo. Testing is manual via API endpoints and the web UI.
 - When running both services simultaneously, use different ports (e.g. 8080 and 8081).
+- **Timed / smart away**, persisted policy, diagnostics (`GET /api/away/diagnostics`), policy export/import, and related ntfy deep links are implemented in **`Wiser.Monitor` only**. The Python `wiser-monitor` service does not yet mirror those endpoints or behaviors.
 
 ### API endpoints (both services share the same shape)
 

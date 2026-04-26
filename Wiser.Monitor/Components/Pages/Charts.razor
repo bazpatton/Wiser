@@ -188,6 +188,7 @@
                             <MudTh Class="text-right">Temp gain (°C)</MudTh>
                             <MudTh Class="text-right">Relay min</MudTh>
                             <MudTh>Note</MudTh>
+                            <MudTh>Review</MudTh>
                         </HeaderContent>
                         <RowTemplate>
                             <MudTd DataLabel="Room">
@@ -209,6 +210,20 @@
                                 else
                                 {
                                     @context.Note
+                                }
+                            </MudTd>
+                            <MudTd DataLabel="Review">
+                                @if (EfficiencyRowNeedsReview(context))
+                                {
+                                    <MudStack Row="true" Spacing="1" AlignItems="AlignItems.Center">
+                                        <MudLink Href="/schedules" Typo="Typo.caption">Schedules</MudLink>
+                                        <MudText Typo="Typo.caption" Class="mud-text-secondary">·</MudText>
+                                        <MudLink Href="@GetRoomDetailsHref(context.Room)" Typo="Typo.caption">Room targets</MudLink>
+                                    </MudStack>
+                                }
+                                else
+                                {
+                                    <MudText Typo="Typo.caption" Class="mud-text-secondary">—</MudText>
                                 }
                             </MudTd>
                         </RowTemplate>
@@ -1709,56 +1724,8 @@
             : $"down ({delta.Value:0.00})";
     }
 
-    private void BuildBoilerCycleHealth()
-    {
-        _boilerCycleSummary = null;
-        if (_systemRowsWindow.Count < 2)
-            return;
-
-        var durationsMin = new List<double>();
-        long? cycleStartTs = null;
-        var previousOn = _systemRowsWindow[0].HeatingRelayOn != 0;
-        if (previousOn)
-            cycleStartTs = _systemRowsWindow[0].Ts;
-
-        for (var i = 1; i < _systemRowsWindow.Count; i++)
-        {
-            var row = _systemRowsWindow[i];
-            var isOn = row.HeatingRelayOn != 0;
-            if (!previousOn && isOn)
-            {
-                cycleStartTs = row.Ts;
-            }
-            else if (previousOn && !isOn && cycleStartTs is { } start)
-            {
-                var durationMin = Math.Max(0, (row.Ts - start) / 60.0);
-                if (durationMin > 0)
-                    durationsMin.Add(durationMin);
-                cycleStartTs = null;
-            }
-
-            previousOn = isOn;
-        }
-
-        if (durationsMin.Count == 0)
-            return;
-
-        durationsMin.Sort();
-        var shortCycles = durationsMin.Count(x => x < ShortCycleThresholdMinutes);
-        var ratio = shortCycles / (double)durationsMin.Count;
-        var median = durationsMin.Count % 2 == 1
-            ? durationsMin[durationsMin.Count / 2]
-            : (durationsMin[(durationsMin.Count / 2) - 1] + durationsMin[durationsMin.Count / 2]) / 2.0;
-
-        _boilerCycleSummary = new BoilerCycleSummary(
-            durationsMin.Count,
-            shortCycles,
-            ratio,
-            $"{ratio * 100:0.#}%",
-            ShortCycleThresholdMinutes,
-            durationsMin[0],
-            median);
-    }
+    private void BuildBoilerCycleHealth() =>
+        _boilerCycleSummary = BoilerCycleAnalyzer.Summarize(_systemRowsWindow, ShortCycleThresholdMinutes);
 
     private void LoadDailyRows()
     {
@@ -1814,6 +1781,15 @@
 
     private static string GetRoomDetailsHref(string roomName) => RoomLinkHelper.RoomsPagePath(roomName);
 
+    private static bool EfficiencyRowNeedsReview(RoomEfficiencyRow r)
+    {
+        if (r.RelayMinutes < 30)
+            return false;
+        if (!double.IsNaN(r.ScoreCPerRelayMinute) && r.ScoreCPerRelayMinute < 0.03)
+            return true;
+        return r.PositiveTempGainC <= 0;
+    }
+
     private sealed record RoomHeatTile(
         string Room,
         double? TempC,
@@ -1838,14 +1814,6 @@
         bool IsLowConfidence,
         string Note);
 
-    private sealed record BoilerCycleSummary(
-        int TotalCycles,
-        int ShortCycles,
-        double ShortCycleRatio,
-        string ShortCycleRatioText,
-        double ShortCycleThresholdMin,
-        double ShortestCycleMinutes,
-        double MedianCycleMinutes);
 }
 
 <style>

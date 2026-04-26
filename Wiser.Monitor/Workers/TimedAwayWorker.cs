@@ -12,9 +12,6 @@ public sealed class TimedAwayWorker(
     NtfyClient ntfy,
     ILogger<TimedAwayWorker> log) : BackgroundService
 {
-    private static bool HubConfigured(MonitorOptions o) =>
-        !string.IsNullOrWhiteSpace(o.WiserIp) && o.WiserIp != "192.168.x.x" &&
-        !string.IsNullOrWhiteSpace(o.WiserSecret) && o.WiserSecret != "your-secret-here";
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -29,7 +26,7 @@ public sealed class TimedAwayWorker(
         }
         catch (Exception ex)
         {
-            log.LogDebug(ex, "timed away initial tick failed");
+            log.LogDebug(ex, "[timed_away] event=error phase=initial_tick");
         }
 
         while (await timer.WaitForNextTickAsync(stoppingToken).ConfigureAwait(false))
@@ -44,7 +41,7 @@ public sealed class TimedAwayWorker(
             }
             catch (Exception ex)
             {
-                log.LogDebug(ex, "timed away tick failed");
+                log.LogDebug(ex, "[timed_away] event=error phase=tick");
             }
         }
     }
@@ -64,11 +61,23 @@ public sealed class TimedAwayWorker(
 
     private async Task ProcessActiveSessionAsync(TimedAwaySessionRow session, long now, CancellationToken ct)
     {
+        WriteDiagnostics(
+            now,
+            "active_session",
+            skipReason: null,
+            minForecast: null,
+            indoorAvg: null,
+            idlePollCount: null,
+            sessionId: session.SessionId.ToString("D"),
+            endsAtUnix: session.EndsAtUnix,
+            errorMessage: null);
+
         var policy = store.GetTimedAwayPolicy();
+        var click = TimedAwayDeepLinks.SettingsTimedAway(options.AppPublicBaseUrl);
 
         if (now >= session.EndsAtUnix)
         {
-            if (HubConfigured(options))
+            if (HubConfiguration.IsConfigured(options))
             {
                 try
                 {
@@ -76,16 +85,41 @@ public sealed class TimedAwayWorker(
                 }
                 catch (Exception ex)
                 {
-                    log.LogWarning(ex, "timed away expiry: hub HOME failed");
+                    log.LogWarning(ex, "[timed_away] event=hub_home_fail session_id={SessionId}", session.SessionId);
+                    return;
                 }
             }
             else
-                log.LogInformation("timed away expiry: hub not configured; completing session in DB only");
+                log.LogInformation("[timed_away] event=expire session_id={SessionId} hub=skipped_not_configured", session.SessionId);
 
             store.CompleteTimedAwaySession(session.SessionId);
             if (session.Source == TimedAwaySource.Smart)
                 store.SetLastSmartAwayEndedUnix(now);
-            log.LogInformation("Timed away session {Session} completed (expired)", session.SessionId);
+
+            log.LogInformation("[timed_away] event=expire session_id={SessionId} ends_at={EndsAt}", session.SessionId, session.EndsAtUnix);
+
+            if (!string.IsNullOrWhiteSpace(options.NtfyTopic) && click is not null)
+            {
+                try
+                {
+                    await ntfy
+                        .SendAsync(
+                            options.NtfyTopic,
+                            "Timed away ended",
+                            "Monitor away session expired; hub set to Home. Open settings to adjust smart away.",
+                            ct,
+                            tags: "house",
+                            priority: "default",
+                            kind: "timed_away_expired",
+                            clickUrl: click)
+                        .ConfigureAwait(false);
+                }
+                catch (Exception ex)
+                {
+                    log.LogWarning(ex, "[timed_away] event=error phase=expiry_ntfy");
+                }
+            }
+
             return;
         }
 
@@ -112,28 +146,50 @@ public sealed class TimedAwayWorker(
                     ct,
                     tags: "house",
                     priority: "default",
-                    kind: "timed_away_extend")
+                    kind: "timed_away_extend",
+                    clickUrl: click)
                 .ConfigureAwait(false);
             store.MarkTimedAwayExtensionPromptSent(session.SessionId, now);
+            log.LogInformation("[timed_away] event=extend_ntfy session_id={SessionId} ends_at={EndsAt}", session.SessionId, session.EndsAtUnix);
         }
         catch (Exception ex)
         {
-            log.LogWarning(ex, "timed away extension ntfy failed");
+            log.LogWarning(ex, "[timed_away] event=error phase=extend_ntfy");
         }
     }
 
     private async Task TrySmartAwayArmAsync(long now, CancellationToken ct)
     {
         var policy = store.GetTimedAwayPolicy();
-        if (!policy.SmartAutoEnabled || !HubConfigured(options))
+        if (!policy.SmartAutoEnabled)
+        {
+            WriteDiagnostics(now, "skipped", "disabled", null, null, null, null, null, null);
+            log.LogInformation("[timed_away] event=skip reason=disabled");
             return;
+        }
+
+        if (!HubConfiguration.IsConfigured(options))
+        {
+            WriteDiagnostics(now, "skipped", "no_hub", null, null, null, null, null, null);
+            log.LogInformation("[timed_away] event=skip reason=no_hub");
+            return;
+        }
+
         if (options.OpenMeteoLat is not { } lat || options.OpenMeteoLon is not { } lon)
+        {
+            WriteDiagnostics(now, "skipped", "no_open_meteo", null, null, null, null, null, null);
+            log.LogInformation("[timed_away] event=skip reason=no_open_meteo");
             return;
+        }
 
         var lastEnd = store.GetLastSmartAwayEndedUnix();
         if (lastEnd is { } le &&
             now - le < policy.SmartCooldownHours * 3600L)
+        {
+            WriteDiagnostics(now, "skipped", "cooldown", null, null, null, null, null, null);
+            log.LogInformation("[timed_away] event=skip reason=cooldown");
             return;
+        }
 
         double? minForecast;
         try
@@ -144,29 +200,63 @@ public sealed class TimedAwayWorker(
         }
         catch (Exception ex)
         {
-            log.LogDebug(ex, "smart away: forecast fetch failed");
+            log.LogDebug(ex, "[timed_away] event=skip reason=forecast_error");
+            WriteDiagnostics(now, "skipped", "forecast_error", null, null, null, null, null, ex.Message);
             return;
         }
 
         if (minForecast is null || minForecast.Value < policy.MinForecastTempCTrigger)
+        {
+            WriteDiagnostics(now, "skipped", "forecast_low", minForecast, null, null, null, null, null);
+            log.LogInformation("[timed_away] event=skip reason=forecast_low min_forecast={Min:F1}", minForecast ?? double.NaN);
             return;
+        }
 
         var avgIndoor = store.GetLatestRoomsAverageTempC();
         if (avgIndoor is null || avgIndoor.Value < policy.IndoorMinAvgTempC)
+        {
+            WriteDiagnostics(now, "skipped", "indoor_low", minForecast, avgIndoor, null, null, null, null);
+            log.LogInformation("[timed_away] event=skip reason=indoor_low indoor_avg={Indoor:F1}", avgIndoor ?? double.NaN);
             return;
+        }
 
         var snaps = store.GetRecentSystemSnapshots(policy.HeatingIdlePollsRequired);
         if (snaps.Count < policy.HeatingIdlePollsRequired)
+        {
+            WriteDiagnostics(now, "skipped", "heating_not_idle", minForecast, avgIndoor, snaps.Count, null, null, null);
+            log.LogInformation("[timed_away] event=skip reason=heating_not_idle polls={Polls}", snaps.Count);
             return;
+        }
+
         foreach (var s in snaps)
         {
             if (s.HeatingActive)
+            {
+                WriteDiagnostics(now, "skipped", "heating_not_idle", minForecast, avgIndoor, snaps.Count, null, null, null);
+                log.LogInformation("[timed_away] event=skip reason=heating_not_idle polls={Polls}", snaps.Count);
                 return;
+            }
+        }
+
+        var overview = await LiveHubRoomTemps.TryFetchOverviewAsync(hub, options, ct).ConfigureAwait(false);
+        if (overview is null)
+        {
+            WriteDiagnostics(now, "skipped", "hub_fetch_failed", minForecast, avgIndoor, snaps.Count, null, null, null);
+            log.LogInformation("[timed_away] event=skip reason=hub_fetch_failed");
+            return;
+        }
+
+        if (overview.SystemAway)
+        {
+            WriteDiagnostics(now, "skipped", "hub_already_away", minForecast, avgIndoor, snaps.Count, null, null, null);
+            log.LogInformation("[timed_away] event=skip reason=hub_already_away");
+            return;
         }
 
         var durationMin = Math.Clamp(policy.SmartDefaultDurationMinutes, 30, 10080);
         var endsAt = now + durationMin * 60L;
         var limit = Math.Round(policy.AwayLimitC, 1);
+        var click = TimedAwayDeepLinks.SettingsTimedAway(options.AppPublicBaseUrl);
 
         try
         {
@@ -174,15 +264,65 @@ public sealed class TimedAwayWorker(
         }
         catch (Exception ex)
         {
-            log.LogWarning(ex, "smart away: hub AWAY failed");
+            WriteDiagnostics(now, "error", "hub_away_failed", minForecast, avgIndoor, snaps.Count, null, null, ex.Message);
+            log.LogWarning(ex, "[timed_away] event=skip reason=hub_away_failed");
             return;
         }
 
-        store.StartTimedAwaySession(endsAt, limit, TimedAwaySource.Smart);
+        var row = store.StartTimedAwaySession(endsAt, limit, TimedAwaySource.Smart);
+        WriteDiagnostics(now, "armed", null, minForecast, avgIndoor, snaps.Count, row.SessionId.ToString("D"), endsAt, null);
+
         log.LogInformation(
-            "Smart timed away armed until {Ends} (forecast min {Forecast:F1} °C, indoor avg {Indoor:F1} °C)",
-            DateTimeOffset.FromUnixTimeSeconds(endsAt).ToString("O", CultureInfo.InvariantCulture),
+            "[timed_away] event=arm session_id={SessionId} ends_at={EndsAt} forecast_min={Forecast:F1} indoor_avg={Indoor:F1}",
+            row.SessionId,
+            endsAt,
             minForecast.Value,
             avgIndoor.Value);
+
+        if (!string.IsNullOrWhiteSpace(options.NtfyTopic) && click is not null)
+        {
+            try
+            {
+                await ntfy
+                    .SendAsync(
+                        options.NtfyTopic,
+                        "Smart timed away armed",
+                        $"Monitor armed away until {DateTimeOffset.FromUnixTimeSeconds(endsAt).ToString("O", CultureInfo.InvariantCulture)} (forecast min {minForecast.Value:F1} °C).",
+                        ct,
+                        tags: "house",
+                        priority: "default",
+                        kind: "timed_away_smart_arm",
+                        clickUrl: click)
+                    .ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                log.LogWarning(ex, "[timed_away] event=error phase=arm_ntfy");
+            }
+        }
+    }
+
+    private void WriteDiagnostics(
+        long evaluatedAtUnix,
+        string outcome,
+        string? skipReason,
+        double? minForecast,
+        double? indoorAvg,
+        int? idlePollCount,
+        string? sessionId,
+        long? endsAtUnix,
+        string? errorMessage)
+    {
+        store.SetTimedAwayDiagnostics(
+            new TimedAwayDiagnostics(
+                evaluatedAtUnix,
+                outcome,
+                skipReason,
+                minForecast,
+                indoorAvg,
+                idlePollCount,
+                sessionId,
+                endsAtUnix,
+                errorMessage));
     }
 }

@@ -17,11 +17,7 @@ public static class LiveHubRoomTemps
     public static bool IsUnavailableTemp(double tempC) =>
         Math.Abs(tempC - (-327.68)) < 0.001;
 
-    public static bool IsHubConfigured(MonitorOptions o) =>
-        !string.IsNullOrWhiteSpace(o.WiserIp)
-        && o.WiserIp != "192.168.x.x"
-        && !string.IsNullOrWhiteSpace(o.WiserSecret)
-        && o.WiserSecret != "your-secret-here";
+    public static bool IsHubConfigured(MonitorOptions o) => HubConfiguration.IsConfigured(o);
 
     /// <summary>Live hub snapshot. Null if hub not configured or fetch failed.</summary>
     public static async Task<HubLiveOverview?> TryFetchOverviewAsync(

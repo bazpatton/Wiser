@@ -16,6 +16,9 @@ public sealed class MonitorOptions
     public string DataDir { get; set; } = "./data";
     public string? TimeZoneId { get; set; }
 
+    /// <summary>Optional public base URL (e.g. https://wiser-pi.local:8080) for ntfy Click links to Settings.</summary>
+    public string? AppPublicBaseUrl { get; set; }
+
     public bool UseHighAlert => TempAlertAboveC > 0;
     public bool UseLowAlert => TempAlertBelowC.HasValue;
     public bool AlertsEnabled => !string.IsNullOrEmpty(NtfyTopic) && (UseHighAlert || UseLowAlert);
@@ -80,6 +83,9 @@ public sealed class MonitorOptions
             TimeZoneId = string.IsNullOrWhiteSpace(cfg["TIME_ZONE"])
                 ? (string.IsNullOrWhiteSpace(cfg["TZ"]) ? null : cfg["TZ"]!.Trim())
                 : cfg["TIME_ZONE"]!.Trim(),
+            AppPublicBaseUrl = string.IsNullOrWhiteSpace(cfg["APP_PUBLIC_BASE_URL"])
+                ? null
+                : cfg["APP_PUBLIC_BASE_URL"]!.Trim().TrimEnd('/'),
         };
     }
 

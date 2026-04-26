@@ -1634,6 +1634,7 @@ public sealed class TemperatureStore
 
     private const string TimedAwayPolicyKey = "timed_away_policy_v1";
     private const string LastSmartAwayEndKey = "timed_away_last_smart_end_unix";
+    private const string TimedAwayDiagnosticsKey = "timed_away_diagnostics_v1";
 
     public TimedAwayPolicy GetTimedAwayPolicy()
     {
@@ -1690,6 +1691,39 @@ public sealed class TemperatureStore
         {
             using var c = Open();
             UpsertSetting(c, LastSmartAwayEndKey, unixTs.ToString(CultureInfo.InvariantCulture), unixTs);
+        }
+    }
+
+    public TimedAwayDiagnostics? GetTimedAwayDiagnostics()
+    {
+        lock (_gate)
+        {
+            using var c = Open();
+            using var cmd = c.CreateCommand();
+            cmd.CommandText = "SELECT value FROM app_settings WHERE key = $k LIMIT 1";
+            cmd.Parameters.AddWithValue("$k", TimedAwayDiagnosticsKey);
+            var raw = cmd.ExecuteScalar() as string;
+            if (string.IsNullOrWhiteSpace(raw))
+                return null;
+            try
+            {
+                return JsonSerializer.Deserialize<TimedAwayDiagnostics>(raw, TimedAwayJson);
+            }
+            catch
+            {
+                return null;
+            }
+        }
+    }
+
+    public void SetTimedAwayDiagnostics(TimedAwayDiagnostics diagnostics)
+    {
+        var json = JsonSerializer.Serialize(diagnostics, TimedAwayJson);
+        var ts = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+        lock (_gate)
+        {
+            using var c = Open();
+            UpsertSetting(c, TimedAwayDiagnosticsKey, json, ts);
         }
     }
 

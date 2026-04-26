@@ -19,6 +19,18 @@ public sealed record TimedAwaySessionRow(
     long? CompletedAtUnix,
     int SmartProfileVersion);
 
+/// <summary>Last smart-away evaluation snapshot for Settings/API transparency.</summary>
+public sealed record TimedAwayDiagnostics(
+    [property: JsonPropertyName("evaluated_at_unix")] long EvaluatedAtUnix,
+    [property: JsonPropertyName("outcome")] string Outcome,
+    [property: JsonPropertyName("skip_reason")] string? SkipReason,
+    [property: JsonPropertyName("min_forecast_c")] double? MinForecastC,
+    [property: JsonPropertyName("indoor_avg_c")] double? IndoorAvgC,
+    [property: JsonPropertyName("heating_idle_poll_count")] int? HeatingIdlePollCount,
+    [property: JsonPropertyName("session_id")] string? SessionId,
+    [property: JsonPropertyName("ends_at_unix")] long? EndsAtUnix,
+    [property: JsonPropertyName("error_message")] string? ErrorMessage);
+
 public sealed record TimedAwayPolicy(
     [property: JsonPropertyName("smart_auto_enabled")] bool SmartAutoEnabled,
     [property: JsonPropertyName("away_limit_c")] double AwayLimitC,
@@ -40,4 +52,25 @@ public sealed record TimedAwayPolicy(
         HeatingIdlePollsRequired: 3,
         IndoorMinAvgTempC: 18.0,
         SmartCooldownHours: 12);
+
+    /// <summary>Clamp fields to the same bounds as the Settings UI / hub limits.</summary>
+    public static TimedAwayPolicy Normalize(TimedAwayPolicy p)
+    {
+        static double ClampAwayLimit(double c) =>
+            WiserSetpointDisplay.IsHubOffSentinel(c)
+                ? c
+                : Math.Clamp(Math.Round(c, 1), 5.0, 30.0);
+
+        return p with
+        {
+            AwayLimitC = ClampAwayLimit(p.AwayLimitC),
+            SmartDefaultDurationMinutes = Math.Clamp(p.SmartDefaultDurationMinutes, 30, 10080),
+            ExtensionLeadMinutes = Math.Clamp(p.ExtensionLeadMinutes, 5, 1440),
+            ForecastHorizonHours = Math.Clamp(p.ForecastHorizonHours, 1, 48),
+            MinForecastTempCTrigger = Math.Clamp(Math.Round(p.MinForecastTempCTrigger, 1), -30.0, 40.0),
+            HeatingIdlePollsRequired = Math.Clamp(p.HeatingIdlePollsRequired, 1, 50),
+            IndoorMinAvgTempC = Math.Clamp(Math.Round(p.IndoorMinAvgTempC, 1), 5.0, 30.0),
+            SmartCooldownHours = Math.Clamp(p.SmartCooldownHours, 0, 168),
+        };
+    }
 }

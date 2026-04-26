@@ -14,7 +14,8 @@ public sealed class NtfyClient(HttpClient http, TemperatureStore store)
         CancellationToken ct,
         string? tags,
         string? priority,
-        string kind = "alert")
+        string kind = "alert",
+        string? clickUrl = null)
     {
         var sentTs = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
         if (store.NtfyNotificationDuplicateRecent(sentTs, kind, title, message, DuplicateWindowSeconds))
@@ -25,6 +26,8 @@ public sealed class NtfyClient(HttpClient http, TemperatureStore store)
         req.Headers.TryAddWithoutValidation("Title", title);
         req.Headers.TryAddWithoutValidation("Priority", priority ?? "high");
         req.Headers.TryAddWithoutValidation("Tags", tags ?? "thermometer");
+        if (!string.IsNullOrWhiteSpace(clickUrl))
+            req.Headers.TryAddWithoutValidation("Click", clickUrl.Trim());
         req.Content = new StringContent(message, System.Text.Encoding.UTF8);
 
         using var resp = await http.SendAsync(req, ct).ConfigureAwait(false);
