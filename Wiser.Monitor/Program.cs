@@ -1122,6 +1122,7 @@ static async Task<SmartAwayLiveValidationResult> EvaluateSmartAwayLiveAsync(
     var policy = store.GetTimedAwayPolicy();
     var activeSession = store.TryGetActiveTimedAwaySession();
     var hasActiveSession = activeSession is not null;
+    var zone = TimeZoneResolver.Resolve(options.TimeZoneId);
     var hubConfigured = HubConfiguration.IsConfigured(options);
     var openMeteoConfigured = options.OpenMeteoLat is not null && options.OpenMeteoLon is not null;
 
@@ -1135,7 +1136,7 @@ static async Task<SmartAwayLiveValidationResult> EvaluateSmartAwayLiveAsync(
         "No active monitor away session",
         !hasActiveSession,
         hasActiveSession
-            ? $"Active until {activeSession!.EndsAtUnix}."
+            ? $"Active until {TimeZoneInfo.ConvertTime(DateTimeOffset.FromUnixTimeSeconds(activeSession!.EndsAtUnix), zone).ToString("g", CultureInfo.CurrentCulture)} ({zone.Id})."
             : "No active session."));
     checks.Add(new SmartAwayLiveCheck(
         "hub_configured",
