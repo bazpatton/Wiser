@@ -477,6 +477,17 @@ app.MapGet("/api/away/status", (TemperatureStore store) =>
 
 app.MapGet("/api/away/diagnostics", (TemperatureStore store) => Results.Json(store.GetTimedAwayDiagnostics()));
 
+app.MapGet("/api/away/validate-live", async (
+    TemperatureStore store,
+    MonitorOptions o,
+    WiserHubFetch hub,
+    OutdoorWeatherClient outdoor,
+    CancellationToken ct) =>
+{
+    var result = await EvaluateSmartAwayLiveAsync(store, o, hub, outdoor, ct).ConfigureAwait(false);
+    return Results.Json(result);
+});
+
 app.MapGet("/api/away/policy/export", (TemperatureStore store) =>
 {
     var p = store.GetTimedAwayPolicy();
@@ -1099,6 +1110,145 @@ static string? TryGetFloorplanContentType(string pathOrFileName)
     return null;
 }
 
+static async Task<SmartAwayLiveValidationResult> EvaluateSmartAwayLiveAsync(
+    TemperatureStore store,
+    MonitorOptions options,
+    WiserHubFetch hub,
+    OutdoorWeatherClient outdoor,
+    CancellationToken ct)
+{
+    var now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+    var checks = new List<SmartAwayLiveCheck>(10);
+    var policy = store.GetTimedAwayPolicy();
+    var activeSession = store.TryGetActiveTimedAwaySession();
+    var hasActiveSession = activeSession is not null;
+    var hubConfigured = HubConfiguration.IsConfigured(options);
+    var openMeteoConfigured = options.OpenMeteoLat is not null && options.OpenMeteoLon is not null;
+
+    checks.Add(new SmartAwayLiveCheck(
+        "smart_enabled",
+        "Smart auto enabled",
+        policy.SmartAutoEnabled,
+        policy.SmartAutoEnabled ? "Enabled in policy." : "Disabled in policy."));
+    checks.Add(new SmartAwayLiveCheck(
+        "no_active_session",
+        "No active monitor away session",
+        !hasActiveSession,
+        hasActiveSession
+            ? $"Active until {activeSession!.EndsAtUnix}."
+            : "No active session."));
+    checks.Add(new SmartAwayLiveCheck(
+        "hub_configured",
+        "Hub configured",
+        hubConfigured,
+        hubConfigured ? "WISER_IP and WISER_SECRET are set." : "Missing WISER_IP or WISER_SECRET."));
+    checks.Add(new SmartAwayLiveCheck(
+        "open_meteo_configured",
+        "Open-Meteo configured",
+        openMeteoConfigured,
+        openMeteoConfigured ? "Latitude/longitude present." : "OPEN_METEO_LAT/LON missing."));
+
+    var cooldownRemainingSec = (long?)null;
+    var cooldownOk = true;
+    var lastEnd = store.GetLastSmartAwayEndedUnix();
+    if (lastEnd is { } le)
+    {
+        cooldownRemainingSec = (policy.SmartCooldownHours * 3600L) - (now - le);
+        if (cooldownRemainingSec > 0)
+            cooldownOk = false;
+        else
+            cooldownRemainingSec = 0;
+    }
+
+    checks.Add(new SmartAwayLiveCheck(
+        "cooldown_elapsed",
+        "Cooldown elapsed",
+        cooldownOk,
+        cooldownOk
+            ? "Cooldown passed."
+            : $"Cooldown remaining: {cooldownRemainingSec ?? 0} sec."));
+
+    double? minForecast = null;
+    if (openMeteoConfigured)
+    {
+        try
+        {
+            minForecast = await outdoor
+                .GetMinHourlyTempCNextHoursAsync(
+                    options.OpenMeteoLat!.Value,
+                    options.OpenMeteoLon!.Value,
+                    policy.ForecastHorizonHours,
+                    options.TimeZoneId,
+                    ct)
+                .ConfigureAwait(false);
+        }
+        catch
+        {
+            minForecast = null;
+        }
+    }
+
+    var forecastOk = minForecast is not null && minForecast.Value >= policy.MinForecastTempCTrigger;
+    checks.Add(new SmartAwayLiveCheck(
+        "forecast_ok",
+        "Forecast minimum above threshold",
+        forecastOk,
+        minForecast is null
+            ? $"No forecast available (threshold {policy.MinForecastTempCTrigger:F1} °C)."
+            : $"Min {minForecast.Value:F1} °C vs threshold {policy.MinForecastTempCTrigger:F1} °C."));
+
+    var indoorAvg = store.GetLatestRoomsAverageTempC();
+    var indoorOk = indoorAvg is not null && indoorAvg.Value >= policy.IndoorMinAvgTempC;
+    checks.Add(new SmartAwayLiveCheck(
+        "indoor_avg_ok",
+        "Indoor average above threshold",
+        indoorOk,
+        indoorAvg is null
+            ? $"No indoor average yet (threshold {policy.IndoorMinAvgTempC:F1} °C)."
+            : $"{indoorAvg.Value:F1} °C vs threshold {policy.IndoorMinAvgTempC:F1} °C."));
+
+    var snaps = store.GetRecentSystemSnapshots(policy.HeatingIdlePollsRequired);
+    var idleOk = snaps.Count >= policy.HeatingIdlePollsRequired && snaps.All(static s => !s.HeatingActive);
+    checks.Add(new SmartAwayLiveCheck(
+        "heating_idle",
+        "Heating idle in recent polls",
+        idleOk,
+        $"Idle polls: {snaps.Count}/{policy.HeatingIdlePollsRequired}; any active: {snaps.Any(static s => s.HeatingActive)}."));
+
+    HubLiveOverview? overview = null;
+    if (hubConfigured)
+        overview = await LiveHubRoomTemps.TryFetchOverviewAsync(hub, options, ct).ConfigureAwait(false);
+
+    var hubFetchOk = !hubConfigured || overview is not null;
+    checks.Add(new SmartAwayLiveCheck(
+        "hub_fetch_ok",
+        "Hub overview available",
+        hubFetchOk,
+        !hubConfigured ? "Hub not configured." : (overview is null ? "Hub fetch failed." : "Hub fetch succeeded.")));
+
+    var hubAwayOk = overview is null || !overview.SystemAway;
+    checks.Add(new SmartAwayLiveCheck(
+        "hub_not_already_away",
+        "Hub not already in away mode",
+        hubAwayOk,
+        overview is null ? "No hub overview." : (overview.SystemAway ? "Hub is already away." : "Hub is Home.")));
+
+    var canArm = checks.All(static c => c.Pass);
+    var firstFailed = checks.FirstOrDefault(static c => !c.Pass);
+    return new SmartAwayLiveValidationResult(
+        now,
+        canArm,
+        canArm ? "would_arm" : "blocked",
+        canArm ? null : firstFailed?.Key,
+        minForecast,
+        indoorAvg,
+        snaps.Count,
+        policy.HeatingIdlePollsRequired,
+        cooldownRemainingSec is > 0 ? cooldownRemainingSec : 0,
+        overview?.SystemAway,
+        checks);
+}
+
 internal sealed record SeriesRoomRowDto(
     long Ts,
     double TempC,
@@ -1130,5 +1280,18 @@ internal sealed record BatchBoostRoomsRequest(int[] room_ids, double temperature
 internal sealed record BatchRoomModeRequest(int[] room_ids, string mode, double? temperature_c);
 internal sealed record TimedAwayScheduleRequest(long ends_at_unix, double? temperature_c);
 internal sealed record TimedAwayExtendRequest(int extend_minutes);
+internal sealed record SmartAwayLiveCheck(string Key, string Label, bool Pass, string Detail);
+internal sealed record SmartAwayLiveValidationResult(
+    long EvaluatedAtUnix,
+    bool CanArm,
+    string Outcome,
+    string? Reason,
+    double? MinForecastC,
+    double? IndoorAvgC,
+    int IdlePollCount,
+    int IdlePollsRequired,
+    long? CooldownRemainingSec,
+    bool? HubSystemAway,
+    IReadOnlyList<SmartAwayLiveCheck> Checks);
 internal sealed record GasMeterCreateRequest(int vol_credit, decimal amount_gbp, string entry_date, string? ocr_raw_json, string? source_image_path);
 internal sealed record GasMeterUpdateRequest(int vol_credit, decimal amount_gbp, string entry_date);

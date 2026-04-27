@@ -2,7 +2,9 @@
 @rendermode InteractiveServer
 @using System.Globalization
 @using System.Net.Http
+@using System.Net.Http.Json
 @using System.Text.Json
+@using System.Text.Json.Serialization
 @using Microsoft.AspNetCore.Components.Forms
 @using Microsoft.AspNetCore.Components.Web
 @using MudBlazor
@@ -253,6 +255,64 @@
             {
                 <MudAlert Severity="Severity.Warning" Dense="true" Class="mt-2">@_taDiagnostics.ErrorMessage</MudAlert>
             }
+        }
+
+        <MudDivider Class="my-3" />
+
+        <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center" Wrap="Wrap.Wrap" Class="mb-1">
+            <MudText Typo="Typo.subtitle2">Smart away — live trigger validation</MudText>
+            <MudButton Variant="Variant.Outlined"
+                       Color="Color.Primary"
+                       Size="Size.Small"
+                       Disabled="_taLiveValidationBusy"
+                       StartIcon="@Icons.Material.Filled.Refresh"
+                       OnClick="RefreshSmartAwayValidationAsync">
+                Refresh live checks
+            </MudButton>
+        </MudStack>
+        @if (_taLiveValidationBusy)
+        {
+            <MudProgressLinear Color="Color.Primary" Indeterminate="true" Class="rounded mb-2" />
+        }
+        @if (!string.IsNullOrWhiteSpace(_taLiveValidationError))
+        {
+            <MudAlert Severity="Severity.Warning" Dense="true" Class="mb-2">@_taLiveValidationError</MudAlert>
+        }
+        else if (_taLiveValidation is null)
+        {
+            <MudText Typo="Typo.caption" Class="mud-text-secondary">No live validation yet.</MudText>
+        }
+        else
+        {
+            <MudChip T="string"
+                     Size="Size.Small"
+                     Variant="Variant.Filled"
+                     Color="@(_taLiveValidation.CanArm ? Color.Success : Color.Warning)"
+                     Class="mb-2">
+                @(_taLiveValidation.CanArm ? "Would arm now" : $"Blocked now ({HumanizeLiveReason(_taLiveValidation.Reason)})")
+            </MudChip>
+            <MudText Typo="Typo.caption" Class="mud-text-secondary d-block mb-2">
+                Checked @FormatDiagnosticsLocalTime(_taLiveValidation.EvaluatedAtUnix)
+            </MudText>
+            <MudTable T="SmartAwayLiveCheckView" Dense="true" Elevation="0" Items="_taLiveValidation.Checks">
+                <HeaderContent>
+                    <MudTh>Check</MudTh>
+                    <MudTh>Status</MudTh>
+                    <MudTh>Detail</MudTh>
+                </HeaderContent>
+                <RowTemplate>
+                    <MudTd DataLabel="Check">@context.Label</MudTd>
+                    <MudTd DataLabel="Status">
+                        <MudChip T="string"
+                                 Size="Size.Small"
+                                 Variant="Variant.Outlined"
+                                 Color="@(context.Pass ? Color.Success : Color.Warning)">
+                            @(context.Pass ? "Pass" : "Fail")
+                        </MudChip>
+                    </MudTd>
+                    <MudTd DataLabel="Detail">@context.Detail</MudTd>
+                </RowTemplate>
+            </MudTable>
         }
 
         <MudStack Row="true" Spacing="2" Class="flex-wrap mt-2">
@@ -653,6 +713,9 @@
     private TimedAwaySessionRow? _taActiveSession;
     private bool _timedAwayBusy;
     private TimedAwayDiagnostics? _taDiagnostics;
+    private SmartAwayLiveValidationView? _taLiveValidation;
+    private bool _taLiveValidationBusy;
+    private string? _taLiveValidationError;
     private string _settingsPollStatusText = "";
     private bool _openMeteoConfigured;
 
@@ -814,7 +877,7 @@
         await InvokeAsync(StateHasChanged);
     }
 
-    private Task LoadAsync()
+    private async Task LoadAsync()
     {
         _rooms.Clear();
         var rooms = Store.ListRooms().OrderBy(x => x, StringComparer.OrdinalIgnoreCase).ToList();
@@ -854,7 +917,7 @@
         if (!string.IsNullOrWhiteSpace(snap.LastError))
             _settingsPollStatusText += $" · last error: {snap.LastError}";
         LoadTimedAwayFields();
-        return Task.CompletedTask;
+        await RefreshSmartAwayValidationAsync();
     }
 
     private void LoadTimedAwayFields()
@@ -906,6 +969,22 @@
         _ => code,
     };
 
+    private static string HumanizeLiveReason(string? code) => code switch
+    {
+        null or "" => "unknown",
+        "smart_enabled" => "smart auto disabled",
+        "no_active_session" => "active away session",
+        "hub_configured" => "hub not configured",
+        "open_meteo_configured" => "Open-Meteo not configured",
+        "cooldown_elapsed" => "cooldown active",
+        "forecast_ok" => "forecast below threshold",
+        "indoor_avg_ok" => "indoor average too low",
+        "heating_idle" => "heating not idle",
+        "hub_fetch_ok" => "hub fetch failed",
+        "hub_not_already_away" => "hub already away",
+        _ => code,
+    };
+
     private static string FormatDiagnosticsSnapshot(TimedAwayDiagnostics d)
     {
         var parts = new List<string>();
@@ -916,6 +995,25 @@
         if (d.HeatingIdlePollCount is { } ipc)
             parts.Add($"Idle poll count: {ipc}");
         return parts.Count == 0 ? "" : string.Join(" · ", parts);
+    }
+
+    private async Task RefreshSmartAwayValidationAsync()
+    {
+        _taLiveValidationBusy = true;
+        _taLiveValidationError = null;
+        try
+        {
+            _taLiveValidation = await Http.GetFromJsonAsync<SmartAwayLiveValidationView>("/api/away/validate-live");
+        }
+        catch (Exception ex)
+        {
+            _taLiveValidationError = $"Live validation failed: {ex.Message}";
+        }
+        finally
+        {
+            _taLiveValidationBusy = false;
+            await InvokeAsync(StateHasChanged);
+        }
     }
 
     private async Task DownloadTimedAwayPolicyAsync()
@@ -970,6 +1068,7 @@
     {
         _taSmartAuto = value;
         PersistTimedAwayPolicyToStore();
+        _ = RefreshSmartAwayValidationAsync();
         return Task.CompletedTask;
     }
 
@@ -977,6 +1076,7 @@
     {
         _taAwayLimit = v;
         PersistTimedAwayPolicyToStore();
+        _ = RefreshSmartAwayValidationAsync();
         return Task.CompletedTask;
     }
 
@@ -984,6 +1084,7 @@
     {
         _taSmartDurationMin = v;
         PersistTimedAwayPolicyToStore();
+        _ = RefreshSmartAwayValidationAsync();
         return Task.CompletedTask;
     }
 
@@ -991,6 +1092,7 @@
     {
         _taExtensionLeadMin = v;
         PersistTimedAwayPolicyToStore();
+        _ = RefreshSmartAwayValidationAsync();
         return Task.CompletedTask;
     }
 
@@ -998,6 +1100,7 @@
     {
         _taForecastHours = v;
         PersistTimedAwayPolicyToStore();
+        _ = RefreshSmartAwayValidationAsync();
         return Task.CompletedTask;
     }
 
@@ -1005,6 +1108,7 @@
     {
         _taMinForecastTemp = v;
         PersistTimedAwayPolicyToStore();
+        _ = RefreshSmartAwayValidationAsync();
         return Task.CompletedTask;
     }
 
@@ -1012,6 +1116,7 @@
     {
         _taHeatingIdlePolls = v;
         PersistTimedAwayPolicyToStore();
+        _ = RefreshSmartAwayValidationAsync();
         return Task.CompletedTask;
     }
 
@@ -1019,6 +1124,7 @@
     {
         _taIndoorMinAvg = v;
         PersistTimedAwayPolicyToStore();
+        _ = RefreshSmartAwayValidationAsync();
         return Task.CompletedTask;
     }
 
@@ -1026,6 +1132,7 @@
     {
         _taSmartCooldownHours = v;
         PersistTimedAwayPolicyToStore();
+        _ = RefreshSmartAwayValidationAsync();
         return Task.CompletedTask;
     }
 
@@ -1508,6 +1615,19 @@
         public double XPercent { get; set; }
         public double YPercent { get; set; }
     }
+
+    private sealed record SmartAwayLiveValidationView(
+        [property: JsonPropertyName("evaluated_at_unix")] long EvaluatedAtUnix,
+        [property: JsonPropertyName("can_arm")] bool CanArm,
+        [property: JsonPropertyName("outcome")] string Outcome,
+        [property: JsonPropertyName("reason")] string? Reason,
+        [property: JsonPropertyName("checks")] IReadOnlyList<SmartAwayLiveCheckView> Checks);
+
+    private sealed record SmartAwayLiveCheckView(
+        [property: JsonPropertyName("key")] string Key,
+        [property: JsonPropertyName("label")] string Label,
+        [property: JsonPropertyName("pass")] bool Pass,
+        [property: JsonPropertyName("detail")] string Detail);
 
     private sealed record FloorplanElementSize(double Width, double Height);
 }
