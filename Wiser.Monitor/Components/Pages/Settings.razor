@@ -1010,6 +1010,17 @@
         _ => code,
     };
 
+    private static IEnumerable<SmartAwayLiveCheckView> FailedSmartAwayChecks(SmartAwayLiveValidationView v) =>
+        v.Checks.Where(static c => !c.Pass);
+
+    private static string FormatLiveValidationSnapshot(SmartAwayLiveValidationView v)
+    {
+        var total = v.Checks.Count;
+        var failed = v.Checks.Count(static c => !c.Pass);
+        var passed = total - failed;
+        return $"{passed}/{total} checks passing.";
+    }
+
     private static string FormatDiagnosticsSnapshot(TimedAwayDiagnostics d)
     {
         var parts = new List<string>();
