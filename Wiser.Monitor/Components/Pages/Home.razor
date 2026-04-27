@@ -1017,7 +1017,10 @@
             _awayModeSnapshot.Clear();
             await ClearAwayStateAsync();
 
-            Snackbar.Add($"Away mode set until {localUnspecified.ToString("g", CultureInfo.CurrentCulture)}.", Severity.Success);
+            var localEnds = TimeZoneInfo.ConvertTime(DateTimeOffset.FromUnixTimeSeconds(unix), DisplayZone);
+            Snackbar.Add(
+                $"Away mode set until {localEnds.ToString("g", CultureInfo.CurrentCulture)} ({DisplayZone.Id}).",
+                Severity.Success);
         }
         catch (Exception ex)
         {
