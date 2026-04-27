@@ -1,0 +1,71 @@
+@using System.Globalization
+@using MudBlazor
+
+<MudDialog>
+    <DialogContent>
+        <MudStack Spacing="2">
+            <MudText Typo="Typo.body2">
+                Choose when away mode should end (local time).
+            </MudText>
+            <MudDatePicker @bind-Date="_endDate"
+                           Label="End date"
+                           Variant="Variant.Outlined"
+                           Margin="Margin.Dense" />
+            <MudTimePicker @bind-Time="_endTime"
+                           Label="End time"
+                           Variant="Variant.Outlined"
+                           Margin="Margin.Dense" />
+            @if (!string.IsNullOrWhiteSpace(_validationMessage))
+            {
+                <MudAlert Severity="Severity.Warning" Dense="true">
+                    @_validationMessage
+                </MudAlert>
+            }
+        </MudStack>
+    </DialogContent>
+    <DialogActions>
+        <MudButton Variant="Variant.Text" Color="Color.Default" OnClick="Cancel">Cancel</MudButton>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="Confirm">Set away mode</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance MudDialog { get; set; } = default!;
+
+    [Parameter] public DateTime? InitialDate { get; set; }
+    [Parameter] public TimeSpan? InitialTime { get; set; }
+    [Parameter] public TimeZoneInfo Zone { get; set; } = TimeZoneInfo.Local;
+
+    private DateTime? _endDate;
+    private TimeSpan? _endTime;
+    private string? _validationMessage;
+
+    protected override void OnInitialized()
+    {
+        var nowLocal = TimeZoneInfo.ConvertTime(DateTimeOffset.UtcNow, Zone);
+        _endDate = InitialDate ?? nowLocal.Date.AddDays(1);
+        _endTime = InitialTime ?? new TimeSpan(18, 0, 0);
+    }
+
+    private void Cancel() => MudDialog.Cancel();
+
+    private void Confirm()
+    {
+        if (_endDate is null || _endTime is null)
+        {
+            _validationMessage = "Pick end date and time.";
+            return;
+        }
+
+        var localWall = _endDate.Value.Date + _endTime.Value;
+        var localUnspecified = DateTime.SpecifyKind(localWall, DateTimeKind.Unspecified);
+        var nowLocal = TimeZoneInfo.ConvertTime(DateTimeOffset.UtcNow, Zone);
+        if (localUnspecified <= nowLocal.DateTime)
+        {
+            _validationMessage = "End must be in the future (local time).";
+            return;
+        }
+
+        MudDialog.Close(DialogResult.Ok(localUnspecified));
+    }
+}

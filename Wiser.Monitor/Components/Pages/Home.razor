@@ -517,6 +517,8 @@
     private Guid? _extendPromptShownForSession;
     private bool _timedAwayActionBusy;
     private BoilerCycleSummary? _homeBoilerSummary;
+    private DateTime? _awayPromptEndDate;
+    private TimeSpan? _awayPromptEndTime = new TimeSpan(18, 0, 0);
 
     private bool HubConfiguredForApi => HubConfiguration.IsConfigured(Options);
 
@@ -920,7 +922,7 @@
     {
         if (!AwayQuickActionShowsActive)
         {
-            await SetAwayModeAutoAsync();
+            await SetTimedAwayFromPromptAsync();
             return;
         }
 
@@ -950,6 +952,76 @@
         catch (Exception ex)
         {
             Snackbar.Add($"Could not update away mode: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            _quickActionsBusy = false;
+        }
+    }
+
+    private async Task SetTimedAwayFromPromptAsync()
+    {
+        if (!HubConfiguredForApi)
+        {
+            Snackbar.Add("Hub API is not configured.", Severity.Warning);
+            return;
+        }
+
+        var parms = new DialogParameters<AwayEndDateTimeDialog>
+        {
+            { x => x.InitialDate, _awayPromptEndDate },
+            { x => x.InitialTime, _awayPromptEndTime },
+            { x => x.Zone, DisplayZone },
+        };
+        var dialog = await DialogService.ShowAsync<AwayEndDateTimeDialog>("Set away mode until", parms);
+        var result = await dialog.Result;
+        if (result is null || result.Canceled || result.Data is not DateTime localUnspecified)
+            return;
+
+        _awayPromptEndDate = localUnspecified.Date;
+        _awayPromptEndTime = localUnspecified.TimeOfDay;
+        await ScheduleAwayUntilAsync(localUnspecified);
+    }
+
+    private async Task ScheduleAwayUntilAsync(DateTime localUnspecified)
+    {
+        var utc = TimeZoneInfo.ConvertTimeToUtc(localUnspecified, DisplayZone);
+        var unix = new DateTimeOffset(utc, TimeSpan.Zero).ToUnixTimeSeconds();
+
+        _quickActionsBusy = true;
+        try
+        {
+            using var resp = await Http.PostAsJsonAsync("/api/away/schedule", new
+            {
+                ends_at_unix = unix,
+                temperature_c = Store.GetTimedAwayPolicy().AwayLimitC,
+            });
+            if (!resp.IsSuccessStatusCode)
+            {
+                Snackbar.Add($"Away mode failed: {await resp.Content.ReadAsStringAsync()}", Severity.Error);
+                return;
+            }
+
+            var refreshed = await LiveHubRoomTemps.TryFetchOverviewAsync(Hub, Options, CancellationToken.None).ConfigureAwait(false);
+            if (refreshed is not null)
+            {
+                RoomsCache.Update(refreshed);
+                _hubSystemAway = refreshed.SystemAway;
+            }
+            else
+            {
+                _hubSystemAway = true;
+            }
+
+            _awayModeActive = false;
+            _awayModeSnapshot.Clear();
+            await ClearAwayStateAsync();
+
+            Snackbar.Add($"Away mode set until {localUnspecified.ToString("g", CultureInfo.CurrentCulture)}.", Severity.Success);
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Away mode failed: {ex.Message}", Severity.Error);
         }
         finally
         {
