@@ -297,9 +297,9 @@
     {
         if (scheduleId <= 0)
             return "—";
-        if (scheduleId >= HubScheduleIdPolicy.FirstInternalScheduleId)
-            return "internal";
-        return $"#{scheduleId}";
+        return scheduleId >= HubScheduleIdPolicy.FirstInternalScheduleId
+            ? $"#{scheduleId} (hub)"
+            : $"#{scheduleId}";
     }
 
     private static string ProgramTitle(HubScheduleProgram prog)
