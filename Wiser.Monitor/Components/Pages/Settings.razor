@@ -416,6 +416,35 @@
                 </MudButton>
             </MudItem>
         </MudGrid>
+        <MudText Typo="Typo.caption" Class="mud-text-secondary mt-2 d-block">
+            Quick set from now
+        </MudText>
+        <MudStack Row="true" Spacing="1" Wrap="Wrap.Wrap" Class="mt-1">
+            <MudButton Variant="Variant.Outlined"
+                       Color="Color.Primary"
+                       Disabled="@(!HubConfigured || _timedAwayBusy)"
+                       OnClick="@(() => ScheduleTimedAwayPresetAsync(1))">
+                1 hour
+            </MudButton>
+            <MudButton Variant="Variant.Outlined"
+                       Color="Color.Primary"
+                       Disabled="@(!HubConfigured || _timedAwayBusy)"
+                       OnClick="@(() => ScheduleTimedAwayPresetAsync(3))">
+                3 hours
+            </MudButton>
+            <MudButton Variant="Variant.Outlined"
+                       Color="Color.Primary"
+                       Disabled="@(!HubConfigured || _timedAwayBusy)"
+                       OnClick="@(() => ScheduleTimedAwayPresetAsync(6))">
+                6 hours
+            </MudButton>
+            <MudButton Variant="Variant.Outlined"
+                       Color="Color.Primary"
+                       Disabled="@(!HubConfigured || _timedAwayBusy)"
+                       OnClick="@(() => ScheduleTimedAwayPresetAsync(9))">
+                9 hours
+            </MudButton>
+        </MudStack>
 
         </div>
 
@@ -1225,6 +1254,16 @@
             _timedAwayBusy = false;
             await InvokeAsync(StateHasChanged);
         }
+    }
+
+    private async Task ScheduleTimedAwayPresetAsync(int hoursFromNow)
+    {
+        var h = Math.Clamp(hoursFromNow, 1, 72);
+        var zone = TimeZoneResolver.Resolve(Options.TimeZoneId);
+        var local = TimeZoneInfo.ConvertTime(DateTimeOffset.UtcNow, zone).AddHours(h);
+        _taEndDate = local.Date;
+        _taEndTime = local.TimeOfDay;
+        await ScheduleTimedAwayAsync();
     }
 
     private async Task CancelTimedAwayAsync()
