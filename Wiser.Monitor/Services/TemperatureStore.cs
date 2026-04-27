@@ -2021,6 +2021,26 @@ public sealed class TemperatureStore
             return list;
         }
     }
+
+    public LatestOutdoorSnapshot? GetLatestOutdoor()
+    {
+        lock (_gate)
+        {
+            using var c = Open();
+            using var cmd = c.CreateCommand();
+            cmd.CommandText =
+                """
+                SELECT ts, temp_c
+                FROM outdoor_readings
+                ORDER BY ts DESC
+                LIMIT 1
+                """;
+            using var r = cmd.ExecuteReader();
+            if (!r.Read())
+                return null;
+            return new LatestOutdoorSnapshot(r.GetInt64(0), r.GetDouble(1));
+        }
+    }
 }
 
 public sealed record LatestDto(
@@ -2037,6 +2057,7 @@ public sealed record LatestDto(
 }
 
 public sealed record LatestSystemSnapshot(long Ts, bool HeatingRelayOn, bool HeatingActive);
+public sealed record LatestOutdoorSnapshot(long Ts, double TempC);
 
 public sealed record RoomSeriesRow(
     long Ts,

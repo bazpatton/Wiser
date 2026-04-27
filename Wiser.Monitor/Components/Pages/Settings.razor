@@ -48,6 +48,15 @@
                      Color="@(_openMeteoConfigured ? Color.Success : Color.Default)">
                 Open-Meteo @(_openMeteoConfigured ? "lat/lon set" : "not set")
             </MudChip>
+            @if (_openMeteoConfigured)
+            {
+                <MudChip T="string"
+                         Size="Size.Small"
+                         Variant="Variant.Outlined"
+                         Color="Color.Default">
+                    @_settingsOutdoorStatusText
+                </MudChip>
+            }
             @if (string.IsNullOrWhiteSpace(Options.AppPublicBaseUrl))
             {
                 <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined" Color="Color.Info">
@@ -323,7 +332,7 @@
                             @(context.Pass ? "Pass" : "Fail")
                         </MudChip>
                     </MudTd>
-                    <MudTd DataLabel="Detail">@context.Detail</MudTd>
+                    <MudTd DataLabel="Detail">@RenderLiveCheckDetail(context)</MudTd>
                 </RowTemplate>
             </MudTable>
         }
@@ -770,7 +779,9 @@
     private SmartAwayLiveValidationView? _taLiveValidation;
     private bool _taLiveValidationBusy;
     private string? _taLiveValidationError;
+    private string? _taLiveActiveSessionEndsLocalText;
     private string _settingsPollStatusText = "";
+    private string _settingsOutdoorStatusText = "Outdoor: no samples yet";
     private bool _openMeteoConfigured;
 
     private bool HubConfigured => HubConfiguration.IsConfigured(Options);
@@ -970,6 +981,18 @@
         }
         if (!string.IsNullOrWhiteSpace(snap.LastError))
             _settingsPollStatusText += $" · last error: {snap.LastError}";
+        if (_openMeteoConfigured)
+        {
+            var outdoor = Store.GetLatestOutdoor();
+            if (outdoor is null)
+                _settingsOutdoorStatusText = "Outdoor: no samples yet";
+            else
+            {
+                var outdoorLocal = TimeZoneInfo.ConvertTime(DateTimeOffset.FromUnixTimeSeconds(outdoor.Ts), DisplayZone);
+                _settingsOutdoorStatusText =
+                    $"Outdoor: {outdoor.TempC.ToString("F1", CultureInfo.CurrentCulture)} °C @ {outdoorLocal.ToString("g", CultureInfo.CurrentCulture)}";
+            }
+        }
         LoadTimedAwayFields();
         await RefreshSmartAwayValidationAsync();
     }
@@ -1042,6 +1065,18 @@
     private static IEnumerable<SmartAwayLiveCheckView> FailedSmartAwayChecks(SmartAwayLiveValidationView v) =>
         v.Checks.Where(static c => !c.Pass);
 
+    private string RenderLiveCheckDetail(SmartAwayLiveCheckView check)
+    {
+        if (!check.Pass &&
+            check.Key == "no_active_session" &&
+            !string.IsNullOrWhiteSpace(_taLiveActiveSessionEndsLocalText))
+        {
+            return $"Active until {_taLiveActiveSessionEndsLocalText}.";
+        }
+
+        return check.Detail;
+    }
+
     private static string FormatLiveValidationSnapshot(SmartAwayLiveValidationView v)
     {
         var total = v.Checks.Count;
@@ -1066,9 +1101,12 @@
     {
         _taLiveValidationBusy = true;
         _taLiveValidationError = null;
+        _taLiveActiveSessionEndsLocalText = null;
         try
         {
             _taLiveValidation = await Http.GetFromJsonAsync<SmartAwayLiveValidationView>("/api/away/validate-live");
+            if (_taLiveValidation?.ActiveSessionEndsAtUnix is { } endsUnix)
+                _taLiveActiveSessionEndsLocalText = await Js.InvokeAsync<string>("wiserFormatLocalDateTime", endsUnix);
         }
         catch (Exception ex)
         {
@@ -1696,6 +1734,7 @@
         [property: JsonPropertyName("can_arm")] bool CanArm,
         [property: JsonPropertyName("outcome")] string Outcome,
         [property: JsonPropertyName("reason")] string? Reason,
+        [property: JsonPropertyName("active_session_ends_at_unix")] long? ActiveSessionEndsAtUnix,
         [property: JsonPropertyName("checks")] IReadOnlyList<SmartAwayLiveCheckView> Checks);
 
     private sealed record SmartAwayLiveCheckView(

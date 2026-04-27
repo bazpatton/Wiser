@@ -1122,7 +1122,6 @@ static async Task<SmartAwayLiveValidationResult> EvaluateSmartAwayLiveAsync(
     var policy = store.GetTimedAwayPolicy();
     var activeSession = store.TryGetActiveTimedAwaySession();
     var hasActiveSession = activeSession is not null;
-    var zone = TimeZoneResolver.Resolve(options.TimeZoneId);
     var hubConfigured = HubConfiguration.IsConfigured(options);
     var openMeteoConfigured = options.OpenMeteoLat is not null && options.OpenMeteoLon is not null;
 
@@ -1136,7 +1135,7 @@ static async Task<SmartAwayLiveValidationResult> EvaluateSmartAwayLiveAsync(
         "No active monitor away session",
         !hasActiveSession,
         hasActiveSession
-            ? $"Active until {TimeZoneInfo.ConvertTime(DateTimeOffset.FromUnixTimeSeconds(activeSession!.EndsAtUnix), zone).ToString("g", CultureInfo.CurrentCulture)} ({zone.Id})."
+            ? "Active monitor away session is still running."
             : "No active session."));
     checks.Add(new SmartAwayLiveCheck(
         "hub_configured",
@@ -1241,6 +1240,7 @@ static async Task<SmartAwayLiveValidationResult> EvaluateSmartAwayLiveAsync(
         canArm,
         canArm ? "would_arm" : "blocked",
         canArm ? null : firstFailed?.Key,
+        activeSession?.EndsAtUnix,
         minForecast,
         indoorAvg,
         snaps.Count,
@@ -1287,6 +1287,7 @@ internal sealed record SmartAwayLiveValidationResult(
     bool CanArm,
     string Outcome,
     string? Reason,
+    long? ActiveSessionEndsAtUnix,
     double? MinForecastC,
     double? IndoorAvgC,
     int IdlePollCount,
