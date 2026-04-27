@@ -294,6 +294,19 @@
             <MudText Typo="Typo.caption" Class="mud-text-secondary d-block mb-2">
                 Checked @FormatDiagnosticsLocalTime(_taLiveValidation.EvaluatedAtUnix)
             </MudText>
+            <MudText Typo="Typo.caption" Class="mud-text-secondary d-block mb-2">
+                @FormatLiveValidationSnapshot(_taLiveValidation)
+            </MudText>
+            @if (!_taLiveValidation.CanArm)
+            {
+                <MudAlert Severity="Severity.Warning" Dense="true" Class="mb-2">
+                    <MudText Typo="Typo.caption" Class="d-block mb-1"><strong>Currently blocking trigger:</strong></MudText>
+                    @foreach (var failed in FailedSmartAwayChecks(_taLiveValidation))
+                    {
+                        <MudText Typo="Typo.caption" Class="d-block">• @failed.Label: @failed.Detail</MudText>
+                    }
+                </MudAlert>
+            }
             <MudTable T="SmartAwayLiveCheckView" Dense="true" Elevation="0" Items="_taLiveValidation.Checks">
                 <HeaderContent>
                     <MudTh>Check</MudTh>
@@ -357,6 +370,18 @@
                            Disabled="@(!HubConfigured || _timedAwayBusy)"
                            OnClick="@(() => ExtendTimedAwayAsync(180))">
                     +3 hours
+                </MudButton>
+                <MudButton Variant="Variant.Outlined"
+                           Color="Color.Primary"
+                           Disabled="@(!HubConfigured || _timedAwayBusy)"
+                           OnClick="@(() => ExtendTimedAwayAsync(360))">
+                    +6 hours
+                </MudButton>
+                <MudButton Variant="Variant.Outlined"
+                           Color="Color.Primary"
+                           Disabled="@(!HubConfigured || _timedAwayBusy)"
+                           OnClick="@(() => ExtendTimedAwayAsync(540))">
+                    +9 hours
                 </MudButton>
                 <MudButton Variant="Variant.Filled"
                            Color="Color.Error"

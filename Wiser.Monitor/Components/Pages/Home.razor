@@ -73,6 +73,22 @@
                     +3h
                 </MudButton>
                 <MudButton Variant="Variant.Text"
+                           Color="Color.Primary"
+                           Size="Size.Small"
+                           Class="pa-0 ma-0"
+                           Disabled="@_timedAwayActionBusy"
+                           OnClick="@(() => QuickExtendTimedAwayAsync(360))">
+                    +6h
+                </MudButton>
+                <MudButton Variant="Variant.Text"
+                           Color="Color.Primary"
+                           Size="Size.Small"
+                           Class="pa-0 ma-0"
+                           Disabled="@_timedAwayActionBusy"
+                           OnClick="@(() => QuickExtendTimedAwayAsync(540))">
+                    +9h
+                </MudButton>
+                <MudButton Variant="Variant.Text"
                            Color="Color.Error"
                            Size="Size.Small"
                            Class="pa-0 ma-0"
