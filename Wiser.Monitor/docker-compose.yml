@@ -10,7 +10,9 @@ services:
       TIME_ZONE: "${TIME_ZONE:-Europe/London}"
     volumes:
       - wiser_monitor_data:/data
+      - wiser_monitor_dpkeys:/root/.aspnet/DataProtection-Keys
     restart: unless-stopped
 
 volumes:
   wiser_monitor_data:
+  wiser_monitor_dpkeys:
