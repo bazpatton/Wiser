@@ -124,8 +124,11 @@
         }
     </MudPaper>
 
-    <MudPaper Class="pa-4 card-soft">
-        <MudText Typo="Typo.subtitle1" Class="mb-2">Trend ignore window (local time)</MudText>
+    <MudExpansionPanels Class="home-expansion-panels">
+
+        <MudExpansionPanel>
+            <TitleContent><MudText Typo="Typo.subtitle1"><i class="fa-solid fa-clock"></i> Trend ignore window</MudText></TitleContent>
+            <ChildContent>
         <MudGrid Spacing="2">
             <MudItem xs="12" sm="6" md="3">
                 <MudTextField T="string"
@@ -151,10 +154,16 @@
                 </MudText>
             </MudItem>
         </MudGrid>
+            </ChildContent>
+        </MudExpansionPanel>
 
-        <MudDivider Class="my-3" />
-
-        <MudText Typo="Typo.subtitle1" Class="mb-2">Gas meter reading reminders (ntfy)</MudText>
+        <MudExpansionPanel>
+            <TitleContent><MudText Typo="Typo.subtitle1"><i class="fa-solid fa-bell"></i> Gas meter reading reminders (ntfy)</MudText></TitleContent>
+            <ChildContent>
+        <MudText Typo="Typo.body2" Class="mud-text-secondary mb-2">
+            Get a phone notification at chosen local times to record your gas meter. Uses the same
+            <strong>ntfy</strong> topic as temperature alerts.
+        </MudText>
         <MudText Typo="Typo.body2" Class="mud-text-secondary mb-2">
             Get a phone notification at chosen local times to record your gas meter. Uses the same
             <strong>ntfy</strong> topic as temperature alerts.
@@ -181,10 +190,14 @@
                           HelperText="Comma-separated HH:mm, 24-hour. Uses TIME_ZONE from your environment / Docker." />
         </MudStack>
 
-        <MudDivider Class="my-3" />
+            </ChildContent>
+        </MudExpansionPanel>
 
+        <MudExpansionPanel>
+            <TitleContent><MudText Typo="Typo.subtitle1"><i class="fa-solid fa-house-circle-check"></i> Timed and smart away</MudText></TitleContent>
+            <ChildContent>
         <div id="timed-away">
-        <MudText Typo="Typo.subtitle1" Class="mb-2">Timed and smart away (whole house)</MudText>
+        <MudText Typo="Typo.body2" Class="mud-text-secondary mb-2">Timed and smart away (whole house)</MudText>
         <MudText Typo="Typo.body2" Class="mud-text-secondary mb-2">
             The monitor calls hub <strong>Away</strong> with your limit temperature, then <strong>Home</strong> when the end time is reached.
             Smart auto uses Open-Meteo hourly forecasts and recent indoor data (requires <code>OPEN_METEO_LAT</code> / <code>OPEN_METEO_LON</code>).
@@ -514,10 +527,13 @@
         </MudStack>
 
         </div>
+            </ChildContent>
+        </MudExpansionPanel>
 
-        <MudDivider Class="my-3" />
-
-        <MudText Typo="Typo.subtitle1" Class="mb-2">Heating routine (for Home savings suggestions)</MudText>
+        <MudExpansionPanel>
+            <TitleContent><MudText Typo="Typo.subtitle1"><i class="fa-solid fa-calendar-week"></i> Heating routine</MudText></TitleContent>
+            <ChildContent>
+        <MudText Typo="Typo.body2" Class="mud-text-secondary mb-2">Heating routine (for Home savings suggestions)</MudText>
         <MudText Typo="Typo.body2" Class="mud-text-secondary mb-2">
             Tell the app when you are usually out so Home can suggest schedule tweaks that may reduce heating costs.
         </MudText>
@@ -575,9 +591,12 @@
             </MudItem>
         </MudGrid>
 
-        <MudDivider Class="my-3" />
+            </ChildContent>
+        </MudExpansionPanel>
 
-        <MudText Typo="Typo.subtitle1" Class="mb-2">Database backup and restore</MudText>
+        <MudExpansionPanel>
+            <TitleContent><MudText Typo="Typo.subtitle1"><i class="fa-solid fa-database"></i> Database backup and restore</MudText></TitleContent>
+            <ChildContent>
         <MudText Typo="Typo.body2" Class="mud-text-secondary mb-2">
             Download a snapshot of your SQLite history, or restore from a file created with Download backup on this or another instance.
             Restore replaces the live database; the previous file is kept in the data directory as
@@ -608,9 +627,12 @@
                        class="settings-input-file-hidden" />
         </MudStack>
 
-        <MudDivider Class="my-3" />
+            </ChildContent>
+        </MudExpansionPanel>
 
-        <MudText Typo="Typo.subtitle1" Class="mb-2">Floorplan temperature overlay</MudText>
+        <MudExpansionPanel>
+            <TitleContent><MudText Typo="Typo.subtitle1"><i class="fa-solid fa-map-location-dot"></i> Floorplan temperature overlay</MudText></TitleContent>
+            <ChildContent>
         <MudText Typo="Typo.body2" Class="mud-text-secondary mb-2">
             Upload your floorplan image, then map room pins using X/Y percentages (0-100). Home will render live room temperatures
             with comfort colors on top of the image.
@@ -737,9 +759,13 @@
             </MudTable>
         }
 
-        <MudDivider Class="my-3" />
+            </ChildContent>
+        </MudExpansionPanel>
 
-        <MudText Typo="Typo.subtitle1" Class="mb-2">Room activity profile</MudText>
+        <MudExpansionPanel>
+            <TitleContent><MudText Typo="Typo.subtitle1"><i class="fa-solid fa-sliders"></i> Room activity &amp; comfort ranges</MudText></TitleContent>
+            <ChildContent>
+        <MudText Typo="Typo.subtitle2" Class="mb-1">Room activity profile</MudText>
         <MudText Typo="Typo.body2" Class="mud-text-secondary mb-2">
             Active affects chart recommendation ranges. Favourite rooms are used as defaults for Home quick actions and also guide schedule suggestions.
         </MudText>
@@ -838,7 +864,10 @@
                 Reload
             </MudButton>
         </MudStack>
-    </MudPaper>
+            </ChildContent>
+        </MudExpansionPanel>
+
+    </MudExpansionPanels>
 </MudStack>
 
 @code {
