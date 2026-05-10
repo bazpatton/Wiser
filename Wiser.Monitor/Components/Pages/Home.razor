@@ -393,6 +393,21 @@
         </MudText>
         <MudText Typo="Typo.body2" Class="mt-2">@_status</MudText>
         <MudStack Row="true" Wrap="Wrap.Wrap" Spacing="1" Class="mt-2">
+            <MudTooltip Text="@(_lastError ?? "Hub poller is running normally.")">
+                <MudChip T="string" Color="@(_workerHubOk ? Color.Success : Color.Error)" Variant="Variant.Outlined">
+                    Hub poller: @(_workerHubOk ? "OK" : "Error")
+                </MudChip>
+            </MudTooltip>
+            <MudTooltip Text="@(_workerGasError ?? "Gas meter reminder worker is running normally.")">
+                <MudChip T="string" Color="@(_workerGasOk ? Color.Success : Color.Warning)" Variant="Variant.Outlined">
+                    Gas meter worker: @(_workerGasOk ? "OK" : "Error")
+                </MudChip>
+            </MudTooltip>
+            <MudTooltip Text="@(_workerAwayError ?? "Timed away worker is running normally.")">
+                <MudChip T="string" Color="@(_workerAwayOk ? Color.Success : Color.Warning)" Variant="Variant.Outlined">
+                    Timed away worker: @(_workerAwayOk ? "OK" : "Error")
+                </MudChip>
+            </MudTooltip>
             <MudTooltip Text="Temperature alert rules via ntfy (when configured).">
                 <MudChip T="string" Color="@(Options.AlertsEnabled ? Color.Success : Color.Default)" Variant="Variant.Outlined">
                     Alerts: @(Options.AlertsEnabled ? "Enabled" : "Disabled")
@@ -406,7 +421,15 @@
         </MudStack>
         @if (!string.IsNullOrWhiteSpace(_lastError))
         {
-            <MudAlert Dense="true" Severity="Severity.Warning" Class="mt-2">@_lastError</MudAlert>
+            <MudAlert Dense="true" Severity="Severity.Warning" Class="mt-2">Hub poller: @_lastError</MudAlert>
+        }
+        @if (!string.IsNullOrWhiteSpace(_workerGasError))
+        {
+            <MudAlert Dense="true" Severity="Severity.Warning" Class="mt-2">Gas meter worker: @_workerGasError</MudAlert>
+        }
+        @if (!string.IsNullOrWhiteSpace(_workerAwayError))
+        {
+            <MudAlert Dense="true" Severity="Severity.Warning" Class="mt-2">Timed away worker: @_workerAwayError</MudAlert>
         }
     </MudPaper>
 
@@ -505,6 +528,12 @@
     private List<DataQualityReasonCount> _qualityReasons24h = [];
     private readonly List<HomeRoomHeatTile> _homeRoomTiles = [];
 
+    private bool _workerHubOk;
+    private bool _workerGasOk;
+    private bool _workerAwayOk;
+    private string? _workerGasError;
+    private string? _workerAwayError;
+
     private bool _outlookLoading;
     private string? _outlookError;
     private string _outlookSummary = "";
@@ -554,6 +583,14 @@
             ? "No successful poll yet."
             : $"Last OK: {TimeZoneInfo.ConvertTime(DateTimeOffset.FromUnixTimeSeconds(ok.Value), DisplayZone).ToString("g", CultureInfo.CurrentCulture)}";
         _status = $"Poll interval: {Options.IntervalSec}s · Alerts: {(Options.AlertsEnabled ? "On" : "Off")} · {okText}";
+
+        _workerHubOk = ok is not null && string.IsNullOrWhiteSpace(err);
+        var (gasErr, _) = MonitorState.GasMeterWorker.Snapshot();
+        _workerGasOk = string.IsNullOrWhiteSpace(gasErr);
+        _workerGasError = gasErr;
+        var (awayErr, _) = MonitorState.TimedAwayWorker.Snapshot();
+        _workerAwayOk = string.IsNullOrWhiteSpace(awayErr);
+        _workerAwayError = awayErr;
 
         // Use the last cached hub snapshot for instant render; fresh data arrives via LoadLiveDataAsync after first render.
         if (RoomsCache.TryGetSnapshot(out var cached, out _))
