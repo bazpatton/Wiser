@@ -1083,15 +1083,18 @@
                     ? "Time (local)"
                     : null;
 
-        var manyPoints = pointCount > 200;
+        // Only show markers when data is genuinely sparse — many dots clutter the chart.
+        var manyPoints = pointCount > 48;
         var markers = _hours <= 24 && !manyPoints && !_compactChartAxes;
 
         foreach (var opt in new[] { _roomTrendTempLineOptions, _roomTrendValveLineOptions })
         {
             opt.XAxisLabelRotation = rotation;
             opt.XAxisTitle = xTitle;
-            opt.ShowDataMarkers = markers;
         }
+        _roomTrendTempLineOptions.ShowDataMarkers = markers;
+        // Valve is a step series — markers on every step look like noise regardless of density.
+        _roomTrendValveLineOptions.ShowDataMarkers = false;
 
         _roomTrendTempLineOptions.YAxisTicks = _compactChartAxes ? 2 : 1;
         _roomTrendTempLineOptions.MaxNumYAxisTicks = _compactChartAxes ? 10 : 22;
@@ -1612,7 +1615,8 @@
         if (_roomTiles.Count == 0)
             return;
 
-        var labels = _roomTiles.Select(static t => t.Room).ToArray();
+        var labels = _roomTiles.Select(static t =>
+            t.Room.Length > 10 ? t.Room[..9] + "…" : t.Room).ToArray();
         var values = _roomTiles
             .Select(t =>
             {
