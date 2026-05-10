@@ -206,56 +206,35 @@
     <MudPaper Class="pa-4 status-card">
         <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center" Wrap="Wrap.Wrap">
             <MudText Typo="Typo.h6">
-                <i class="fa-solid fa-map-location-dot"></i> Floorplan temperature overlay
+                <i class="fa-solid fa-grip"></i> Room temperatures &amp; trend
             </MudText>
-            <MudButton Href="/settings"
+            <MudButton Href="/charts"
                        Variant="Variant.Text"
                        Color="Color.Primary"
                        StartIcon="@Icons.Material.Filled.OpenInNew">
-                Configure
+                Charts
             </MudButton>
         </MudStack>
-        <MudText Typo="Typo.caption" Class="mud-text-secondary d-block mt-1">
-            Room pins are mapped in Settings. Colors reflect temperature vs each room's recommended range. A flame before the temperature means the room is calling for heat (hub demand). Icons after the temperature compare the latest reading to the previous poll (warmer, cooler, or steady).
-        </MudText>
-        @if (FloorplanImageHref is null)
+        @if (_homeRoomTiles.Count == 0)
         {
-            <MudAlert Severity="Severity.Info" Dense="true" Class="mt-2">
-                Upload a floorplan image and map room pins in Settings to enable this view.
-            </MudAlert>
-        }
-        else if (_homeFloorplanPins.Count == 0)
-        {
-            <MudAlert Severity="Severity.Info" Dense="true" Class="mt-2">
-                No room pins are mapped yet. Add pin coordinates in Settings.
-            </MudAlert>
+            <MudAlert Severity="Severity.Info" Dense="true" Class="mt-2">No room trend data yet.</MudAlert>
         }
         else
         {
-            <div class="home-floorplan-wrap mt-2">
-                <img src="@FloorplanImageHref" alt="House floorplan" class="home-floorplan-image" />
-                @foreach (var pin in _homeFloorplanPins)
+            <div class="room-heat-grid home-room-heat-grid mt-2">
+                @foreach (var tile in _homeRoomTiles)
                 {
-                    <a class="home-floorplan-pin"
-                       href="@GetRoomDetailsHref(pin.Room)"
-                       style="@($"left:{pin.XPercent:0.##}%;top:{pin.YPercent:0.##}%;--pin-color:{pin.Color};")"
-                       title="@pin.Tooltip"
-                       aria-label="@pin.Tooltip">
-                        <span class="home-floorplan-pin-dot"></span>
-                        <span class="home-floorplan-pin-label">
-                            <span class="home-floorplan-pin-room">@pin.Room</span><span class="home-floorplan-pin-sep">: </span>
-                            <span class="home-floorplan-pin-temp-group">
-                                @if (pin.CallingForHeat)
-                                {
-                                    <i class="fa-solid fa-fire-flame-curved home-floorplan-pin-heat-icon" aria-hidden="true"></i>
-                                }
-                                <span class="home-floorplan-pin-temp">@pin.TempText</span>
-                                @if (pin.TrendIconClass is not null)
-                                {
-                                    <i class="@pin.TrendIconClass home-floorplan-pin-trend-icon" aria-hidden="true"></i>
-                                }
-                            </span>
-                        </span>
+                    <a class="room-heat-tile room-heat-link"
+                       style="background-color:@tile.Color;"
+                       href="@GetRoomDetailsHref(tile.Room)"
+                       title="@($"Open {tile.Room} in Rooms")">
+                        <div class="room-heat-name">
+                            <span class="room-heat-state-square" style="background-color:@tile.CurrentStateColor;" title="@tile.CurrentStateText"></span>
+                            @tile.Room
+                        </div>
+                        <div class="room-heat-temp">@tile.DisplayTemp</div>
+                        <div class="room-heat-meta room-heat-meta-status">@tile.StatusText</div>
+                        <div class="room-heat-meta d-none d-sm-block">@tile.TrendText</div>
                     </a>
                 }
             </div>
@@ -263,6 +242,65 @@
     </MudPaper>
 
     <MudExpansionPanels Class="home-expansion-panels">
+
+        <MudExpansionPanel>
+            <TitleContent>
+                <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Class="flex-grow-1 mr-2">
+                    <MudText Typo="Typo.subtitle1"><i class="fa-solid fa-map-location-dot"></i> Floorplan temperature overlay</MudText>
+                    <MudButton Href="/settings" Variant="Variant.Text" Color="Color.Primary" Size="Size.Small"
+                               StartIcon="@Icons.Material.Filled.OpenInNew">
+                        Configure
+                    </MudButton>
+                </MudStack>
+            </TitleContent>
+            <ChildContent>
+                <MudText Typo="Typo.caption" Class="mud-text-secondary d-block mb-2">
+                    Room pins are mapped in Settings. Colors reflect temperature vs each room's recommended range. A flame before the temperature means the room is calling for heat (hub demand). Icons after the temperature compare the latest reading to the previous poll (warmer, cooler, or steady).
+                </MudText>
+                @if (FloorplanImageHref is null)
+                {
+                    <MudAlert Severity="Severity.Info" Dense="true">
+                        Upload a floorplan image and map room pins in Settings to enable this view.
+                    </MudAlert>
+                }
+                else if (_homeFloorplanPins.Count == 0)
+                {
+                    <MudAlert Severity="Severity.Info" Dense="true">
+                        No room pins are mapped yet. Add pin coordinates in Settings.
+                    </MudAlert>
+                }
+                else
+                {
+                    <div class="home-floorplan-wrap">
+                        <img src="@FloorplanImageHref" alt="House floorplan" class="home-floorplan-image" />
+                        @foreach (var pin in _homeFloorplanPins)
+                        {
+                            <a class="home-floorplan-pin"
+                               href="@GetRoomDetailsHref(pin.Room)"
+                               style="@($"left:{pin.XPercent:0.##}%;top:{pin.YPercent:0.##}%;--pin-color:{pin.Color};")"
+                               title="@pin.Tooltip"
+                               aria-label="@pin.Tooltip">
+                                <span class="home-floorplan-pin-dot"></span>
+                                <span class="home-floorplan-pin-label">
+                                    <span class="home-floorplan-pin-room">@pin.Room</span><span class="home-floorplan-pin-sep">: </span>
+                                    <span class="home-floorplan-pin-temp-group">
+                                        @if (pin.CallingForHeat)
+                                        {
+                                            <i class="fa-solid fa-fire-flame-curved home-floorplan-pin-heat-icon" aria-hidden="true"></i>
+                                        }
+                                        <span class="home-floorplan-pin-temp">@pin.TempText</span>
+                                        @if (pin.TrendIconClass is not null)
+                                        {
+                                            <i class="@pin.TrendIconClass home-floorplan-pin-trend-icon" aria-hidden="true"></i>
+                                        }
+                                    </span>
+                                </span>
+                            </a>
+                        }
+                    </div>
+                }
+            </ChildContent>
+        </MudExpansionPanel>
 
         <MudExpansionPanel>
             <TitleContent>
@@ -406,44 +444,6 @@
                            StartIcon="@Icons.Material.Filled.OpenInNew">
                     View details
                 </MudButton>
-            </ChildContent>
-        </MudExpansionPanel>
-
-        <MudExpansionPanel>
-            <TitleContent>
-                <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Class="flex-grow-1 mr-2">
-                    <MudText Typo="Typo.subtitle1"><i class="fa-solid fa-grip"></i> Room temperatures &amp; trend</MudText>
-                    <MudButton Href="/charts" Variant="Variant.Text" Color="Color.Primary" Size="Size.Small"
-                               StartIcon="@Icons.Material.Filled.OpenInNew">
-                        Charts
-                    </MudButton>
-                </MudStack>
-            </TitleContent>
-            <ChildContent>
-                @if (_homeRoomTiles.Count == 0)
-                {
-                    <MudAlert Severity="Severity.Info" Dense="true">No room trend data yet.</MudAlert>
-                }
-                else
-                {
-                    <div class="room-heat-grid home-room-heat-grid">
-                        @foreach (var tile in _homeRoomTiles)
-                        {
-                            <a class="room-heat-tile room-heat-link"
-                               style="background-color:@tile.Color;"
-                               href="@GetRoomDetailsHref(tile.Room)"
-                               title="@($"Open {tile.Room} in Rooms")">
-                                <div class="room-heat-name">
-                                    <span class="room-heat-state-square" style="background-color:@tile.CurrentStateColor;" title="@tile.CurrentStateText"></span>
-                                    @tile.Room
-                                </div>
-                                <div class="room-heat-temp">@tile.DisplayTemp</div>
-                                <div class="room-heat-meta room-heat-meta-status">@tile.StatusText</div>
-                                <div class="room-heat-meta d-none d-sm-block">@tile.TrendText</div>
-                            </a>
-                        }
-                    </div>
-                }
             </ChildContent>
         </MudExpansionPanel>
 
