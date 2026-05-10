@@ -119,8 +119,8 @@
         ShowToolTips = true,
         YAxisTitle = "°C",
         YAxisTicks = 1,
-        MaxNumYAxisTicks = 22,
-        YAxisFormat = "F2",
+        MaxNumYAxisTicks = 12,
+        YAxisFormat = "F0",
     };
 
     private readonly LineChartOptions _valveLineOptions = new()
@@ -248,18 +248,19 @@
                     ? "Time (local)"
                     : null;
 
-        var manyPoints = pointCount > 200;
+        var manyPoints = pointCount > 48;
         var markers = _hours <= 24 && !manyPoints && !_compactChartAxes;
 
         foreach (var opt in new[] { _tempLineOptions, _valveLineOptions })
         {
             opt.XAxisLabelRotation = rotation;
             opt.XAxisTitle = xTitle;
-            opt.ShowDataMarkers = markers;
         }
+        _tempLineOptions.ShowDataMarkers = markers;
+        _valveLineOptions.ShowDataMarkers = false;
 
         _tempLineOptions.YAxisTicks = _compactChartAxes ? 2 : 1;
-        _tempLineOptions.MaxNumYAxisTicks = _compactChartAxes ? 10 : 22;
+        _tempLineOptions.MaxNumYAxisTicks = _compactChartAxes ? 6 : 12;
         _valveLineOptions.YAxisTicks = _compactChartAxes ? 25 : 20;
         _valveLineOptions.MaxNumYAxisTicks = _compactChartAxes ? 8 : 16;
         _tempLineOptions.YAxisTitle = _compactChartAxes ? null : "°C";

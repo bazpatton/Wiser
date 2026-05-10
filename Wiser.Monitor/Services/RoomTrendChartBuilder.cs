@@ -102,34 +102,66 @@ public static class RoomTrendChartBuilder
         if (n == 0)
             return [];
 
-        var maxLabels = hoursWindow switch
+        // Convert to local wall-clock times once.
+        var localTimes = timestampsUtc
+            .Select(ts => TimeZoneInfo.ConvertTime(DateTimeOffset.FromUnixTimeSeconds(ts), zone).DateTime)
+            .ToArray();
+
+        // Choose a snapping interval so labels land on clean hour/half-hour boundaries.
+        var intervalMinutes = hoursWindow switch
         {
-            <= 12 => 18,
-            <= 24 => 15,
-            <= 48 => 12,
-            <= 96 => 11,
-            _ => 10,
+            <= 6 => 30,
+            <= 12 => 60,
+            <= 24 => 120,
+            <= 48 => 240,
+            <= 96 => 480,
+            _ => 1440,
         };
         if (compactAxes)
-            maxLabels = Math.Max(5, maxLabels * 2 / 3);
-        maxLabels = Math.Clamp(maxLabels, compactAxes ? 5 : 8, 20);
-        var step = Math.Max(1, (n + maxLabels - 1) / maxLabels);
+            intervalMinutes *= 2;
 
         var format = hoursWindow >= 168
             ? "MMM d"
             : hoursWindow >= 72
-                ? "ddd d HH:mm"
+                ? "ddd HH:mm"
                 : hoursWindow > 24
                     ? "M/d HH:mm"
                     : "HH:mm";
 
+        var interval = TimeSpan.FromMinutes(intervalMinutes);
+        var halfInterval = TimeSpan.FromMinutes(intervalMinutes / 2.0);
+
+        // Generate candidate nice times from midnight of the first day.
+        var start = localTimes[0].Date;
+        var end = localTimes[n - 1] + interval;
+        var niceTimes = new List<DateTime>();
+        for (var t = start; t <= end; t += interval)
+            niceTimes.Add(t);
+
+        // Assign each nice time to the nearest data point within half the interval.
         var labels = new string[n];
-        for (var i = 0; i < n; i++)
+        var assigned = new HashSet<int>();
+        foreach (var niceTime in niceTimes)
         {
-            var show = i == 0 || i == n - 1 || i % step == 0;
-            labels[i] = show
-                ? TimeZoneInfo.ConvertTime(DateTimeOffset.FromUnixTimeSeconds(timestampsUtc[i]), zone).ToString(format, CultureInfo.CurrentCulture)
-                : string.Empty;
+            var bestIdx = -1;
+            var bestDiff = halfInterval;
+            for (var i = 0; i < n; i++)
+            {
+                if (assigned.Contains(i))
+                    continue;
+                var diff = (localTimes[i] - niceTime).Duration();
+                if (diff <= bestDiff)
+                {
+                    bestDiff = diff;
+                    bestIdx = i;
+                }
+            }
+            if (bestIdx >= 0)
+            {
+                assigned.Add(bestIdx);
+                // Label shows the rounded nice time, not the raw poll timestamp.
+                labels[bestIdx] = niceTime.ToString(format, CultureInfo.CurrentCulture);
+            }
         }
 
         return labels;
