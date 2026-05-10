@@ -8,7 +8,6 @@
 @inject TemperatureStore Store
 @inject MonitorOptions Options
 @inject IBrowserViewportService Viewport
-@inject WiserHubFetch Hub
 @inject RoomsLiveDataCache RoomsCache
 @inject IJSRuntime Js
 
@@ -787,6 +786,11 @@
                 NotifyOnBreakpointOnly = true,
             },
             fireImmediately: true);
+        // JS interop and initial chart load must run here — JS unavailable during pre-render.
+        await TryLoadPersistedChartFiltersAsync();
+        ValidateChartFilters();
+        await LoadChartAsync();
+        StateHasChanged();
     }
 
     private async Task OnViewportChangedAsync(BrowserViewportEventArgs _)
@@ -848,13 +852,12 @@
         await Viewport.UnsubscribeAsync(_viewportObserverId);
     }
 
-    protected override async Task OnInitializedAsync()
+    protected override Task OnInitializedAsync()
     {
-        await TryLoadPersistedChartFiltersAsync();
         LoadRooms();
         ValidateChartFilters();
         LoadDailyRows();
-        await LoadChartAsync();
+        return Task.CompletedTask;
     }
 
     private void LoadRooms()
@@ -969,10 +972,10 @@
 
         try
         {
-            var liveOverview = await LiveHubRoomTemps.TryFetchOverviewAsync(Hub, Options, CancellationToken.None).ConfigureAwait(false);
-            if (liveOverview is not null)
-                RoomsCache.Update(liveOverview);
-            _liveHubByRoom = liveOverview is null ? null : LiveHubRoomTemps.ToAvailableTempByRoomName(liveOverview);
+            // Use the cached hub snapshot for live temperature overlay; no outbound HTTP on every chart load.
+            _liveHubByRoom = RoomsCache.TryGetSnapshot(out var cached, out _)
+                ? LiveHubRoomTemps.ToAvailableTempByRoomName(cached)
+                : null;
 
             LoadRooms();
             LoadGasWeekInsights();
