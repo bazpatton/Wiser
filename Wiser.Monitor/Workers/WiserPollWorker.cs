@@ -84,7 +84,7 @@ public sealed class WiserPollWorker(
             }
             catch (Exception ex)
             {
-                log.LogDebug(ex, "outdoor fetch failed");
+                log.LogWarning(ex, "outdoor fetch failed");
             }
         }
 

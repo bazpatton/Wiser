@@ -7,6 +7,7 @@ namespace Wiser.Monitor.Workers;
 public sealed class TimedAwayWorker(
     MonitorOptions options,
     TemperatureStore store,
+    MonitorState state,
     WiserHubFetch hub,
     OutdoorWeatherClient outdoor,
     NtfyClient ntfy,
@@ -26,7 +27,8 @@ public sealed class TimedAwayWorker(
         }
         catch (Exception ex)
         {
-            log.LogDebug(ex, "[timed_away] event=error phase=initial_tick");
+            state.TimedAwayWorker.SetFailure(ex.Message);
+            log.LogWarning(ex, "[timed_away] event=error phase=initial_tick");
         }
 
         while (await timer.WaitForNextTickAsync(stoppingToken).ConfigureAwait(false))
@@ -41,7 +43,8 @@ public sealed class TimedAwayWorker(
             }
             catch (Exception ex)
             {
-                log.LogDebug(ex, "[timed_away] event=error phase=tick");
+                state.TimedAwayWorker.SetFailure(ex.Message);
+                log.LogWarning(ex, "[timed_away] event=error phase=tick");
             }
         }
     }
@@ -51,12 +54,11 @@ public sealed class TimedAwayWorker(
         var now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
         var session = store.TryGetActiveTimedAwaySession();
         if (session is not null)
-        {
             await ProcessActiveSessionAsync(session, now, ct).ConfigureAwait(false);
-            return;
-        }
+        else
+            await TrySmartAwayArmAsync(now, ct).ConfigureAwait(false);
 
-        await TrySmartAwayArmAsync(now, ct).ConfigureAwait(false);
+        state.TimedAwayWorker.SetSuccess();
     }
 
     private async Task ProcessActiveSessionAsync(TimedAwaySessionRow session, long now, CancellationToken ct)

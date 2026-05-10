@@ -110,7 +110,10 @@ Directory.CreateDirectory(floorplanDir);
 app.MapGet("/api/health", (MonitorState state, MonitorOptions o) =>
 {
     var (err, ok) = state.Snapshot();
-    var serviceOk = hubConfigured && ok is not null && string.IsNullOrWhiteSpace(err);
+    var (gasErr, gasOk) = state.GasMeterWorker.Snapshot();
+    var (awayErr, awayOk) = state.TimedAwayWorker.Snapshot();
+    var hubPollerOk = hubConfigured && ok is not null && string.IsNullOrWhiteSpace(err);
+    var serviceOk = hubPollerOk && string.IsNullOrWhiteSpace(gasErr) && string.IsNullOrWhiteSpace(awayErr);
     return Results.Json(new
     {
         ok = serviceOk,
@@ -122,6 +125,12 @@ app.MapGet("/api/health", (MonitorState state, MonitorOptions o) =>
         alert_rooms = "all",
         alerts_enabled = o.AlertsEnabled,
         outdoor_enabled = o.OpenMeteoLat is not null,
+        workers = new
+        {
+            hub_poller = new { ok = hubPollerOk, last_ok_ts = ok, last_error = err },
+            gas_meter_reminder = new { ok = string.IsNullOrWhiteSpace(gasErr), last_ok_ts = gasOk, last_error = gasErr },
+            timed_away = new { ok = string.IsNullOrWhiteSpace(awayErr), last_ok_ts = awayOk, last_error = awayErr },
+        },
     });
 });
 

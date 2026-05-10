@@ -1,5 +1,33 @@
 namespace Wiser.Monitor.Services;
 
+public sealed class WorkerHealth
+{
+    private readonly object _gate = new();
+    public string? LastError { get; private set; }
+    public long? LastOkUnix { get; private set; }
+
+    public void SetSuccess()
+    {
+        lock (_gate)
+        {
+            LastError = null;
+            LastOkUnix = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+        }
+    }
+
+    public void SetFailure(string message)
+    {
+        lock (_gate)
+            LastError = message;
+    }
+
+    public (string? LastError, long? LastOkUnix) Snapshot()
+    {
+        lock (_gate)
+            return (LastError, LastOkUnix);
+    }
+}
+
 public sealed class AlertLatches
 {
     public bool LatchedHigh { get; set; }
@@ -10,6 +38,9 @@ public sealed class MonitorState(TemperatureStore store)
 {
     private readonly object _gate = new();
     private readonly Dictionary<string, AlertLatches> _latchesByRoom = new(StringComparer.OrdinalIgnoreCase);
+
+    public WorkerHealth GasMeterWorker { get; } = new();
+    public WorkerHealth TimedAwayWorker { get; } = new();
 
     public IReadOnlyList<string> LastRooms { get; private set; } = [];
     public string? LastError { get; private set; }

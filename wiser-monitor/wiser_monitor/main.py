@@ -38,7 +38,9 @@ def _align_outdoor_to_timeline(
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
+    import os
+    _log_level = os.environ.get("LOG_LEVEL", "INFO").upper()
+    logging.basicConfig(level=getattr(logging, _log_level, logging.INFO), format="%(levelname)s %(name)s: %(message)s")
     settings = load_settings()
     errs = validate_settings(settings)
     if errs:

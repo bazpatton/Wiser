@@ -7,6 +7,7 @@ namespace Wiser.Monitor.Workers;
 public sealed class GasMeterReminderWorker(
     MonitorOptions options,
     TemperatureStore store,
+    MonitorState state,
     NtfyClient ntfy,
     ILogger<GasMeterReminderWorker> log) : BackgroundService
 {
@@ -24,7 +25,8 @@ public sealed class GasMeterReminderWorker(
         }
         catch (Exception ex)
         {
-            log.LogDebug(ex, "gas meter reminder initial tick failed");
+            state.GasMeterWorker.SetFailure(ex.Message);
+            log.LogWarning(ex, "gas meter reminder initial tick failed");
         }
 
         while (await timer.WaitForNextTickAsync(stoppingToken).ConfigureAwait(false))
@@ -39,7 +41,8 @@ public sealed class GasMeterReminderWorker(
             }
             catch (Exception ex)
             {
-                log.LogDebug(ex, "gas meter reminder tick failed");
+                state.GasMeterWorker.SetFailure(ex.Message);
+                log.LogWarning(ex, "gas meter reminder tick failed");
             }
         }
     }
@@ -92,5 +95,7 @@ public sealed class GasMeterReminderWorker(
                 $"{t.Hours:D2}:{t.Minutes:D2}",
                 zone.Id);
         }
+
+        state.GasMeterWorker.SetSuccess();
     }
 }

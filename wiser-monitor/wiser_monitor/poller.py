@@ -29,8 +29,11 @@ class PollerRuntime:
 
     def poll_once(self) -> None:
         ts = int(time.time())
+        logger.debug("poll_once: fetching rooms from hub")
         rooms = fetch_rooms(self.settings)
+        logger.debug("poll_once: hub returned %d room(s)", len(rooms))
         parsed = parse_rooms(rooms)
+        logger.debug("poll_once: parsed %d room(s) with valid temps", len(parsed))
         self.last_rooms = [p["name"] for p in parsed]
 
         for p in parsed:
@@ -66,8 +69,11 @@ class PollerRuntime:
                 )
                 if outdoor is not None:
                     self.store.insert_outdoor(ts, outdoor)
+                    logger.debug("outdoor temp fetched: %.1f °C", outdoor)
+                else:
+                    logger.warning("outdoor fetch returned no temperature value")
             except requests.RequestException as e:
-                logger.debug("outdoor fetch failed: %s", e)
+                logger.warning("outdoor fetch failed: %s", e)
 
         self._tick += 1
         if self._tick % 6 == 0:

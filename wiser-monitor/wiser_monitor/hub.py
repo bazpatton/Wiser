@@ -1,16 +1,20 @@
 from __future__ import annotations
 
-import json
+import logging
 from typing import Any
 
 import requests
 
 from wiser_monitor.config import Settings
 
+logger = logging.getLogger(__name__)
+
 
 def fetch_rooms(settings: Settings) -> list[dict[str, Any]]:
     url = f"http://{settings.wiser_ip}/data/domain/"
+    logger.debug("fetch_rooms: GET %s", url)
     r = requests.get(url, headers={"SECRET": settings.wiser_secret}, timeout=15)
+    logger.debug("fetch_rooms: HTTP %d (%d bytes)", r.status_code, len(r.content))
     r.raise_for_status()
     data = r.json()
     rooms = data.get("Room") or data.get("room")

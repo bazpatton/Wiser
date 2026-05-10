@@ -546,9 +546,8 @@
 
     private bool AwayQuickActionShowsActive => _awayModeActive || _hubSystemAway;
 
-    protected override async Task OnInitializedAsync()
+    protected override Task OnInitializedAsync()
     {
-        await TryLoadAwayStateAsync();
         var (err, ok) = MonitorState.Snapshot();
         _lastError = err;
         var okText = ok is null
@@ -556,39 +555,13 @@
             : $"Last OK: {TimeZoneInfo.ConvertTime(DateTimeOffset.FromUnixTimeSeconds(ok.Value), DisplayZone).ToString("g", CultureInfo.CurrentCulture)}";
         _status = $"Poll interval: {Options.IntervalSec}s · Alerts: {(Options.AlertsEnabled ? "On" : "Off")} · {okText}";
 
-        var liveOverview = await LiveHubRoomTemps.TryFetchOverviewAsync(Hub, Options, CancellationToken.None).ConfigureAwait(false);
-        _hubSystemAway = liveOverview?.SystemAway ?? false;
-        if (liveOverview is not null)
+        // Use the last cached hub snapshot for instant render; fresh data arrives via LoadLiveDataAsync after first render.
+        if (RoomsCache.TryGetSnapshot(out var cached, out _))
         {
-            RoomsCache.Update(liveOverview);
-            var favoriteRooms = Store.GetHeatingSavingsProfile()
-                .PriorityRooms
-                .ToHashSet(StringComparer.OrdinalIgnoreCase);
-            _quickActionRooms.Clear();
-            _quickActionRooms.AddRange(liveOverview.Rooms
-                .Where(static r => r.Id > 0)
-                .Select(r =>
-                {
-                    var modeKey = ResolveModeKey(r.Mode, r.SetpointC);
-                    var manualTemp = modeKey == "manual" && r.SetpointC is >= 5.0 and var sp
-                        ? WiserSetpointDisplay.ToDisplayTargetC(sp)
-                        : (double?)null;
-                    return new QuickActionRoom(r.Id, r.Name, favoriteRooms.Contains(r.Name), modeKey, manualTemp);
-                })
-                .OrderByDescending(static r => r.IsFavorite)
-                .ThenBy(static r => r.Name, StringComparer.OrdinalIgnoreCase));
-            _boostRoomNames = _quickActionRooms
-                .Where(static r => r.IsFavorite)
-                .Select(static r => r.Name)
-                .ToHashSet(StringComparer.OrdinalIgnoreCase);
-            if (_boostRoomNames.Count == 0)
-            {
-                _boostRoomNames = _quickActionRooms
-                    .Select(static r => r.Name)
-                    .ToHashSet(StringComparer.OrdinalIgnoreCase);
-            }
+            _hubSystemAway = cached.SystemAway;
+            PopulateQuickActionRooms(cached);
+            _liveHubByRoom = LiveHubRoomTemps.ToAvailableTempByRoomName(cached);
         }
-        _liveHubByRoom = liveOverview is null ? null : LiveHubRoomTemps.ToAvailableTempByRoomName(liveOverview);
 
         var quality = Store.GetDataQualitySummary(24);
         _qualityTotal24h = quality.TotalIgnored;
@@ -598,9 +571,37 @@
         BuildHomeFloorplanOverlay();
         UpdateGasMeterReadingBanner();
         LoadHomeBoilerSummary();
-        await LoadHeatingOutlookAsync();
-        await LoadSavingsSuggestionsAsync();
-        await TryPromptExtendNearEndOnceAsync();
+        return Task.CompletedTask;
+    }
+
+    private void PopulateQuickActionRooms(HubLiveOverview overview)
+    {
+        var favoriteRooms = Store.GetHeatingSavingsProfile()
+            .PriorityRooms
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        _quickActionRooms.Clear();
+        _quickActionRooms.AddRange(overview.Rooms
+            .Where(static r => r.Id > 0)
+            .Select(r =>
+            {
+                var modeKey = ResolveModeKey(r.Mode, r.SetpointC);
+                var manualTemp = modeKey == "manual" && r.SetpointC is >= 5.0 and var sp
+                    ? WiserSetpointDisplay.ToDisplayTargetC(sp)
+                    : (double?)null;
+                return new QuickActionRoom(r.Id, r.Name, favoriteRooms.Contains(r.Name), modeKey, manualTemp);
+            })
+            .OrderByDescending(static r => r.IsFavorite)
+            .ThenBy(static r => r.Name, StringComparer.OrdinalIgnoreCase));
+        _boostRoomNames = _quickActionRooms
+            .Where(static r => r.IsFavorite)
+            .Select(static r => r.Name)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        if (_boostRoomNames.Count == 0)
+        {
+            _boostRoomNames = _quickActionRooms
+                .Select(static r => r.Name)
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        }
     }
 
     private void LoadHomeBoilerSummary()
@@ -613,10 +614,43 @@
     {
         if (!firstRender)
             return;
+        // JS interop (localStorage) requires a live circuit; must run here, not in OnInitializedAsync.
+        await TryLoadAwayStateAsync();
         _homeUiRefreshCts = new CancellationTokenSource();
         _homeUiRefreshTimer = new PeriodicTimer(TimeSpan.FromSeconds(45));
         _ = PumpHomeUiRefreshAsync();
-        await Task.CompletedTask;
+        _ = LoadLiveDataAsync();
+    }
+
+    private async Task LoadLiveDataAsync()
+    {
+        HubLiveOverview? liveOverview = null;
+        try
+        {
+            liveOverview = await LiveHubRoomTemps.TryFetchOverviewAsync(Hub, Options, CancellationToken.None).ConfigureAwait(false);
+        }
+        catch
+        {
+            // Hub offline; page already rendered with cached data; outlook/suggestions still load below.
+        }
+
+        await InvokeAsync(async () =>
+        {
+            if (liveOverview is not null)
+            {
+                _hubSystemAway = liveOverview.SystemAway;
+                RoomsCache.Update(liveOverview);
+                PopulateQuickActionRooms(liveOverview);
+                _liveHubByRoom = LiveHubRoomTemps.ToAvailableTempByRoomName(liveOverview);
+                BuildHomeRoomHeatMap();
+                BuildHomeFloorplanOverlay();
+            }
+
+            await LoadHeatingOutlookAsync();
+            await LoadSavingsSuggestionsAsync();
+            await TryPromptExtendNearEndOnceAsync();
+            StateHasChanged();
+        });
     }
 
     private async Task PumpHomeUiRefreshAsync()
