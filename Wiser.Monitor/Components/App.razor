@@ -67,7 +67,50 @@
             }).format(new Date(v * 1000));
         };
     </script>
-    <script src="_framework/blazor.web.js"></script>
+    <div id="components-reconnect-modal" aria-live="polite" aria-atomic="true">
+        <div class="wiser-reconnect-banner wiser-reconnect-connecting">
+            <span class="wiser-reconnect-spinner" aria-hidden="true"></span>
+            Reconnecting&hellip;
+        </div>
+        <div class="wiser-reconnect-banner wiser-reconnect-failed">
+            Connection lost.
+            <button onclick="Blazor.reconnect()" class="wiser-reconnect-btn">Retry</button>
+            <button onclick="location.reload()" class="wiser-reconnect-btn">Reload</button>
+        </div>
+        <div class="wiser-reconnect-banner wiser-reconnect-rejected">
+            Session expired.
+            <button onclick="location.reload()" class="wiser-reconnect-btn">Reload</button>
+        </div>
+    </div>
+    <style>
+        #components-reconnect-modal { display: none; position: fixed; bottom: 0; left: 0; right: 0; z-index: 9999; }
+        #components-reconnect-modal .wiser-reconnect-banner { display: none; align-items: center; justify-content: center; gap: 10px; padding: 10px 16px; font-size: 0.875rem; font-family: sans-serif; }
+        #components-reconnect-modal.components-reconnect-show { display: block; }
+        #components-reconnect-modal.components-reconnect-show .wiser-reconnect-connecting { display: flex; background: #1e40af; color: #fff; }
+        #components-reconnect-modal.components-reconnect-failed { display: block; }
+        #components-reconnect-modal.components-reconnect-failed .wiser-reconnect-failed { display: flex; background: #7f1d1d; color: #fff; }
+        #components-reconnect-modal.components-reconnect-rejected { display: block; }
+        #components-reconnect-modal.components-reconnect-rejected .wiser-reconnect-rejected { display: flex; background: #713f12; color: #fff; }
+        .wiser-reconnect-spinner { width: 14px; height: 14px; border: 2px solid rgba(255,255,255,0.3); border-top-color: #fff; border-radius: 50%; animation: wiser-spin 0.7s linear infinite; flex-shrink: 0; }
+        @@keyframes wiser-spin { to { transform: rotate(360deg); } }
+        .wiser-reconnect-btn { background: rgba(255,255,255,0.2); border: 1px solid rgba(255,255,255,0.5); color: #fff; padding: 3px 10px; border-radius: 4px; cursor: pointer; font-size: 0.8rem; }
+        .wiser-reconnect-btn:hover { background: rgba(255,255,255,0.35); }
+    </style>
+    <script src="_framework/blazor.web.js" autostart="false"></script>
     <script src="_content/MudBlazor/MudBlazor.min.js"></script>
+    <script>
+        Blazor.start({
+            circuit: {
+                reconnectionOptions: {
+                    maxRetries: 8,
+                    retryIntervalMilliseconds: (attempts) => {
+                        // Retry immediately, then 1s, 2s, 5s, 10s, 15s, 20s, 30s
+                        const delays = [0, 1000, 2000, 5000, 10000, 15000, 20000, 30000];
+                        return attempts < delays.length ? delays[attempts] : null;
+                    }
+                }
+            }
+        });
+    </script>
 </body>
 </html>

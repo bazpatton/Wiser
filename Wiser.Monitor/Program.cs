@@ -18,7 +18,19 @@ builder.Services.ConfigureHttpJsonOptions(o =>
     o.SerializerOptions.PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower;
 });
 builder.Services.AddRazorComponents()
-    .AddInteractiveServerComponents();
+    .AddInteractiveServerComponents(options =>
+    {
+        // Keep disconnected circuits alive for 10 minutes so returning to the app
+        // after locking the phone reconnects instantly rather than starting a new circuit.
+        options.DisconnectedCircuitRetentionPeriod = TimeSpan.FromMinutes(10);
+    })
+    .AddHubOptions(options =>
+    {
+        // Detect stale connections faster and send keep-alives more frequently.
+        options.ClientTimeoutInterval = TimeSpan.FromSeconds(60);
+        options.KeepAliveInterval = TimeSpan.FromSeconds(15);
+        options.HandshakeTimeout = TimeSpan.FromSeconds(15);
+    });
 builder.Services.AddMudServices();
 
 MonitorOptions monitorOptions;
