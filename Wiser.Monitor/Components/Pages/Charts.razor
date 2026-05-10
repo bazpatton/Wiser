@@ -1240,9 +1240,14 @@
         if (core.Count == 0)
             return [(ws, 0.0), (we, 0.0)];
         var steps = ValvePercentToStepSeries(core);
-        // Anchor at 0 from the window start so the line rises from the baseline rather than appearing mid-air.
+        // Anchor at 0 from the window start. To avoid a diagonal, hold at 0 horizontally
+        // until the first data point's time, then let the existing step jump up vertically.
         if (steps.Count > 0 && steps[0].Y != 0.0)
+        {
+            if (steps[0].T > ws)
+                steps.Insert(0, (steps[0].T, 0.0));
             steps.Insert(0, (ws, 0.0));
+        }
         return steps;
     }
 
