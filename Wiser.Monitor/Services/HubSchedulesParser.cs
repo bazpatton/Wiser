@@ -98,6 +98,11 @@ public static class HubSchedulesParser
         var scheduleMaxTenths = new Dictionary<int, int>();
         foreach (var (scheduleId, schedule) in schedules)
         {
+            // Only consider user program schedules; internal/system schedules (id >= 100) are
+            // never assigned to rooms so including them produces false "unknown room" warnings.
+            if (!HubScheduleIdPolicy.IsUserProgramScheduleId(scheduleId))
+                continue;
+
             var schedMax = int.MinValue;
             foreach (var day in DayNames)
             {
