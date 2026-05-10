@@ -112,11 +112,14 @@ public static class HeatingSavingsSuggestionBuilder
                 HeatingSavingsSuggestionLevel.Warning));
         }
 
-        if (context.HubHints is { MaxUserProgramSetpointTenths: >= 220 })
+        if (context.HubHints is { MaxUserProgramSetpointTenths: >= 220 } highHints)
         {
+            var roomList = highHints.RoomsWithHighSetpoint.Count > 0
+                ? string.Join(", ", highHints.RoomsWithHighSetpoint)
+                : "unknown room(s)";
             list.Add(new HeatingSavingsSuggestion(
                 "High setpoint found in schedule program",
-                "At least one user schedule block reaches 22 C or higher. Lowering these peaks in less-used rooms can cut costs.",
+                $"The following room(s) have a schedule block at 22 °C or higher: {roomList}. Lowering these peaks in less-used rooms can cut costs.",
                 "/schedules",
                 "Inspect high setpoints",
                 HeatingSavingsSuggestionLevel.Warning));

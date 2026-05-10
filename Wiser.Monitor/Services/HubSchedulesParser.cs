@@ -21,7 +21,8 @@ public sealed record HubSchedulesOverview(
 public sealed record HubScheduleSavingsHints(
     int RoomsWithoutUserProgram,
     int RoomsOnUserProgram,
-    int MaxUserProgramSetpointTenths);
+    int MaxUserProgramSetpointTenths,
+    IReadOnlyList<string> RoomsWithHighSetpoint);
 
 public static class HubSchedulesParser
 {
@@ -94,23 +95,36 @@ public static class HubSchedulesParser
         var roomsOnProgram = Math.Max(0, rooms.Count - roomsWithoutProgram);
 
         var maxTenths = int.MinValue;
-        foreach (var schedule in schedules.Values)
+        var scheduleMaxTenths = new Dictionary<int, int>();
+        foreach (var (scheduleId, schedule) in schedules)
         {
+            var schedMax = int.MinValue;
             foreach (var day in DayNames)
             {
                 var points = schedule.OrderedPoints(day);
                 if (points.Count == 0)
                     continue;
                 var dayMax = points.Max(static p => p.DegreesC);
-                if (dayMax > maxTenths)
-                    maxTenths = dayMax;
+                if (dayMax > schedMax)
+                    schedMax = dayMax;
             }
+            scheduleMaxTenths[scheduleId] = schedMax;
+            if (schedMax > maxTenths)
+                maxTenths = schedMax;
         }
+
+        const int highThresholdTenths = 220;
+        var roomsWithHighSetpoint = rooms
+            .Where(r => scheduleMaxTenths.TryGetValue(r.ScheduleId, out var m) && m >= highThresholdTenths)
+            .Select(r => r.Name)
+            .OrderBy(n => n, StringComparer.OrdinalIgnoreCase)
+            .ToList();
 
         return new HubScheduleSavingsHints(
             roomsWithoutProgram,
             roomsOnProgram,
-            maxTenths == int.MinValue ? -1 : maxTenths);
+            maxTenths == int.MinValue ? -1 : maxTenths,
+            roomsWithHighSetpoint);
     }
 
     private static string BuildClockHint(JsonElement? system)

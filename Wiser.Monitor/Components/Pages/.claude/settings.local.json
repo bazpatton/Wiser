@@ -2,7 +2,9 @@
   "permissions": {
     "allow": [
       "Bash(xargs grep -l \"RoomsLiveDataCache\\\\|LiveHubRoomTemps\")",
-      "Bash(dotnet build *)"
+      "Bash(dotnet build *)",
+      "Bash(xargs grep -i \"log\\\\|debug\\\\|LOGGING\\\\|LOG_LEVEL\")",
+      "Bash(xargs grep -l \"High setpoint\\\\|HubSchedule\\\\|AnalyzeSavingsHints\\\\|HeatingSavingsSuggestion\")"
     ]
   }
 }
