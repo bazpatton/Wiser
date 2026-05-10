@@ -245,15 +245,13 @@
 
         <MudExpansionPanel>
             <TitleContent>
-                <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Class="flex-grow-1 mr-2">
-                    <MudText Typo="Typo.subtitle1"><i class="fa-solid fa-map-location-dot"></i> Floorplan temperature overlay</MudText>
-                    <MudButton Href="/settings" Variant="Variant.Text" Color="Color.Primary" Size="Size.Small"
-                               StartIcon="@Icons.Material.Filled.OpenInNew">
-                        Configure
-                    </MudButton>
-                </MudStack>
+                <MudText Typo="Typo.subtitle1"><i class="fa-solid fa-map-location-dot"></i> Floorplan temperature overlay</MudText>
             </TitleContent>
             <ChildContent>
+                <MudButton Href="/settings" Variant="Variant.Text" Color="Color.Primary" Size="Size.Small"
+                           StartIcon="@Icons.Material.Filled.OpenInNew" Class="mb-1 pa-0">
+                    Configure in Settings
+                </MudButton>
                 <MudText Typo="Typo.caption" Class="mud-text-secondary d-block mb-2">
                     Room pins are mapped in Settings. Colors reflect temperature vs each room's recommended range. A flame before the temperature means the room is calling for heat (hub demand). Icons after the temperature compare the latest reading to the previous poll (warmer, cooler, or steady).
                 </MudText>
@@ -337,15 +335,13 @@
 
         <MudExpansionPanel>
             <TitleContent>
-                <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Class="flex-grow-1 mr-2">
-                    <MudText Typo="Typo.subtitle1"><i class="fa-solid fa-table"></i> Daily summary (energy proxies)</MudText>
-                    <MudButton Href="/charts" Variant="Variant.Text" Color="Color.Primary" Size="Size.Small"
-                               StartIcon="@Icons.Material.Filled.OpenInNew">
-                        Charts
-                    </MudButton>
-                </MudStack>
+                <MudText Typo="Typo.subtitle1"><i class="fa-solid fa-table"></i> Daily summary (energy proxies)</MudText>
             </TitleContent>
             <ChildContent>
+                <MudButton Href="/charts" Variant="Variant.Text" Color="Color.Primary" Size="Size.Small"
+                           StartIcon="@Icons.Material.Filled.OpenInNew" Class="mb-1 pa-0">
+                    Open Charts
+                </MudButton>
                 <MudText Typo="Typo.caption" Class="mud-text-secondary d-block mb-2">
                     Per local day: HDD (15.5 °C base), mean outdoor °C, and heating demand / boiler relay minutes estimated from poll activity. Needs outdoor samples for HDD columns.
                 </MudText>
@@ -382,15 +378,13 @@
 
         <MudExpansionPanel>
             <TitleContent>
-                <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Class="flex-grow-1 mr-2">
-                    <MudText Typo="Typo.subtitle1"><i class="fa-solid fa-piggy-bank"></i> Save on heating</MudText>
-                    <MudButton Href="/settings" Variant="Variant.Text" Color="Color.Primary" Size="Size.Small"
-                               StartIcon="@Icons.Material.Filled.Tune">
-                        Routine
-                    </MudButton>
-                </MudStack>
+                <MudText Typo="Typo.subtitle1"><i class="fa-solid fa-piggy-bank"></i> Save on heating</MudText>
             </TitleContent>
             <ChildContent>
+                <MudButton Href="/settings" Variant="Variant.Text" Color="Color.Primary" Size="Size.Small"
+                           StartIcon="@Icons.Material.Filled.Tune" Class="mb-1 pa-0">
+                    Customise routine
+                </MudButton>
                 <MudText Typo="Typo.caption" Class="mud-text-secondary d-block mb-2">
                     Suggestions are heuristics from your routine profile, recent heating activity, forecast context, and schedule mapping when hub data is available.
                 </MudText>
