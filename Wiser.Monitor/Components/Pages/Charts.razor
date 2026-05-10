@@ -720,8 +720,8 @@
         ShowToolTips = true,
         YAxisTitle = "°C",
         YAxisTicks = 1,
-        MaxNumYAxisTicks = 22,
-        YAxisFormat = "F2",
+        MaxNumYAxisTicks = 12,
+        YAxisFormat = "F0",
     };
     private readonly LineChartOptions _roomTrendValveLineOptions = new()
     {
@@ -1097,7 +1097,7 @@
         _roomTrendValveLineOptions.ShowDataMarkers = false;
 
         _roomTrendTempLineOptions.YAxisTicks = _compactChartAxes ? 2 : 1;
-        _roomTrendTempLineOptions.MaxNumYAxisTicks = _compactChartAxes ? 10 : 22;
+        _roomTrendTempLineOptions.MaxNumYAxisTicks = _compactChartAxes ? 6 : 12;
         _roomTrendValveLineOptions.YAxisTicks = _compactChartAxes ? 25 : 20;
         _roomTrendValveLineOptions.MaxNumYAxisTicks = _compactChartAxes ? 8 : 16;
         _roomTrendTempLineOptions.YAxisTitle = _compactChartAxes ? null : "°C";
@@ -1625,7 +1625,7 @@
                 var isActive = !_roomIsActiveMap.TryGetValue(t.Room, out var activeFlag) || activeFlag;
                 var (targetMin, targetMax) = GetRecommendedTempRange(t.Room, isActive);
                 var targetMid = (targetMin + targetMax) / 2.0;
-                return t.TempC.Value - targetMid;
+                return Math.Round(t.TempC.Value - targetMid, 2);
             })
             .ToArray();
 
