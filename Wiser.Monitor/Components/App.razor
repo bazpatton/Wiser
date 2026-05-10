@@ -83,18 +83,53 @@
         </div>
     </div>
     <style>
-        #components-reconnect-modal { display: none; position: fixed; bottom: 0; left: 0; right: 0; z-index: 9999; }
+        #components-reconnect-modal { display: none; position: fixed; bottom: 0; left: 0; right: 0; z-index: 9999; box-shadow: 0 -2px 8px rgba(0,0,0,0.15); }
         #components-reconnect-modal .wiser-reconnect-banner { display: none; align-items: center; justify-content: center; gap: 10px; padding: 10px 16px; font-size: 0.875rem; font-family: sans-serif; }
+
+        /* Reconnecting — uses MudBlazor primary palette */
         #components-reconnect-modal.components-reconnect-show { display: block; }
-        #components-reconnect-modal.components-reconnect-show .wiser-reconnect-connecting { display: flex; background: #1e40af; color: #fff; }
+        #components-reconnect-modal.components-reconnect-show .wiser-reconnect-connecting {
+            display: flex;
+            background: var(--mud-palette-primary);
+            color: var(--mud-palette-primary-text);
+        }
+
+        /* Connection lost — uses MudBlazor error palette */
         #components-reconnect-modal.components-reconnect-failed { display: block; }
-        #components-reconnect-modal.components-reconnect-failed .wiser-reconnect-failed { display: flex; background: #7f1d1d; color: #fff; }
+        #components-reconnect-modal.components-reconnect-failed .wiser-reconnect-failed {
+            display: flex;
+            background: var(--mud-palette-error);
+            color: var(--mud-palette-error-text);
+        }
+
+        /* Session expired — surface colour with warning top border so it fits any theme */
         #components-reconnect-modal.components-reconnect-rejected { display: block; }
-        #components-reconnect-modal.components-reconnect-rejected .wiser-reconnect-rejected { display: flex; background: #713f12; color: #fff; }
-        .wiser-reconnect-spinner { width: 14px; height: 14px; border: 2px solid rgba(255,255,255,0.3); border-top-color: #fff; border-radius: 50%; animation: wiser-spin 0.7s linear infinite; flex-shrink: 0; }
+        #components-reconnect-modal.components-reconnect-rejected .wiser-reconnect-rejected {
+            display: flex;
+            background: var(--mud-palette-surface);
+            color: var(--mud-palette-text-primary);
+            border-top: 3px solid var(--mud-palette-warning);
+        }
+
+        .wiser-reconnect-spinner { width: 14px; height: 14px; border: 2px solid rgba(255,255,255,0.3); border-top-color: var(--mud-palette-primary-text); border-radius: 50%; animation: wiser-spin 0.7s linear infinite; flex-shrink: 0; }
         @@keyframes wiser-spin { to { transform: rotate(360deg); } }
-        .wiser-reconnect-btn { background: rgba(255,255,255,0.2); border: 1px solid rgba(255,255,255,0.5); color: #fff; padding: 3px 10px; border-radius: 4px; cursor: pointer; font-size: 0.8rem; }
-        .wiser-reconnect-btn:hover { background: rgba(255,255,255,0.35); }
+
+        /* Buttons for primary/error states (light text on dark bg) */
+        .wiser-reconnect-connecting .wiser-reconnect-btn,
+        .wiser-reconnect-failed .wiser-reconnect-btn {
+            background: rgba(255,255,255,0.2); border: 1px solid rgba(255,255,255,0.5);
+            color: inherit; padding: 3px 10px; border-radius: 4px; cursor: pointer; font-size: 0.8rem;
+        }
+        .wiser-reconnect-connecting .wiser-reconnect-btn:hover,
+        .wiser-reconnect-failed .wiser-reconnect-btn:hover { background: rgba(255,255,255,0.35); }
+
+        /* Button for session expired state (adapts to theme surface) */
+        .wiser-reconnect-rejected .wiser-reconnect-btn {
+            background: var(--mud-palette-warning);
+            color: var(--mud-palette-warning-text);
+            border: none; padding: 4px 14px; border-radius: 4px; cursor: pointer; font-size: 0.8rem; font-weight: 600;
+        }
+        .wiser-reconnect-rejected .wiser-reconnect-btn:hover { opacity: 0.88; }
     </style>
     <script src="_framework/blazor.web.js" autostart="false"></script>
     <script src="_content/MudBlazor/MudBlazor.min.js"></script>
