@@ -48,28 +48,28 @@ public static class HubScheduleHints
     }
 
     /// <summary>
-    /// Hub <c>Time</c> values are usually minutes-from-midnight (0–1440). Some firmware uses HHMM for values in 1441–2359.
+    /// Normalises a raw hub schedule <c>Time</c> value to seconds from midnight.
+    /// Values above 2359 are seconds (modern firmware). Values 0–2359 are treated
+    /// as HHMM (e.g. 630 → 06:30, 2200 → 22:00). Falls back to minutes-from-midnight
+    /// only when the low two digits are ≥ 60 (not a valid HHMM minute component).
     /// </summary>
     public static int NormalizeSeconds(int raw)
     {
         if (raw < 0)
             return 0;
 
-        if (raw is > 1440 and <= 2359)
-        {
-            var h = raw / 100;
-            var m = raw % 100;
-            if (h < 24 && m < 60)
-                return h * 3600 + m * 60;
-        }
+        // Above the HHMM ceiling — treat as seconds from midnight.
+        if (raw > 2359)
+            return raw > 86400 ? raw % 86400 : raw;
 
-        if (raw <= 1440)
-            return raw * 60;
+        // 0–2359: interpret as HHMM where value = HH * 100 + MM.
+        var h = raw / 100;
+        var m = raw % 100;
+        if (m < 60)
+            return h * 3600 + m * 60;
 
-        if (raw > 86400)
-            return raw % 86400;
-
-        return raw;
+        // MM ≥ 60 → not valid HHMM; fall back to minutes-from-midnight.
+        return raw * 60;
     }
 
     public static string FormatTimeLabel(int rawScheduleTime)
