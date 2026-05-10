@@ -262,243 +262,192 @@
         }
     </MudPaper>
 
-    <MudPaper Class="pa-4 status-card">
-        <MudText Typo="Typo.h6">
-            <i class="fa-solid fa-cloud-sun"></i> Heating demand outlook (estimate)
-        </MudText>
-        <MudText Typo="Typo.caption" Class="mud-text-secondary d-block mt-1">
-            Compares last 7 local days of HDD (from stored outdoor samples) to the next 7 days from Open-Meteo forecast daily temperatures. Same 15.5 °C base as the daily summary. Not a bill forecast.
-        </MudText>
-        @if (Options.OpenMeteoLat is null || Options.OpenMeteoLon is null)
-        {
-            <MudText Typo="Typo.body2" Class="mt-2 mud-text-secondary">
-                Configure Open-Meteo latitude and longitude on Settings to enable this outlook.
-            </MudText>
-        }
-        else if (_outlookLoading)
-        {
-            <MudProgressLinear Indeterminate="true" Color="Color.Primary" Class="mt-3" />
-        }
-        else if (!string.IsNullOrWhiteSpace(_outlookError))
-        {
-            <MudAlert Severity="Severity.Warning" Dense="true" Class="mt-2">@_outlookError</MudAlert>
-        }
-        else
-        {
-            <MudText Typo="Typo.body1" Class="mt-2">@_outlookSummary</MudText>
-            @if (!string.IsNullOrWhiteSpace(_outlookDetail))
-            {
-                <MudText Typo="Typo.body2" Class="mt-2 mud-text-secondary">@_outlookDetail</MudText>
-            }
-        }
-    </MudPaper>
+    <MudExpansionPanels Class="home-expansion-panels">
 
-    <MudPaper Class="pa-4 status-card">
-        <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center" Wrap="Wrap.Wrap">
-            <MudText Typo="Typo.h6">
-                <i class="fa-solid fa-table"></i> Daily summary (energy proxies)
-            </MudText>
-            <MudButton Href="/charts"
-                       Variant="Variant.Text"
-                       Color="Color.Primary"
-                       StartIcon="@Icons.Material.Filled.OpenInNew">
-                Charts
-            </MudButton>
-        </MudStack>
-        <MudText Typo="Typo.caption" Class="mud-text-secondary d-block mt-1">
-            Per local day: HDD (15.5 °C base), mean outdoor °C, and heating demand / boiler relay minutes estimated from poll activity. Needs outdoor samples for HDD columns.
-        </MudText>
-        @if (_homeDailyRows.Count == 0)
-        {
-            <MudAlert Severity="Severity.Info" Dense="true" Class="mt-2">
-                No daily summary rows yet (needs recorded history).
-            </MudAlert>
-        }
-        else
-        {
-            <MudTable T="DailySummaryRow" Items="_homeDailyRows" Dense="true" Hover="true" Breakpoint="Breakpoint.Sm" Class="mt-2">
-                <HeaderContent>
-                    <MudTh>Date</MudTh>
-                    <MudTh Class="text-right">HDD</MudTh>
-                    <MudTh Class="text-right">Avg out °C</MudTh>
-                    <MudTh Class="text-right">Heat est. min</MudTh>
-                    <MudTh Class="text-right">Relay est. min</MudTh>
-                </HeaderContent>
-                <RowTemplate>
-                    <MudTd DataLabel="Date">@context.Date</MudTd>
-                    <MudTd DataLabel="HDD" Class="text-right">@FmtOpt(context.Hdd)</MudTd>
-                    <MudTd DataLabel="Avg out" Class="text-right">@FmtOpt(context.AvgOutdoorC)</MudTd>
-                    <MudTd DataLabel="Heat min" Class="text-right">@FmtHeatMin(context.HeatingActiveEstimateMin)</MudTd>
-                    <MudTd DataLabel="Relay min" Class="text-right">@FmtHeatMin(context.HeatingRelayEstimateMin)</MudTd>
-                </RowTemplate>
-            </MudTable>
-            <MudButton Href="/api/export/daily-summary.csv?days=14"
-                       Variant="Variant.Text"
-                       Size="Size.Small"
-                       Color="Color.Primary"
-                       StartIcon="@Icons.Material.Filled.Download"
-                       Class="mt-1">
-                Export CSV (14 days)
-            </MudButton>
-        }
-    </MudPaper>
-
-    <MudPaper Class="pa-4 status-card">
-        <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center" Wrap="Wrap.Wrap">
-            <MudText Typo="Typo.h6">
-                <i class="fa-solid fa-piggy-bank"></i> Save on heating - schedule ideas
-            </MudText>
-            <MudButton Href="/settings"
-                       Variant="Variant.Text"
-                       Color="Color.Primary"
-                       StartIcon="@Icons.Material.Filled.Tune">
-                Customize routine
-            </MudButton>
-        </MudStack>
-        <MudText Typo="Typo.caption" Class="mud-text-secondary d-block mt-1">
-            Suggestions are heuristics from your routine profile, recent heating activity, forecast context, and schedule mapping when hub data is available.
-        </MudText>
-        @if (_savingsSuggestions.Count == 0)
-        {
-            <MudAlert Severity="Severity.Info" Dense="true" Class="mt-2">No suggestions yet.</MudAlert>
-        }
-        else
-        {
-            <MudStack Spacing="1" Class="mt-2">
-                @foreach (var tip in _savingsSuggestions)
+        <MudExpansionPanel>
+            <TitleContent>
+                <MudText Typo="Typo.subtitle1"><i class="fa-solid fa-cloud-sun"></i> Heating demand outlook</MudText>
+            </TitleContent>
+            <ChildContent>
+                <MudText Typo="Typo.caption" Class="mud-text-secondary d-block mb-2">
+                    Compares last 7 local days of HDD (from stored outdoor samples) to the next 7 days from Open-Meteo forecast daily temperatures. Same 15.5 °C base as the daily summary. Not a bill forecast.
+                </MudText>
+                @if (Options.OpenMeteoLat is null || Options.OpenMeteoLon is null)
                 {
-                    <MudAlert Severity="@(tip.Level == HeatingSavingsSuggestionLevel.Warning ? Severity.Warning : Severity.Info)"
-                              Dense="true">
-                        <div class="d-flex flex-wrap align-center" style="gap: 10px;">
-                            <MudText Typo="Typo.body2" Class="flex-grow-1">
-                                <strong>@tip.Title:</strong> @tip.Body
-                            </MudText>
-                            <MudButton Href="@tip.ActionHref"
-                                       Variant="Variant.Text"
-                                       Size="Size.Small"
-                                       Color="Color.Primary"
-                                       EndIcon="@Icons.Material.Filled.OpenInNew">
-                                @tip.ActionText
-                            </MudButton>
-                        </div>
-                    </MudAlert>
+                    <MudText Typo="Typo.body2" Class="mud-text-secondary">
+                        Configure Open-Meteo latitude and longitude on Settings to enable this outlook.
+                    </MudText>
                 }
-            </MudStack>
-        }
-    </MudPaper>
-
-    <MudPaper Class="pa-4 status-card">
-        <MudText Typo="Typo.h6">
-            <i class="fa-solid fa-heart-pulse"></i> Service status
-        </MudText>
-        <MudText Typo="Typo.body2" Class="mt-2">@_status</MudText>
-        <MudStack Row="true" Wrap="Wrap.Wrap" Spacing="1" Class="mt-2">
-            <MudTooltip Text="@(_lastError ?? "Hub poller is running normally.")">
-                <MudChip T="string" Color="@(_workerHubOk ? Color.Success : Color.Error)" Variant="Variant.Outlined">
-                    Hub poller: @(_workerHubOk ? "OK" : "Error")
-                </MudChip>
-            </MudTooltip>
-            <MudTooltip Text="@(_workerGasError ?? "Gas meter reminder worker is running normally.")">
-                <MudChip T="string" Color="@(_workerGasOk ? Color.Success : Color.Warning)" Variant="Variant.Outlined">
-                    Gas meter worker: @(_workerGasOk ? "OK" : "Error")
-                </MudChip>
-            </MudTooltip>
-            <MudTooltip Text="@(_workerAwayError ?? "Timed away worker is running normally.")">
-                <MudChip T="string" Color="@(_workerAwayOk ? Color.Success : Color.Warning)" Variant="Variant.Outlined">
-                    Timed away worker: @(_workerAwayOk ? "OK" : "Error")
-                </MudChip>
-            </MudTooltip>
-            <MudTooltip Text="Temperature alert rules via ntfy (when configured).">
-                <MudChip T="string" Color="@(Options.AlertsEnabled ? Color.Success : Color.Default)" Variant="Variant.Outlined">
-                    Alerts: @(Options.AlertsEnabled ? "Enabled" : "Disabled")
-                </MudChip>
-            </MudTooltip>
-            <MudTooltip Text="Open-Meteo outdoor temperature pull for chart overlays.">
-                <MudChip T="string" Color="@(Options.OpenMeteoLat is null ? Color.Default : Color.Info)" Variant="Variant.Outlined">
-                    Outdoor data: @(Options.OpenMeteoLat is null ? "Off" : "On")
-                </MudChip>
-            </MudTooltip>
-        </MudStack>
-        @if (!string.IsNullOrWhiteSpace(_lastError))
-        {
-            <MudAlert Dense="true" Severity="Severity.Warning" Class="mt-2">Hub poller: @_lastError</MudAlert>
-        }
-        @if (!string.IsNullOrWhiteSpace(_workerGasError))
-        {
-            <MudAlert Dense="true" Severity="Severity.Warning" Class="mt-2">Gas meter worker: @_workerGasError</MudAlert>
-        }
-        @if (!string.IsNullOrWhiteSpace(_workerAwayError))
-        {
-            <MudAlert Dense="true" Severity="Severity.Warning" Class="mt-2">Timed away worker: @_workerAwayError</MudAlert>
-        }
-    </MudPaper>
-
-    <MudPaper Class="pa-4 status-card">
-        <MudText Typo="Typo.h6">
-            <i class="fa-solid fa-filter-circle-xmark"></i> Data quality (last 24h)
-        </MudText>
-        <MudStack Row="true" Wrap="Wrap.Wrap" Spacing="1" Class="mt-2">
-            <MudTooltip Text="Invalid hub readings not stored in history (last 24h).">
-                <MudChip T="string" Variant="Variant.Outlined" Color="Color.Warning">
-                    Dropped invalid readings: @_qualityTotal24h
-                </MudChip>
-            </MudTooltip>
-            @foreach (var item in _qualityReasons24h)
-            {
-                <MudTooltip Text="Why samples were dropped.">
-                    <MudChip T="string" Variant="Variant.Outlined" Color="Color.Info">
-                        @($"{item.Reason}: {item.Count}")
-                    </MudChip>
-                </MudTooltip>
-            }
-        </MudStack>
-        <MudButton Href="/charts#data-quality"
-                   Variant="Variant.Text"
-                   Color="Color.Primary"
-                   StartIcon="@Icons.Material.Filled.OpenInNew"
-                   Class="mt-2">
-            View details
-        </MudButton>
-    </MudPaper>
-
-    <MudPaper Class="pa-4 status-card">
-        <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center" Wrap="Wrap.Wrap">
-            <MudText Typo="Typo.h6">
-                <i class="fa-solid fa-grip"></i> Current room temperatures and trend status
-            </MudText>
-            <MudButton Href="/charts"
-                       Variant="Variant.Text"
-                       Color="Color.Primary"
-                       StartIcon="@Icons.Material.Filled.OpenInNew">
-                Open charts
-            </MudButton>
-        </MudStack>
-        @if (_homeRoomTiles.Count == 0)
-        {
-            <MudAlert Severity="Severity.Info" Dense="true" Class="mt-2">No room trend data yet.</MudAlert>
-        }
-        else
-        {
-            <div class="room-heat-grid home-room-heat-grid mt-2">
-                @foreach (var tile in _homeRoomTiles)
+                else if (_outlookLoading)
                 {
-                    <a class="room-heat-tile room-heat-link"
-                       style="background-color:@tile.Color;"
-                       href="@GetRoomDetailsHref(tile.Room)"
-                       title="@($"Open {tile.Room} in Rooms")">
-                        <div class="room-heat-name">
-                            <span class="room-heat-state-square" style="background-color:@tile.CurrentStateColor;" title="@tile.CurrentStateText"></span>
-                            @tile.Room
-                        </div>
-                        <div class="room-heat-temp">@tile.DisplayTemp</div>
-                        <div class="room-heat-meta">@tile.RangeText</div>
-                        <div class="room-heat-meta">@tile.StatusText</div>
-                        <div class="room-heat-meta">@tile.TrendText</div>
-                    </a>
+                    <MudProgressLinear Indeterminate="true" Color="Color.Primary" Class="mt-1" />
                 }
-            </div>
-        }
-    </MudPaper>
+                else if (!string.IsNullOrWhiteSpace(_outlookError))
+                {
+                    <MudAlert Severity="Severity.Warning" Dense="true">@_outlookError</MudAlert>
+                }
+                else
+                {
+                    <MudText Typo="Typo.body1">@_outlookSummary</MudText>
+                    @if (!string.IsNullOrWhiteSpace(_outlookDetail))
+                    {
+                        <MudText Typo="Typo.body2" Class="mt-1 mud-text-secondary">@_outlookDetail</MudText>
+                    }
+                }
+            </ChildContent>
+        </MudExpansionPanel>
+
+        <MudExpansionPanel>
+            <TitleContent>
+                <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Class="flex-grow-1 mr-2">
+                    <MudText Typo="Typo.subtitle1"><i class="fa-solid fa-table"></i> Daily summary (energy proxies)</MudText>
+                    <MudButton Href="/charts" Variant="Variant.Text" Color="Color.Primary" Size="Size.Small"
+                               StartIcon="@Icons.Material.Filled.OpenInNew">
+                        Charts
+                    </MudButton>
+                </MudStack>
+            </TitleContent>
+            <ChildContent>
+                <MudText Typo="Typo.caption" Class="mud-text-secondary d-block mb-2">
+                    Per local day: HDD (15.5 °C base), mean outdoor °C, and heating demand / boiler relay minutes estimated from poll activity. Needs outdoor samples for HDD columns.
+                </MudText>
+                @if (_homeDailyRows.Count == 0)
+                {
+                    <MudAlert Severity="Severity.Info" Dense="true">No daily summary rows yet (needs recorded history).</MudAlert>
+                }
+                else
+                {
+                    <MudTable T="DailySummaryRow" Items="_homeDailyRows" Dense="true" Hover="true" Breakpoint="Breakpoint.Sm">
+                        <HeaderContent>
+                            <MudTh>Date</MudTh>
+                            <MudTh Class="text-right">HDD</MudTh>
+                            <MudTh Class="text-right">Avg out °C</MudTh>
+                            <MudTh Class="text-right">Heat est. min</MudTh>
+                            <MudTh Class="text-right">Relay est. min</MudTh>
+                        </HeaderContent>
+                        <RowTemplate>
+                            <MudTd DataLabel="Date">@context.Date</MudTd>
+                            <MudTd DataLabel="HDD" Class="text-right">@FmtOpt(context.Hdd)</MudTd>
+                            <MudTd DataLabel="Avg out" Class="text-right">@FmtOpt(context.AvgOutdoorC)</MudTd>
+                            <MudTd DataLabel="Heat min" Class="text-right">@FmtHeatMin(context.HeatingActiveEstimateMin)</MudTd>
+                            <MudTd DataLabel="Relay min" Class="text-right">@FmtHeatMin(context.HeatingRelayEstimateMin)</MudTd>
+                        </RowTemplate>
+                    </MudTable>
+                    <MudButton Href="/api/export/daily-summary.csv?days=14"
+                               Variant="Variant.Text" Size="Size.Small" Color="Color.Primary"
+                               StartIcon="@Icons.Material.Filled.Download" Class="mt-1">
+                        Export CSV (14 days)
+                    </MudButton>
+                }
+            </ChildContent>
+        </MudExpansionPanel>
+
+        <MudExpansionPanel>
+            <TitleContent>
+                <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Class="flex-grow-1 mr-2">
+                    <MudText Typo="Typo.subtitle1"><i class="fa-solid fa-piggy-bank"></i> Save on heating</MudText>
+                    <MudButton Href="/settings" Variant="Variant.Text" Color="Color.Primary" Size="Size.Small"
+                               StartIcon="@Icons.Material.Filled.Tune">
+                        Routine
+                    </MudButton>
+                </MudStack>
+            </TitleContent>
+            <ChildContent>
+                <MudText Typo="Typo.caption" Class="mud-text-secondary d-block mb-2">
+                    Suggestions are heuristics from your routine profile, recent heating activity, forecast context, and schedule mapping when hub data is available.
+                </MudText>
+                @if (_savingsSuggestions.Count == 0)
+                {
+                    <MudAlert Severity="Severity.Info" Dense="true">No suggestions yet.</MudAlert>
+                }
+                else
+                {
+                    <MudStack Spacing="1">
+                        @foreach (var tip in _savingsSuggestions)
+                        {
+                            <MudAlert Severity="@(tip.Level == HeatingSavingsSuggestionLevel.Warning ? Severity.Warning : Severity.Info)" Dense="true">
+                                <div class="d-flex flex-wrap align-center" style="gap: 10px;">
+                                    <MudText Typo="Typo.body2" Class="flex-grow-1">
+                                        <strong>@tip.Title:</strong> @tip.Body
+                                    </MudText>
+                                    <MudButton Href="@tip.ActionHref" Variant="Variant.Text" Size="Size.Small"
+                                               Color="Color.Primary" EndIcon="@Icons.Material.Filled.OpenInNew">
+                                        @tip.ActionText
+                                    </MudButton>
+                                </div>
+                            </MudAlert>
+                        }
+                    </MudStack>
+                }
+            </ChildContent>
+        </MudExpansionPanel>
+
+        <MudExpansionPanel>
+            <TitleContent>
+                <MudText Typo="Typo.subtitle1"><i class="fa-solid fa-filter-circle-xmark"></i> Data quality (last 24h)</MudText>
+            </TitleContent>
+            <ChildContent>
+                <MudStack Row="true" Wrap="Wrap.Wrap" Spacing="1" Class="mb-2">
+                    <MudTooltip Text="Invalid hub readings not stored in history (last 24h).">
+                        <MudChip T="string" Variant="Variant.Outlined" Color="Color.Warning">
+                            Dropped invalid readings: @_qualityTotal24h
+                        </MudChip>
+                    </MudTooltip>
+                    @foreach (var item in _qualityReasons24h)
+                    {
+                        <MudTooltip Text="Why samples were dropped.">
+                            <MudChip T="string" Variant="Variant.Outlined" Color="Color.Info">
+                                @($"{item.Reason}: {item.Count}")
+                            </MudChip>
+                        </MudTooltip>
+                    }
+                </MudStack>
+                <MudButton Href="/charts#data-quality" Variant="Variant.Text" Color="Color.Primary"
+                           StartIcon="@Icons.Material.Filled.OpenInNew">
+                    View details
+                </MudButton>
+            </ChildContent>
+        </MudExpansionPanel>
+
+        <MudExpansionPanel>
+            <TitleContent>
+                <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Class="flex-grow-1 mr-2">
+                    <MudText Typo="Typo.subtitle1"><i class="fa-solid fa-grip"></i> Room temperatures &amp; trend</MudText>
+                    <MudButton Href="/charts" Variant="Variant.Text" Color="Color.Primary" Size="Size.Small"
+                               StartIcon="@Icons.Material.Filled.OpenInNew">
+                        Charts
+                    </MudButton>
+                </MudStack>
+            </TitleContent>
+            <ChildContent>
+                @if (_homeRoomTiles.Count == 0)
+                {
+                    <MudAlert Severity="Severity.Info" Dense="true">No room trend data yet.</MudAlert>
+                }
+                else
+                {
+                    <div class="room-heat-grid home-room-heat-grid">
+                        @foreach (var tile in _homeRoomTiles)
+                        {
+                            <a class="room-heat-tile room-heat-link"
+                               style="background-color:@tile.Color;"
+                               href="@GetRoomDetailsHref(tile.Room)"
+                               title="@($"Open {tile.Room} in Rooms")">
+                                <div class="room-heat-name">
+                                    <span class="room-heat-state-square" style="background-color:@tile.CurrentStateColor;" title="@tile.CurrentStateText"></span>
+                                    @tile.Room
+                                </div>
+                                <div class="room-heat-temp">@tile.DisplayTemp</div>
+                                <div class="room-heat-meta room-heat-meta-status">@tile.StatusText</div>
+                                <div class="room-heat-meta d-none d-sm-block">@tile.TrendText</div>
+                            </a>
+                        }
+                    </div>
+                }
+            </ChildContent>
+        </MudExpansionPanel>
+
+    </MudExpansionPanels>
 </MudStack>
 
 <div class="home-sticky-actionbar">
@@ -527,12 +476,6 @@
     private int _qualityTotal24h;
     private List<DataQualityReasonCount> _qualityReasons24h = [];
     private readonly List<HomeRoomHeatTile> _homeRoomTiles = [];
-
-    private bool _workerHubOk;
-    private bool _workerGasOk;
-    private bool _workerAwayOk;
-    private string? _workerGasError;
-    private string? _workerAwayError;
 
     private bool _outlookLoading;
     private string? _outlookError;
@@ -584,13 +527,6 @@
             : $"Last OK: {TimeZoneInfo.ConvertTime(DateTimeOffset.FromUnixTimeSeconds(ok.Value), DisplayZone).ToString("g", CultureInfo.CurrentCulture)}";
         _status = $"Poll interval: {Options.IntervalSec}s · Alerts: {(Options.AlertsEnabled ? "On" : "Off")} · {okText}";
 
-        _workerHubOk = ok is not null && string.IsNullOrWhiteSpace(err);
-        var (gasErr, _) = MonitorState.GasMeterWorker.Snapshot();
-        _workerGasOk = string.IsNullOrWhiteSpace(gasErr);
-        _workerGasError = gasErr;
-        var (awayErr, _) = MonitorState.TimedAwayWorker.Snapshot();
-        _workerAwayOk = string.IsNullOrWhiteSpace(awayErr);
-        _workerAwayError = awayErr;
 
         // Use the last cached hub snapshot for instant render; fresh data arrives via LoadLiveDataAsync after first render.
         if (RoomsCache.TryGetSnapshot(out var cached, out _))
@@ -1564,8 +1500,19 @@
 }
 
 <style>
+    .home-expansion-panels {
+        border-radius: 6px;
+        overflow: hidden;
+    }
+
     .home-room-heat-grid {
-        grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+        grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    }
+
+    .room-heat-meta-status {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
     }
 
     .room-heat-grid {

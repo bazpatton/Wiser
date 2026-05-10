@@ -1239,7 +1239,11 @@
     {
         if (core.Count == 0)
             return [(ws, 0.0), (we, 0.0)];
-        return ValvePercentToStepSeries(core);
+        var steps = ValvePercentToStepSeries(core);
+        // Anchor at 0 from the window start so the line rises from the baseline rather than appearing mid-air.
+        if (steps.Count > 0 && steps[0].Y != 0.0)
+            steps.Insert(0, (ws, 0.0));
+        return steps;
     }
 
     private static List<(DateTime T, double Y)> ValvePercentToStepSeries(IReadOnlyList<(DateTime T, double Y)> core)

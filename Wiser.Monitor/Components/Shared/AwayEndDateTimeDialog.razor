@@ -4,8 +4,24 @@
 <MudDialog>
     <DialogContent>
         <MudStack Spacing="2">
-            <MudText Typo="Typo.body2">
-                Choose when away mode should end (local time).
+            <MudSelect T="int?"
+                       Label="Quick set (hours from now)"
+                       Value="_quickHours"
+                       ValueChanged="OnQuickHoursChanged"
+                       Variant="Variant.Outlined"
+                       Margin="Margin.Dense"
+                       Clearable="true"
+                       Placeholder="Choose a preset…">
+                <MudSelectItem T="int?" Value="@((int?)1)">1 hour</MudSelectItem>
+                <MudSelectItem T="int?" Value="@((int?)3)">3 hours</MudSelectItem>
+                <MudSelectItem T="int?" Value="@((int?)6)">6 hours</MudSelectItem>
+                <MudSelectItem T="int?" Value="@((int?)9)">9 hours</MudSelectItem>
+                <MudSelectItem T="int?" Value="@((int?)12)">12 hours</MudSelectItem>
+                <MudSelectItem T="int?" Value="@((int?)24)">24 hours</MudSelectItem>
+            </MudSelect>
+            <MudDivider />
+            <MudText Typo="Typo.caption" Class="mud-text-secondary">
+                Or choose an exact end time (local):
             </MudText>
             <MudDatePicker @bind-Date="_endDate"
                            Label="End date"
@@ -38,6 +54,7 @@
 
     private DateTime? _endDate;
     private TimeSpan? _endTime;
+    private int? _quickHours;
     private string? _validationMessage;
 
     protected override void OnInitialized()
@@ -45,6 +62,18 @@
         var nowLocal = TimeZoneInfo.ConvertTime(DateTimeOffset.UtcNow, Zone);
         _endDate = InitialDate ?? nowLocal.Date.AddDays(1);
         _endTime = InitialTime ?? new TimeSpan(18, 0, 0);
+    }
+
+    private void OnQuickHoursChanged(int? hours)
+    {
+        _quickHours = hours;
+        _validationMessage = null;
+        if (hours is null)
+            return;
+
+        var target = TimeZoneInfo.ConvertTime(DateTimeOffset.UtcNow, Zone).AddHours(hours.Value);
+        _endDate = target.Date;
+        _endTime = target.TimeOfDay;
     }
 
     private void Cancel() => MudDialog.Cancel();
