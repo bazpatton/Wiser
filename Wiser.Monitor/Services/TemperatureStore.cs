@@ -68,6 +68,13 @@ public sealed class TemperatureStore
                         updated_ts INTEGER NOT NULL
                     );
 
+                    CREATE TABLE IF NOT EXISTS room_ranges (
+                        room TEXT PRIMARY KEY,
+                        min_c REAL NOT NULL,
+                        max_c REAL NOT NULL,
+                        updated_ts INTEGER NOT NULL
+                    );
+
                     CREATE TABLE IF NOT EXISTS app_settings (
                         key TEXT PRIMARY KEY,
                         value TEXT NOT NULL,
@@ -663,6 +670,60 @@ public sealed class TemperatureStore
             cmd.Parameters.AddWithValue("$room", room.Trim());
             cmd.Parameters.AddWithValue("$active", isActive ? 1 : 0);
             cmd.Parameters.AddWithValue("$ts", DateTimeOffset.UtcNow.ToUnixTimeSeconds());
+            cmd.ExecuteNonQuery();
+        }
+    }
+
+    public Dictionary<string, (double Min, double Max)> GetRoomRanges()
+    {
+        lock (_gate)
+        {
+            using var c = Open();
+            using var cmd = c.CreateCommand();
+            cmd.CommandText = "SELECT room, min_c, max_c FROM room_ranges";
+            using var r = cmd.ExecuteReader();
+            var map = new Dictionary<string, (double, double)>(StringComparer.OrdinalIgnoreCase);
+            while (r.Read())
+                map[r.GetString(0)] = (r.GetDouble(1), r.GetDouble(2));
+            return map;
+        }
+    }
+
+    public void SetRoomRange(string room, double minC, double maxC)
+    {
+        if (string.IsNullOrWhiteSpace(room))
+            return;
+        lock (_gate)
+        {
+            using var c = Open();
+            using var cmd = c.CreateCommand();
+            cmd.CommandText =
+                """
+                INSERT INTO room_ranges (room, min_c, max_c, updated_ts)
+                VALUES ($room, $min, $max, $ts)
+                ON CONFLICT(room) DO UPDATE SET
+                    min_c = excluded.min_c,
+                    max_c = excluded.max_c,
+                    updated_ts = excluded.updated_ts
+                """;
+            cmd.Parameters.AddWithValue("$room", room.Trim());
+            cmd.Parameters.AddWithValue("$min", minC);
+            cmd.Parameters.AddWithValue("$max", maxC);
+            cmd.Parameters.AddWithValue("$ts", DateTimeOffset.UtcNow.ToUnixTimeSeconds());
+            cmd.ExecuteNonQuery();
+        }
+    }
+
+    public void DeleteRoomRange(string room)
+    {
+        if (string.IsNullOrWhiteSpace(room))
+            return;
+        lock (_gate)
+        {
+            using var c = Open();
+            using var cmd = c.CreateCommand();
+            cmd.CommandText = "DELETE FROM room_ranges WHERE room = $room";
+            cmd.Parameters.AddWithValue("$room", room.Trim());
             cmd.ExecuteNonQuery();
         }
     }
@@ -1739,6 +1800,7 @@ public sealed class TemperatureStore
                        extension_prompt_at_unix, cancelled_at_unix, completed_at_unix, smart_profile_version
                 FROM timed_away_session
                 WHERE cancelled_at_unix IS NULL AND completed_at_unix IS NULL
+                  AND ends_at_unix > strftime('%s', 'now')
                 ORDER BY created_at_unix DESC
                 LIMIT 1
                 """;
@@ -2002,6 +2064,45 @@ public sealed class TemperatureStore
             while (r.Read())
                 list.Add(r.GetString(0));
             return list;
+        }
+    }
+
+    /// <summary>Returns temperature readings for all rooms in one query, grouped by room name.</summary>
+    public IReadOnlyDictionary<string, List<RoomSeriesRow>> SeriesAllRooms(long sinceTs, long untilTs)
+    {
+        lock (_gate)
+        {
+            using var c = Open();
+            using var cmd = c.CreateCommand();
+            cmd.CommandText =
+                """
+                SELECT room, ts, temp_c, setpoint_c, current_setpoint_c, scheduled_setpoint_c, heat_demand, percentage_demand
+                FROM room_readings
+                WHERE ts >= $since AND ts < $until
+                ORDER BY room ASC, ts ASC
+                """;
+            cmd.Parameters.AddWithValue("$since", sinceTs);
+            cmd.Parameters.AddWithValue("$until", untilTs);
+            using var r = cmd.ExecuteReader();
+            var map = new Dictionary<string, List<RoomSeriesRow>>(StringComparer.OrdinalIgnoreCase);
+            while (r.Read())
+            {
+                var room = r.GetString(0);
+                if (!map.TryGetValue(room, out var list))
+                {
+                    list = [];
+                    map[room] = list;
+                }
+                list.Add(new RoomSeriesRow(
+                    r.GetInt64(1),
+                    r.GetDouble(2),
+                    r.IsDBNull(3) ? null : r.GetDouble(3),
+                    r.IsDBNull(4) ? null : r.GetDouble(4),
+                    r.IsDBNull(5) ? null : r.GetDouble(5),
+                    r.GetInt32(6),
+                    r.IsDBNull(7) ? null : r.GetInt32(7)));
+            }
+            return map;
         }
     }
 

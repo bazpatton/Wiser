@@ -1,0 +1,17 @@
+{
+  "name": "Wiser Heat Hub Monitor",
+  "short_name": "Wiser Monitor",
+  "description": "Monitor room temperatures, heating demand and schedules from your Drayton Wiser Heat Hub.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0D47A1",
+  "theme_color": "#1976D2",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

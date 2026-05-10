@@ -116,6 +116,12 @@
         {
             <MudAlert Dense="true" Severity="Severity.Warning" Class="mt-1">Timed away worker: @awayWorkerErr</MudAlert>
         }
+        @if (MonitorState.LowBatteryDevices.Count > 0)
+        {
+            <MudAlert Dense="true" Severity="Severity.Warning" Class="mt-1">
+                Low battery (&lt;20%): @string.Join(", ", MonitorState.LowBatteryDevices)
+            </MudAlert>
+        }
     </MudPaper>
 
     <MudPaper Class="pa-4 card-soft">
@@ -769,6 +775,55 @@
             </MudTable>
         }
 
+        <MudDivider Class="my-3" />
+
+        <MudText Typo="Typo.subtitle1" Class="mb-1">Custom comfort temperature ranges</MudText>
+        <MudText Typo="Typo.body2" Class="mud-text-secondary mb-2">
+            Override the default room-name heuristic (bathroom 21–23 °C, bedroom 17–19 °C, etc.) with your own values.
+            Leave blank to use the default. Changes save immediately.
+        </MudText>
+        @if (_rooms.Count > 0)
+        {
+            <MudTable T="RoomActivitySetting" Items="_rooms" Dense="true" Hover="true" Breakpoint="Breakpoint.Sm">
+                <HeaderContent>
+                    <MudTh>Room</MudTh>
+                    <MudTh>Min °C</MudTh>
+                    <MudTh>Max °C</MudTh>
+                    <MudTh>Reset</MudTh>
+                </HeaderContent>
+                <RowTemplate>
+                    @{ var _cr = context.Room; var _hasR = _roomRanges.TryGetValue(_cr, out var _rng); }
+                    <MudTd DataLabel="Room">@_cr</MudTd>
+                    <MudTd DataLabel="Min °C">
+                        <MudNumericField T="double?"
+                                         Value="@(_hasR ? _rng.Min : (double?)null)"
+                                         ValueChanged="@((double? v) => OnRoomRangeChanged(_cr, v, _hasR ? _rng.Max : 21.0))"
+                                         Placeholder="@DefaultRangeHint(_cr, true)"
+                                         Variant="Variant.Outlined"
+                                         Margin="Margin.Dense"
+                                         Min="5" Max="30" Step="0.5" />
+                    </MudTd>
+                    <MudTd DataLabel="Max °C">
+                        <MudNumericField T="double?"
+                                         Value="@(_hasR ? _rng.Max : (double?)null)"
+                                         ValueChanged="@((double? v) => OnRoomRangeChanged(_cr, _hasR ? _rng.Min : 17.0, v))"
+                                         Placeholder="@DefaultRangeHint(_cr, false)"
+                                         Variant="Variant.Outlined"
+                                         Margin="Margin.Dense"
+                                         Min="5" Max="35" Step="0.5" />
+                    </MudTd>
+                    <MudTd DataLabel="Reset">
+                        @if (_hasR)
+                        {
+                            <MudIconButton Icon="@Icons.Material.Filled.RestartAlt"
+                                           Size="Size.Small"
+                                           OnClick="@(() => ResetRoomRange(_cr))" />
+                        }
+                    </MudTd>
+                </RowTemplate>
+            </MudTable>
+        }
+
         <MudStack Row="true" Spacing="1" Class="mt-3">
             <MudButton Variant="Variant.Filled"
                        Color="Color.Primary"
@@ -788,6 +843,7 @@
 
 @code {
     private readonly List<RoomActivitySetting> _rooms = [];
+    private Dictionary<string, (double Min, double Max)> _roomRanges = new(StringComparer.OrdinalIgnoreCase);
     private readonly string _restoreFileId = $"restore-db-{Guid.NewGuid():N}";
     private readonly string _timedAwayPolicyImportId = $"ta-policy-import-{Guid.NewGuid():N}";
     private readonly string _floorplanUploadFileId = $"floorplan-upload-{Guid.NewGuid():N}";
@@ -1022,6 +1078,7 @@
                 !activity.TryGetValue(room, out var isActive) || isActive,
                 prioritySet.Contains(room)));
         LoadFloorplanMapping(rooms);
+        _roomRanges = Store.GetRoomRanges();
         var snap = MonitorState.Snapshot();
         _openMeteoConfigured = Options.OpenMeteoLat is not null && Options.OpenMeteoLon is not null;
         if (snap.LastOkUnix is null)
@@ -1779,6 +1836,28 @@
         public bool Enabled { get; set; }
         public double XPercent { get; set; }
         public double YPercent { get; set; }
+    }
+
+    private void OnRoomRangeChanged(string room, double? min, double? max)
+    {
+        if (min is null || max is null)
+            return;
+        var clampedMin = Math.Clamp(Math.Round(min.Value, 1), 5, 30);
+        var clampedMax = Math.Clamp(Math.Round(max.Value, 1), clampedMin + 0.5, 35);
+        Store.SetRoomRange(room, clampedMin, clampedMax);
+        _roomRanges[room] = (clampedMin, clampedMax);
+    }
+
+    private void ResetRoomRange(string room)
+    {
+        Store.DeleteRoomRange(room);
+        _roomRanges.Remove(room);
+    }
+
+    private static string DefaultRangeHint(string room, bool isMin)
+    {
+        var (min, max) = RoomDisplayHelpers.GetRecommendedTempRange(room, true);
+        return isMin ? min.ToString("0.#") : max.ToString("0.#");
     }
 
     private sealed record SmartAwayLiveValidationView(

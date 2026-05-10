@@ -51,10 +51,28 @@ public sealed class WiserPollWorker(
         }
     }
 
+    private const int LowBatteryThresholdPercent = 20;
+
     private async Task PollOnceAsync(CancellationToken ct)
     {
         var ts = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
-        var poll = await hub.FetchDomainAsync(options, ct).ConfigureAwait(false);
+
+        // Fetch the domain document once; parse both room data and device battery from it.
+        using var domainDoc = await hub.FetchDomainDocumentAsync(options, ct).ConfigureAwait(false);
+        var poll = WiserHubFetch.ParseDomain(domainDoc);
+
+        try
+        {
+            var lowBattery = HubDeviceParser.ParseDevices(domainDoc)
+                .Where(d => d.BatteryPercent is <= LowBatteryThresholdPercent)
+                .Select(d => string.IsNullOrWhiteSpace(d.Room) ? d.Name : $"{d.Name} ({d.Room})")
+                .ToList();
+            state.SetLowBatteryDevices(lowBattery);
+        }
+        catch
+        {
+            // Non-critical; don't fail the poll if device parse fails.
+        }
         var samples = poll.Rooms;
         state.SetLastRooms(samples.Select(s => s.Name).ToList());
 

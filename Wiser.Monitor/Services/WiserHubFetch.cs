@@ -23,6 +23,9 @@ public sealed class WiserHubFetch(HttpClient http)
         return WiserDomainParser.ParseDomain(doc);
     }
 
+    /// <summary>Parses a domain document that was already fetched via <see cref="FetchDomainDocumentAsync"/>.</summary>
+    public static DomainPollResult ParseDomain(JsonDocument doc) => WiserDomainParser.ParseDomain(doc);
+
     public async Task<JsonDocument> FetchDomainDocumentAsync(MonitorOptions options, CancellationToken ct)
     {
         var url = $"http://{options.WiserIp}/data/domain/";

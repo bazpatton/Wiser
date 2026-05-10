@@ -21,6 +21,22 @@
 <PageTitle>Wiser Monitor</PageTitle>
 
 <MudStack Spacing="3" Class="home-page-stack">
+    @if (MonitorState.LowBatteryDevices.Count > 0)
+    {
+        <MudAlert Severity="Severity.Warning" Dense="true" ShowCloseIcon="false"
+                  ContentAlignment="HorizontalAlignment.Left">
+            <div class="d-flex flex-wrap align-center" style="gap: 12px;">
+                <MudText Typo="Typo.body1" Class="flex-grow-1">
+                    Low battery (&lt;20%): @string.Join(", ", MonitorState.LowBatteryDevices)
+                </MudText>
+                <MudButton Href="/devices" Variant="Variant.Filled" Color="Color.Warning"
+                           Size="Size.Small" StartIcon="@Icons.Material.Filled.Battery1Bar"
+                           Class="touch-target">
+                    Devices
+                </MudButton>
+            </div>
+        </MudAlert>
+    }
     @if (_gasMeterReadingBannerText is not null)
     {
         <MudAlert Severity="Severity.Warning"
@@ -530,6 +546,7 @@
             _liveHubByRoom = LiveHubRoomTemps.ToAvailableTempByRoomName(cached);
         }
 
+        _roomRanges = Store.GetRoomRanges();
         var quality = Store.GetDataQualitySummary(24);
         _qualityTotal24h = quality.TotalIgnored;
         _qualityReasons24h = quality.ByReason.Take(4).ToList();
@@ -601,6 +618,11 @@
             // Hub offline; page already rendered with cached data; outlook/suggestions still load below.
         }
 
+        // Fetch 14 days once off-circuit and share across all three consumers.
+        var sharedDaily = await Task.Run(() =>
+            Store.GetDailySummaries(14, Math.Max(10, Options.IntervalSec), DisplayZone))
+            .ConfigureAwait(false);
+
         await InvokeAsync(async () =>
         {
             if (liveOverview is not null)
@@ -613,8 +635,9 @@
                 BuildHomeFloorplanOverlay();
             }
 
-            await LoadHeatingOutlookAsync();
-            await LoadSavingsSuggestionsAsync();
+            LoadHomeDailySummary(sharedDaily);
+            await LoadHeatingOutlookAsync(sharedDaily);
+            await LoadSavingsSuggestionsAsync(sharedDaily);
             await TryPromptExtendNearEndOnceAsync();
             StateHasChanged();
         });
@@ -727,12 +750,12 @@
         }
     }
 
-    private void LoadHomeDailySummary()
+    private void LoadHomeDailySummary(IReadOnlyList<DailySummaryRow>? shared = null)
     {
+        var rows = shared ?? Store.GetDailySummaries(7, Math.Max(10, Options.IntervalSec), DisplayZone);
         _homeDailyRows.Clear();
         _homeDailyRows.AddRange(
-            Store.GetDailySummaries(7, Math.Max(10, Options.IntervalSec), DisplayZone)
-                .OrderByDescending(static x => x.Date, StringComparer.Ordinal));
+            rows.TakeLast(7).OrderByDescending(static x => x.Date, StringComparer.Ordinal));
     }
 
     private static string FmtOpt(double? value) =>
@@ -765,7 +788,7 @@
         _gasMeterReadingBannerText = null;
     }
 
-    private async Task LoadHeatingOutlookAsync()
+    private async Task LoadHeatingOutlookAsync(IReadOnlyList<DailySummaryRow>? shared = null)
     {
         _outlookPastWeekHddSum = null;
         _outlookForecastWeekHddSum = null;
@@ -779,7 +802,8 @@
 
         try
         {
-            var daily = Store.GetDailySummaries(7, Math.Max(10, Options.IntervalSec), DisplayZone);
+            var daily = (shared ?? Store.GetDailySummaries(7, Math.Max(10, Options.IntervalSec), DisplayZone))
+                .TakeLast(7).ToList();
             var hddValues = daily
                 .Where(d => d.Hdd is { } h && !double.IsNaN(h) && !double.IsInfinity(h))
                 .Select(d => d.Hdd!.Value)
@@ -846,10 +870,10 @@
         }
     }
 
-    private async Task LoadSavingsSuggestionsAsync()
+    private async Task LoadSavingsSuggestionsAsync(IReadOnlyList<DailySummaryRow>? shared = null)
     {
         var profile = Store.GetHeatingSavingsProfile();
-        var daily14 = Store.GetDailySummaries(14, Math.Max(10, Options.IntervalSec), DisplayZone);
+        var daily14 = shared ?? Store.GetDailySummaries(14, Math.Max(10, Options.IntervalSec), DisplayZone);
 
         HubScheduleSavingsHints? hubHints = null;
         if (!string.IsNullOrWhiteSpace(Options.WiserIp)
@@ -1412,48 +1436,19 @@
             : $"steady vs prior read ({trendDelta:+0.0;-0.0;0.0} °C)";
     }
 
-    private static (double Min, double Max) GetRecommendedTempRange(string roomName, bool isActive)
-    {
-        var r = roomName.ToLowerInvariant();
-        var baseRange = r switch
-        {
-            _ when r.Contains("bath") => (21.0, 23.0),
-            _ when r.Contains("bed") => (17.0, 19.0),
-            _ when r.Contains("kitchen") => (18.0, 20.0),
-            _ when r.Contains("hall") || r.Contains("landing") => (16.0, 18.0),
-            _ when r.Contains("living") || r.Contains("lounge") => (20.0, 22.0),
-            _ => (19.0, 21.0),
-        };
+    private Dictionary<string, (double Min, double Max)> _roomRanges = new(StringComparer.OrdinalIgnoreCase);
 
-        if (isActive)
-            return baseRange;
+    private (double Min, double Max) GetRecommendedTempRange(string roomName, bool isActive) =>
+        RoomDisplayHelpers.GetRecommendedTempRange(roomName, isActive, _roomRanges);
 
-        const double inactiveOffsetC = 2.0;
-        return (baseRange.Item1 - inactiveOffsetC, baseRange.Item2 - inactiveOffsetC);
-    }
+    private static string FormatTrend(double trendDelta) =>
+        RoomDisplayHelpers.FormatTrend(trendDelta);
 
-    private static string FormatTrend(double trendDelta)
-    {
-        if (trendDelta > 0.4)
-            return $"up {trendDelta:+0.0;-0.0;0.0}C";
-        if (trendDelta < -0.4)
-            return $"down {trendDelta:+0.0;-0.0;0.0}C";
-        return $"steady {trendDelta:+0.0;-0.0;0.0}C";
-    }
+    private static bool IsWithinIgnoreWindow(long timestampUtc, TimeSpan ignoreStart, TimeSpan ignoreEnd, TimeZoneInfo zone) =>
+        RoomDisplayHelpers.IsWithinIgnoreWindow(timestampUtc, ignoreStart, ignoreEnd, zone);
 
-    private static bool IsWithinIgnoreWindow(long timestampUtc, TimeSpan ignoreStart, TimeSpan ignoreEnd, TimeZoneInfo zone)
-    {
-        if (ignoreStart == ignoreEnd)
-            return false;
-
-        var localTod = TimeZoneInfo.ConvertTime(DateTimeOffset.FromUnixTimeSeconds(timestampUtc), zone).TimeOfDay;
-        if (ignoreStart < ignoreEnd)
-            return localTod >= ignoreStart && localTod < ignoreEnd;
-
-        return localTod >= ignoreStart || localTod < ignoreEnd;
-    }
-
-    private static string GetRoomDetailsHref(string roomName) => RoomLinkHelper.RoomsPagePath(roomName);
+    private static string GetRoomDetailsHref(string roomName) =>
+        RoomDisplayHelpers.GetRoomDetailsHref(roomName);
 
     private sealed record HomeRoomHeatTile(
         string Room,

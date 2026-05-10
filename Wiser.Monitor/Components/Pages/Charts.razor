@@ -514,6 +514,56 @@
         </MudItem>
     </MudGrid>
 
+    <MudPaper Class="pa-3 chart-card">
+        <MudText Typo="Typo.h6" Class="mb-2">
+            <i class="fa-solid fa-code-compare"></i> Room comparison
+        </MudText>
+        <MudText Typo="Typo.caption" Class="mud-text-secondary d-block mb-2">
+            Overlay two rooms on a shared time axis to compare temperature trends directly.
+        </MudText>
+        <MudGrid Spacing="2" Class="mb-2">
+            <MudItem xs="12" sm="5">
+                <MudSelect T="string" Label="Room A" Value="_compareRoomA" ValueChanged="OnCompareRoomAChanged"
+                           Variant="Variant.Outlined" Dense="true" Margin="Margin.Dense" Class="touch-control">
+                    @foreach (var r in _rooms)
+                    {
+                        <MudSelectItem Value="@r">@r</MudSelectItem>
+                    }
+                </MudSelect>
+            </MudItem>
+            <MudItem xs="12" sm="5">
+                <MudSelect T="string" Label="Room B" Value="_compareRoomB" ValueChanged="OnCompareRoomBChanged"
+                           Variant="Variant.Outlined" Dense="true" Margin="Margin.Dense" Class="touch-control">
+                    @foreach (var r in _rooms)
+                    {
+                        <MudSelectItem Value="@r">@r</MudSelectItem>
+                    }
+                </MudSelect>
+            </MudItem>
+        </MudGrid>
+        @if (_compareRoomA == _compareRoomB)
+        {
+            <MudAlert Severity="Severity.Info" Dense="true">Select two different rooms to compare.</MudAlert>
+        }
+        else if (_compareSeries.Count == 0)
+        {
+            <MudAlert Severity="Severity.Info" Dense="true">No data for the selected rooms in this window.</MudAlert>
+        }
+        else
+        {
+            <MudChart T="double"
+                      ChartType="ChartType.Line"
+                      ChartSeries="_compareSeries"
+                      ChartLabels="_compareLabels"
+                      ChartOptions="_compareTempLineOptions"
+                      Width="100%"
+                      Height="240px"
+                      MatchBoundsToSize="false"
+                      Class="mud-chart-responsive"
+                      @key="@($"cmp-{_compareRenderKey}")" />
+        }
+    </MudPaper>
+
     </MudStack>
     </MudTabPanel>
 
@@ -868,6 +918,13 @@
         {
             _selectedRoom = _rooms[0];
         }
+        if (_rooms.Count >= 2)
+        {
+            if (string.IsNullOrWhiteSpace(_compareRoomA) || !_rooms.Contains(_compareRoomA, StringComparer.OrdinalIgnoreCase))
+                _compareRoomA = _rooms[0];
+            if (string.IsNullOrWhiteSpace(_compareRoomB) || !_rooms.Contains(_compareRoomB, StringComparer.OrdinalIgnoreCase))
+                _compareRoomB = _rooms[1];
+        }
     }
 
     private Task OnRoomChanged(string? room)
@@ -948,6 +1005,7 @@
 
     private async Task LoadChartAsync()
     {
+        _roomRanges = await Task.Run(() => Store.GetRoomRanges()).ConfigureAwait(false);
         _error = null;
         _roomTrendTempSeries = [];
         _roomTrendValveSeries = [];
@@ -978,14 +1036,14 @@
                 : null;
 
             LoadRooms();
-            LoadGasWeekInsights();
+            await Task.Run(LoadGasWeekInsights).ConfigureAwait(false);
 
             var since24h = DateTimeOffset.UtcNow.ToUnixTimeSeconds() - (HeatCallingTrendHours * 3600L);
-            BuildHeatCallingRoomsTimeseries(since24h);
+            await Task.Run(() => BuildHeatCallingRoomsTimeseries(since24h)).ConfigureAwait(false);
             LoadDataQualitySummary();
 
             var since = DateTimeOffset.UtcNow.ToUnixTimeSeconds() - (_hours * 3600L);
-            _systemRowsWindow = Store.SeriesSystem(since);
+            _systemRowsWindow = await Task.Run(() => Store.SeriesSystem(since)).ConfigureAwait(false);
 
             if (!string.IsNullOrWhiteSpace(_selectedRoom))
             {
@@ -1019,6 +1077,7 @@
             BuildRoomEfficiencyScores(since);
             BuildHeatingRuntimeDistribution();
             BuildBoilerCycleHealth();
+            BuildComparisonChart();
         }
         catch (Exception ex)
         {
@@ -1542,14 +1601,18 @@
         var values = new double[days];
         var hasAnySample = false;
 
+        // Single bulk query for the entire window instead of per-room-per-day.
+        var windowStart = new DateTimeOffset(todayLocal.AddDays(-(days - 1)), zone.GetUtcOffset(todayLocal.AddDays(-(days - 1)))).ToUnixTimeSeconds();
+        var windowEnd = new DateTimeOffset(todayLocal.AddDays(1), zone.GetUtcOffset(todayLocal.AddDays(1))).ToUnixTimeSeconds();
+        var allRows = Store.SeriesAllRooms(windowStart, windowEnd);
+
         for (var i = 0; i < days; i++)
         {
             var day = todayLocal.AddDays(-(days - 1 - i));
             labels[i] = day.ToString("ddd d", CultureInfo.CurrentCulture);
 
             var start = new DateTimeOffset(day, zone.GetUtcOffset(day)).ToUnixTimeSeconds();
-            var next = day.AddDays(1);
-            var end = new DateTimeOffset(next, zone.GetUtcOffset(next)).ToUnixTimeSeconds();
+            var end = new DateTimeOffset(day.AddDays(1), zone.GetUtcOffset(day.AddDays(1))).ToUnixTimeSeconds();
 
             var inRangeCount = 0;
             var totalCount = 0;
@@ -1557,11 +1620,12 @@
             {
                 var isActive = !activityMap.TryGetValue(room, out var activeFlag) || activeFlag;
                 var (targetMin, targetMax) = GetRecommendedTempRange(room, isActive);
-                var rows = Store.SeriesRoom(room, start)
-                    .Where(x => x.Ts < end)
-                    .Where(x => !IsWithinIgnoreWindow(x.Ts, ignoreStart, ignoreEnd, zone));
-                foreach (var row in rows)
+                if (!allRows.TryGetValue(room, out var roomRows))
+                    continue;
+                foreach (var row in roomRows)
                 {
+                    if (row.Ts < start || row.Ts >= end) continue;
+                    if (IsWithinIgnoreWindow(row.Ts, ignoreStart, ignoreEnd, zone)) continue;
                     hasAnySample = true;
                     totalCount++;
                     if (row.TempC >= targetMin && row.TempC <= targetMax)
@@ -1753,49 +1817,97 @@
 
     private static string Fmt(double value) => double.IsNaN(value) ? "—" : value.ToString("0.0");
     private static string FmtOpt(double? value) => value is null || double.IsNaN(value.Value) ? "—" : value.Value.ToString("0.0");
-    private static (double Min, double Max) GetRecommendedTempRange(string roomName, bool isActive)
+    private Dictionary<string, (double Min, double Max)> _roomRanges = new(StringComparer.OrdinalIgnoreCase);
+
+    private string _compareRoomA = string.Empty;
+    private string _compareRoomB = string.Empty;
+    private string[] _compareLabels = [];
+    private List<ChartSeries<double>> _compareSeries = [];
+    private int _compareRenderKey;
+    private readonly LineChartOptions _compareTempLineOptions = new()
     {
-        var r = roomName.ToLowerInvariant();
-        var baseRange = r switch
+        InterpolationOption = InterpolationOption.Straight,
+        ShowToolTips = true,
+        YAxisTitle = "°C",
+        YAxisTicks = 1,
+        MaxNumYAxisTicks = 12,
+        YAxisFormat = "F0",
+    };
+
+    private (double Min, double Max) GetRecommendedTempRange(string roomName, bool isActive) =>
+        RoomDisplayHelpers.GetRecommendedTempRange(roomName, isActive, _roomRanges);
+
+    private static string FormatTrend(double trendDelta) =>
+        RoomDisplayHelpers.FormatTrend(trendDelta);
+
+    private static bool IsWithinIgnoreWindow(long timestampUtc, TimeSpan ignoreStart, TimeSpan ignoreEnd, TimeZoneInfo zone) =>
+        RoomDisplayHelpers.IsWithinIgnoreWindow(timestampUtc, ignoreStart, ignoreEnd, zone);
+
+    private static string GetRoomDetailsHref(string roomName) =>
+        RoomDisplayHelpers.GetRoomDetailsHref(roomName);
+
+    private Task OnCompareRoomAChanged(string room)
+    {
+        _compareRoomA = room;
+        BuildComparisonChart();
+        return Task.CompletedTask;
+    }
+
+    private Task OnCompareRoomBChanged(string room)
+    {
+        _compareRoomB = room;
+        BuildComparisonChart();
+        return Task.CompletedTask;
+    }
+
+    private void BuildComparisonChart()
+    {
+        _compareSeries = [];
+        _compareLabels = [];
+        if (string.IsNullOrWhiteSpace(_compareRoomA) || string.IsNullOrWhiteSpace(_compareRoomB)
+            || string.Equals(_compareRoomA, _compareRoomB, StringComparison.OrdinalIgnoreCase))
+            return;
+
+        long[]? sharedTs = null;
+        var series = new List<ChartSeries<double>>();
+        foreach (var room in new[] { _compareRoomA, _compareRoomB })
         {
-            _ when r.Contains("bath") => (21.0, 23.0),
-            _ when r.Contains("bed") => (17.0, 19.0),
-            _ when r.Contains("kitchen") => (18.0, 20.0),
-            _ when r.Contains("hall") || r.Contains("landing") => (16.0, 18.0),
-            _ when r.Contains("living") || r.Contains("lounge") => (20.0, 22.0),
-            _ => (19.0, 21.0),
+            var built = RoomTrendChartBuilder.Build(
+                Store, Options, room, _hours, DisplayZone,
+                includeOutdoor: false, compactAxes: _compactChartAxes);
+            if (built is null)
+                continue;
+
+            sharedTs ??= built.PointTs;
+            var tempSeries = built.TempSeries.FirstOrDefault(s => s.Name == RoomTrendChartBuilder.SeriesRoom);
+            if (tempSeries is null)
+                continue;
+
+            series.Add(new ChartSeries<double>
+            {
+                Name = room,
+                Data = tempSeries.Data,
+                Visible = true,
+            });
+        }
+
+        if (series.Count == 0)
+            return;
+
+        _compareSeries = series;
+        _compareLabels = sharedTs is not null
+            ? RoomTrendChartBuilder.BuildSparseTimeLabels(sharedTs, _hours, DisplayZone, _compactChartAxes)
+            : [];
+
+        var rotation = _compactChartAxes ? (_hours <= 24 ? 0 : 40) : _hours switch
+        {
+            <= 12 => 0, <= 24 => 32, <= 48 => 48, _ => 58,
         };
-
-        if (isActive)
-            return baseRange;
-
-        const double inactiveOffsetC = 2.0;
-        return (baseRange.Item1 - inactiveOffsetC, baseRange.Item2 - inactiveOffsetC);
+        _compareTempLineOptions.XAxisLabelRotation = rotation;
+        _compareTempLineOptions.YAxisTicks = _compactChartAxes ? 2 : 1;
+        _compareTempLineOptions.MaxNumYAxisTicks = _compactChartAxes ? 6 : 12;
+        _compareRenderKey++;
     }
-
-    private static string FormatTrend(double trendDelta)
-    {
-        if (trendDelta > 0.4)
-            return $"up {trendDelta:+0.0;-0.0;0.0}C";
-        if (trendDelta < -0.4)
-            return $"down {trendDelta:+0.0;-0.0;0.0}C";
-        return $"steady {trendDelta:+0.0;-0.0;0.0}C";
-    }
-
-    private static bool IsWithinIgnoreWindow(long timestampUtc, TimeSpan ignoreStart, TimeSpan ignoreEnd, TimeZoneInfo zone)
-    {
-        if (ignoreStart == ignoreEnd)
-            return false;
-
-        var localTod = TimeZoneInfo.ConvertTime(DateTimeOffset.FromUnixTimeSeconds(timestampUtc), zone).TimeOfDay;
-        if (ignoreStart < ignoreEnd)
-            return localTod >= ignoreStart && localTod < ignoreEnd;
-
-        // Overnight window e.g. 22:00 -> 06:00
-        return localTod >= ignoreStart || localTod < ignoreEnd;
-    }
-
-    private static string GetRoomDetailsHref(string roomName) => RoomLinkHelper.RoomsPagePath(roomName);
 
     private static bool EfficiencyRowNeedsReview(RoomEfficiencyRow r)
     {

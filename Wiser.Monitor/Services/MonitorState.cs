@@ -42,6 +42,17 @@ public sealed class MonitorState(TemperatureStore store)
     public WorkerHealth GasMeterWorker { get; } = new();
     public WorkerHealth TimedAwayWorker { get; } = new();
 
+    private IReadOnlyList<string> _lowBatteryDevices = [];
+    public IReadOnlyList<string> LowBatteryDevices
+    {
+        get { lock (_gate) return _lowBatteryDevices; }
+    }
+
+    public void SetLowBatteryDevices(IReadOnlyList<string> names)
+    {
+        lock (_gate) _lowBatteryDevices = names;
+    }
+
     public IReadOnlyList<string> LastRooms { get; private set; } = [];
     public string? LastError { get; private set; }
     public long? LastOkUnix { get; private set; }
