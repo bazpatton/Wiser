@@ -38,15 +38,12 @@ public sealed class WiserPollWorker(
             {
                 break;
             }
-            catch (HttpRequestException ex)
+            catch (Exception ex)
             {
+                // Catch everything — including TaskCanceledException from HttpClient timeouts —
+                // so a transient hub blip or overnight reboot never kills the poll loop.
                 state.SetPollFailure(ex.Message);
-                log.LogWarning(ex, "hub poll failed");
-            }
-            catch (Exception ex) when (ex is InvalidOperationException or System.Text.Json.JsonException)
-            {
-                state.SetPollFailure(ex.Message);
-                log.LogWarning(ex, "hub poll error");
+                log.LogWarning(ex, "hub poll error (will retry next interval)");
             }
         }
     }
