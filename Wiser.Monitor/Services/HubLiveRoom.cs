@@ -53,16 +53,32 @@ public static class HubLiveRoomsParser
         if (!TryGetSystemObject(root, out var sys))
             return (false, null);
 
-        var away = false;
-        if (TryGetStringProperty(sys, "OverrideType", out var ot)
-            && string.Equals(ot, "Away", StringComparison.OrdinalIgnoreCase))
-            away = true;
+        var away = IsSystemAwayFromElement(sys);
 
         double? limitC = null;
         if (TryGetIntProperty(sys, "AwayModeSetPointLimit", out var tenths))
             limitC = tenths / 10.0;
 
         return (away, limitC);
+    }
+
+    private static bool IsSystemAwayFromElement(JsonElement sys)
+    {
+        if (TryGetStringProperty(sys, "OverrideType", out var ot)
+            && string.Equals(ot, "Away", StringComparison.OrdinalIgnoreCase))
+            return true;
+
+        if (!sys.TryGetProperty("RequestOverride", out var ro) || ro.ValueKind != JsonValueKind.Object)
+            return false;
+
+        if (!ro.TryGetProperty("Type", out var typeEl))
+            return false;
+
+        if (typeEl.ValueKind == JsonValueKind.Number && typeEl.TryGetInt32(out var n) && n == 2)
+            return true;
+
+        return typeEl.ValueKind == JsonValueKind.String
+            && string.Equals(typeEl.GetString(), "Away", StringComparison.OrdinalIgnoreCase);
     }
 
     private static bool TryGetSystemObject(JsonElement root, out JsonElement sys)

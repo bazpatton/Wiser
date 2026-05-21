@@ -1788,6 +1788,10 @@ public sealed class TemperatureStore
         }
     }
 
+    /// <summary>
+    /// Open monitor away session (not cancelled/completed), including past <c>ends_at_unix</c> until
+    /// <see cref="TimedAwayWorker"/> sets the hub Home and marks the session completed.
+    /// </summary>
     public TimedAwaySessionRow? TryGetActiveTimedAwaySession()
     {
         lock (_gate)
@@ -1800,7 +1804,6 @@ public sealed class TemperatureStore
                        extension_prompt_at_unix, cancelled_at_unix, completed_at_unix, smart_profile_version
                 FROM timed_away_session
                 WHERE cancelled_at_unix IS NULL AND completed_at_unix IS NULL
-                  AND ends_at_unix > strftime('%s', 'now')
                 ORDER BY created_at_unix DESC
                 LIMIT 1
                 """;

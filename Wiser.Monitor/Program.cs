@@ -483,9 +483,11 @@ app.MapGet("/api/away/status", (TemperatureStore store) =>
         });
     }
 
+    var now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
     return Results.Json(new
     {
         active = true,
+        overdue = session.EndsAtUnix <= now,
         session_id = session.SessionId.ToString(),
         ends_at_unix = session.EndsAtUnix,
         away_limit_c = session.AwayLimitC,

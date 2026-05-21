@@ -60,15 +60,45 @@
 
     @{
         var timedAway = Store.TryGetActiveTimedAwaySession();
+        var timedAwayOverdue = timedAway is not null
+            && DateTimeOffset.UtcNow.ToUnixTimeSeconds() >= timedAway.EndsAtUnix;
+    }
+    @if (_hubSystemAway && timedAway is null)
+    {
+        <MudAlert Severity="Severity.Warning"
+                  Dense="true"
+                  Class="home-hub-away-banner"
+                  ShowCloseIcon="false">
+            <MudText Typo="Typo.body2">
+                <strong>Hub away mode</strong> is active (set outside this monitor schedule).
+                <MudButton Variant="Variant.Text"
+                           Color="Color.Primary"
+                           Size="Size.Small"
+                           Class="pa-0 ma-0"
+                           Disabled="@(_quickActionsBusy || !HubConfiguredForApi)"
+                           OnClick="ToggleAwayModeAsync">
+                    Return Home
+                </MudButton>
+            </MudText>
+        </MudAlert>
     }
     @if (timedAway is not null)
     {
-        <MudAlert Severity="Severity.Info"
+        <MudAlert Severity="@(timedAwayOverdue ? Severity.Warning : Severity.Info)"
                   Dense="true"
                   Class="home-timed-away-banner"
                   ShowCloseIcon="false">
             <MudText Typo="Typo.body2">
-                <strong>Timed away</strong> until @FormatTimedAwayLocal(timedAway.EndsAtUnix)
+                @if (timedAwayOverdue)
+                {
+                    <strong>Timed away ended</strong>
+                    <text> — restoring Home on the hub.</text>
+                }
+                else
+                {
+                    <strong>Timed away</strong>
+                    <text> until @FormatTimedAwayLocal(timedAway.EndsAtUnix)</text>
+                }
                 (@timedAway.Source, limit @timedAway.AwayLimitC.ToString("F1", CultureInfo.InvariantCulture) °C).
                 <MudLink Href="/settings">Settings</MudLink>
                 ·
@@ -526,7 +556,8 @@
             ? null
             : $"/api/floorplan/image?v={_homeFloorplanConfig.UpdatedTs}";
 
-    private bool AwayQuickActionShowsActive => _awayModeActive || _hubSystemAway;
+    private bool AwayQuickActionShowsActive =>
+        _awayModeActive || _hubSystemAway || Store.TryGetActiveTimedAwaySession() is not null;
 
     protected override Task OnInitializedAsync()
     {

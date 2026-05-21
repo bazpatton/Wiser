@@ -295,7 +295,16 @@ public partial class MainPage : ContentPage
 		var relayOn = _snapshot.HeatingChannel?.Any(c => string.Equals(c.HeatingRelayState, "On", StringComparison.OrdinalIgnoreCase)) == true;
 		var anyDemand = _snapshot.Room?.Any(r => r.IsDemandingHeat()) == true;
 
-		HeatingLabel.Text = _snapshot.IsHeatingActive() ? "Heating: On" : "Heating: Off";
+		if (_snapshot.System?.IsAwayModeActive == true)
+		{
+			var limit = _snapshot.System.AwaySetpointLimitC;
+			HeatingLabel.Text = limit is { } c
+				? $"Away mode · limit {c.ToString("0.#", CultureInfo.CurrentCulture)} °C"
+				: "Away mode";
+		}
+		else
+			HeatingLabel.Text = _snapshot.IsHeatingActive() ? "Heating: On" : "Heating: Off";
+
 		UpdateHeatingDemandSummary(relayOn, anyDemand);
 	}
 

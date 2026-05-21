@@ -18,7 +18,11 @@ public static class WidgetStatusStore
 	public static void SaveFromDomain(WiserDomainPayload payload, DateTimeOffset fetchedAtLocal)
 	{
 		var rooms = payload.Room?.Count ?? 0;
-		var title = payload.IsHeatingActive() ? "Heating: On" : "Heating: Off";
+		var title = payload.System?.IsAwayModeActive == true
+			? (payload.System.AwaySetpointLimitC is { } lim
+				? $"Away · {lim:0.#} °C"
+				: "Away mode")
+			: payload.IsHeatingActive() ? "Heating: On" : "Heating: Off";
 		var subtitle = $"{rooms} room(s)";
 		var meta = $"Updated {fetchedAtLocal:t}";
 

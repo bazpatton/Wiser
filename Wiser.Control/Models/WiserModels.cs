@@ -112,6 +112,19 @@ public sealed class WiserSystem
 {
 	[JsonPropertyName("LocalDateAndTime")]
 	public WiserLocalDateTime? LocalDateAndTime { get; set; }
+
+	[JsonPropertyName("OverrideType")]
+	public string? OverrideType { get; set; }
+
+	/// <summary>Whole-house away limit in tenths of °C.</summary>
+	[JsonPropertyName("AwayModeSetPointLimit")]
+	public int? AwayModeSetPointLimit { get; set; }
+
+	public bool IsAwayModeActive =>
+		string.Equals(OverrideType, "Away", StringComparison.OrdinalIgnoreCase);
+
+	public double? AwaySetpointLimitC =>
+		AwayModeSetPointLimit is { } tenths ? tenths / 10.0 : null;
 }
 
 public sealed class WiserSchedule
