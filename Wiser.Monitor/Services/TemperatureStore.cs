@@ -1790,7 +1790,7 @@ public sealed class TemperatureStore
 
     /// <summary>
     /// Open monitor away session (not cancelled/completed), including past <c>ends_at_unix</c> until
-    /// <see cref="TimedAwayWorker"/> sets the hub Home and marks the session completed.
+    /// the timed-away worker sets the hub Home and marks the session completed.
     /// </summary>
     public TimedAwaySessionRow? TryGetActiveTimedAwaySession()
     {

@@ -217,15 +217,14 @@
                         </MudStack>
                         @if (Store.TryGetActiveTimedAwaySession() is { } monAway)
                         {
-                            var monAwayOverdue = DateTimeOffset.UtcNow.ToUnixTimeSeconds() >= monAway.EndsAtUnix;
                             <MudText Typo="Typo.caption" Class="mud-text-secondary mt-2 d-block">
-                                @if (monAwayOverdue)
+                                @if (DateTimeOffset.UtcNow.ToUnixTimeSeconds() >= monAway.EndsAtUnix)
                                 {
-                                    <text>Monitor timed away ended — restoring Home on the hub.</text>
+                                    <span>Monitor timed away ended — restoring Home on the hub.</span>
                                 }
                                 else
                                 {
-                                    <text>Monitor will return Home at @FormatMonitorTimedAwayEnd(monAway.EndsAtUnix) (@monAway.Source).</text>
+                                    <span>Monitor will return Home at @FormatMonitorTimedAwayEnd(monAway.EndsAtUnix) (@monAway.Source).</span>
                                 }
                                 <MudLink Href="/settings">Change in Settings</MudLink>
                             </MudText>

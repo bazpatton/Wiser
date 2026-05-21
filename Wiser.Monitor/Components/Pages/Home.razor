@@ -76,7 +76,7 @@
                            Size="Size.Small"
                            Class="pa-0 ma-0"
                            Disabled="@(_quickActionsBusy || !HubConfiguredForApi)"
-                           OnClick="ToggleAwayModeAsync">
+                           OnClick="@ToggleAwayModeAsync">
                     Return Home
                 </MudButton>
             </MudText>
@@ -91,13 +91,11 @@
             <MudText Typo="Typo.body2">
                 @if (timedAwayOverdue)
                 {
-                    <strong>Timed away ended</strong>
-                    <text> — restoring Home on the hub.</text>
+                    <span><strong>Timed away ended</strong> — restoring Home on the hub.</span>
                 }
                 else
                 {
-                    <strong>Timed away</strong>
-                    <text> until @FormatTimedAwayLocal(timedAway.EndsAtUnix)</text>
+                    <span><strong>Timed away</strong> until @FormatTimedAwayLocal(timedAway.EndsAtUnix)</span>
                 }
                 (@timedAway.Source, limit @timedAway.AwayLimitC.ToString("F1", CultureInfo.InvariantCulture) °C).
                 <MudLink Href="/settings">Settings</MudLink>
@@ -139,7 +137,7 @@
                            Size="Size.Small"
                            Class="pa-0 ma-0"
                            Disabled="@(_timedAwayActionBusy || !HubConfiguredForApi)"
-                           OnClick="CancelMonitorTimedAwayAsync">
+                           OnClick="@CancelMonitorTimedAwayAsync">
                     Cancel
                 </MudButton>
             </MudText>
@@ -236,7 +234,7 @@
                        StartIcon="@Icons.Material.Filled.CalendarMonth"
                        Class="touch-target"
                        Disabled="@(_quickActionsBusy || _quickActionRooms.Count == 0)"
-                       OnClick="ToggleAwayModeAsync">
+                       OnClick="@ToggleAwayModeAsync">
                 @(AwayQuickActionShowsActive ? "Unset away mode" : "Set away mode")
             </MudButton>
             <MudButton Href="/gas-meter"
@@ -504,7 +502,7 @@
                StartIcon="@Icons.Material.Filled.CalendarMonth"
                Class="touch-target"
                Disabled="@(_quickActionsBusy || _quickActionRooms.Count == 0)"
-               OnClick="ToggleAwayModeAsync">
+               OnClick="@ToggleAwayModeAsync">
         @(AwayQuickActionShowsActive ? "Unset away" : "Away mode")
     </MudButton>
 </div>
