@@ -107,6 +107,8 @@ public sealed class WiserPollWorker(
         if (_pollCount % 6 == 0)
             store.Prune(options.RetentionDays);
 
+        await TimedAwayExpiry.TryExpireDueSessionAsync(store, hub, options, log, ct).ConfigureAwait(false);
+
         state.SetPollSuccess();
         apiRoomsNamesCache.Invalidate();
     }

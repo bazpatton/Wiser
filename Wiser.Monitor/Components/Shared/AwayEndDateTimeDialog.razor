@@ -60,8 +60,9 @@
     protected override void OnInitialized()
     {
         var nowLocal = TimeZoneInfo.ConvertTime(DateTimeOffset.UtcNow, Zone);
-        _endDate = InitialDate ?? nowLocal.Date.AddDays(1);
-        _endTime = InitialTime ?? new TimeSpan(18, 0, 0);
+        var defaultEnd = nowLocal.AddHours(1);
+        _endDate = InitialDate ?? defaultEnd.Date;
+        _endTime = InitialTime ?? defaultEnd.TimeOfDay;
     }
 
     private void OnQuickHoursChanged(int? hours)

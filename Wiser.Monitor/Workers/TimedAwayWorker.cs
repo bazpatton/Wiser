@@ -79,26 +79,8 @@ public sealed class TimedAwayWorker(
 
         if (now >= session.EndsAtUnix)
         {
-            if (HubConfiguration.IsConfigured(options))
-            {
-                try
-                {
-                    await hub.PatchSystemHomeAwayAsync(options, "HOME", null, ct).ConfigureAwait(false);
-                }
-                catch (Exception ex)
-                {
-                    log.LogWarning(ex, "[timed_away] event=hub_home_fail session_id={SessionId}", session.SessionId);
-                    return;
-                }
-            }
-            else
-                log.LogInformation("[timed_away] event=expire session_id={SessionId} hub=skipped_not_configured", session.SessionId);
-
-            store.CompleteTimedAwaySession(session.SessionId);
-            if (session.Source == TimedAwaySource.Smart)
-                store.SetLastSmartAwayEndedUnix(now);
-
-            log.LogInformation("[timed_away] event=expire session_id={SessionId} ends_at={EndsAt}", session.SessionId, session.EndsAtUnix);
+            if (!await TimedAwayExpiry.TryExpireDueSessionAsync(store, hub, options, log, ct).ConfigureAwait(false))
+                return;
 
             if (!string.IsNullOrWhiteSpace(options.NtfyTopic) && click is not null)
             {

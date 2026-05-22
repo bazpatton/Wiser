@@ -89,14 +89,7 @@
                   Class="home-timed-away-banner"
                   ShowCloseIcon="false">
             <MudText Typo="Typo.body2">
-                @if (timedAwayOverdue)
-                {
-                    <span><strong>Timed away ended</strong> — restoring Home on the hub.</span>
-                }
-                else
-                {
-                    <span><strong>Timed away</strong> until @FormatTimedAwayLocal(timedAway.EndsAtUnix)</span>
-                }
+                <span><strong>@(timedAwayOverdue ? "Timed away ended" : "Timed away")</strong> — @FormatTimedAwayBannerSummary(timedAway)</span>
                 (@timedAway.Source, limit @timedAway.AwayLimitC.ToString("F1", CultureInfo.InvariantCulture) °C).
                 <MudLink Href="/settings">Settings</MudLink>
                 ·
@@ -679,18 +672,53 @@
             while (_homeUiRefreshTimer is not null &&
                    await _homeUiRefreshTimer.WaitForNextTickAsync(_homeUiRefreshCts?.Token ?? default))
             {
-                await InvokeAsync(() =>
-                {
-                    LoadHomeBoilerSummary();
-                    StateHasChanged();
-                    return Task.CompletedTask;
-                });
+                await InvokeAsync(RefreshHomeTimedAwayStateAsync);
             }
         }
         catch (OperationCanceledException)
         {
             // ignore
         }
+    }
+
+    private async Task RefreshHomeTimedAwayStateAsync()
+    {
+        var session = Store.TryGetActiveTimedAwaySession();
+        var now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+        if (session is not null && now >= session.EndsAtUnix && HubConfiguredForApi)
+        {
+            try
+            {
+                using var resp = await Http.PostAsync("/api/away/expire-due", null);
+                if (!resp.IsSuccessStatusCode)
+                    Snackbar.Add("Could not restore Home on the hub yet; will retry.", Severity.Warning);
+            }
+            catch
+            {
+                // retry on next tick
+            }
+        }
+
+        if (HubConfiguredForApi)
+        {
+            try
+            {
+                var overview = await LiveHubRoomTemps.TryFetchOverviewAsync(Hub, Options, CancellationToken.None)
+                    .ConfigureAwait(false);
+                if (overview is not null)
+                {
+                    RoomsCache.Update(overview);
+                    _hubSystemAway = overview.SystemAway;
+                }
+            }
+            catch
+            {
+                // ignore
+            }
+        }
+
+        LoadHomeBoilerSummary();
+        StateHasChanged();
     }
 
     public async ValueTask DisposeAsync()
@@ -706,6 +734,31 @@
         var z = DisplayZone;
         var local = TimeZoneInfo.ConvertTime(DateTimeOffset.FromUnixTimeSeconds(unix), z);
         return local.ToString("g", CultureInfo.CurrentCulture);
+    }
+
+    private string FormatTimedAwayBannerSummary(TimedAwaySessionRow session)
+    {
+        var now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+        var localEnd = FormatTimedAwayLocal(session.EndsAtUnix);
+        if (now >= session.EndsAtUnix)
+        {
+            var ago = TimeSpan.FromSeconds(now - session.EndsAtUnix);
+            return $"ended {FormatTimedAwayRelative(ago)} ago ({localEnd}) — restoring Home on the hub";
+        }
+
+        var until = TimeSpan.FromSeconds(session.EndsAtUnix - now);
+        return $"until {localEnd} ({FormatTimedAwayRelative(until)} left)";
+    }
+
+    private static string FormatTimedAwayRelative(TimeSpan span)
+    {
+        if (span.TotalMinutes < 1)
+            return "under 1 min";
+        if (span.TotalHours < 1)
+            return $"{(int)Math.Round(span.TotalMinutes)} min";
+        if (span.TotalDays < 1)
+            return $"{span.Hours}h {span.Minutes}m";
+        return $"{(int)span.TotalDays}d {span.Hours}h";
     }
 
     private async Task TryPromptExtendNearEndOnceAsync()
@@ -768,6 +821,7 @@
             }
 
             Snackbar.Add("Timed away cancelled; hub set to Home.", Severity.Success);
+            await RefreshHomeTimedAwayStateAsync();
         }
         catch (Exception ex)
         {

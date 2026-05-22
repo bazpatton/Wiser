@@ -602,6 +602,34 @@ app.MapPost("/api/away/cancel", async (WiserHubFetch hub, TemperatureStore store
     return Results.Json(new { ok = true });
 }).DisableAntiforgery();
 
+app.MapPost("/api/away/expire-due", async (WiserHubFetch hub, TemperatureStore store, MonitorOptions o, CancellationToken ct) =>
+{
+    if (!hubConfigured)
+    {
+        return Results.Json(
+            new { error = "Hub is not configured. Set WISER_IP and WISER_SECRET.", configuration_errors = hubConfigurationErrors },
+            statusCode: StatusCodes.Status503ServiceUnavailable);
+    }
+
+    var session = store.TryGetActiveTimedAwaySession();
+    if (session is null)
+        return Results.Json(new { ok = true, expired = false, reason = "no_active_session" });
+
+    var now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+    if (now < session.EndsAtUnix)
+        return Results.Json(new { ok = true, expired = false, reason = "not_due", ends_at_unix = session.EndsAtUnix });
+
+    var expired = await TimedAwayExpiry.TryExpireDueSessionAsync(store, hub, o, null, ct).ConfigureAwait(false);
+    if (!expired)
+    {
+        return Results.Json(
+            new { ok = false, expired = false, reason = "hub_home_failed", ends_at_unix = session.EndsAtUnix },
+            statusCode: StatusCodes.Status502BadGateway);
+    }
+
+    return Results.Json(new { ok = true, expired = true, session_id = session.SessionId.ToString() });
+}).DisableAntiforgery();
+
 app.MapPost("/api/away/extend", (
     TimedAwayExtendRequest body,
     TemperatureStore store) =>
