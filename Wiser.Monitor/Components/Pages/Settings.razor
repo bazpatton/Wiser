@@ -42,6 +42,10 @@
             <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined" Color="Color.Default">
                 @_settingsPollStatusText
             </MudChip>
+            <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined"
+                     Color="@(_settingsTrendStorageOk ? Color.Success : Color.Warning)">
+                @_settingsTrendStorageText
+            </MudChip>
             <MudChip T="string"
                      Size="Size.Small"
                      Variant="Variant.Outlined"
@@ -107,6 +111,13 @@
         @if (!string.IsNullOrWhiteSpace(pollErr))
         {
             <MudAlert Dense="true" Severity="Severity.Warning" Class="mt-1">Hub poller: @pollErr</MudAlert>
+        }
+        @if (!_settingsTrendStorageOk)
+        {
+            <MudAlert Dense="true" Severity="Severity.Warning" Class="mt-1">
+                @_settingsTrendStorageDetail
+                <MudLink Href="/charts#data-quality">Data quality</MudLink>
+            </MudAlert>
         }
         @if (!string.IsNullOrWhiteSpace(gasWorkerErr))
         {
@@ -918,6 +929,9 @@
     private string? _taLiveValidationError;
     private string? _taLiveActiveSessionEndsLocalText;
     private string _settingsPollStatusText = "";
+    private string _settingsTrendStorageText = "Trend storage: —";
+    private string _settingsTrendStorageDetail = "";
+    private bool _settingsTrendStorageOk = true;
     private string _settingsOutdoorStatusText = "Outdoor: no samples yet";
     private bool _openMeteoConfigured;
 
@@ -1119,6 +1133,30 @@
         }
         if (!string.IsNullOrWhiteSpace(snap.LastError))
             _settingsPollStatusText += $" · last error: {snap.LastError}";
+        if (snap.LastOkUnix is not null)
+            _settingsPollStatusText +=
+                $" · {MonitorState.LastPollRoomsStored} room(s) stored, {MonitorState.LastPollRoomsExcluded} excluded";
+
+        var since24h = DateTimeOffset.UtcNow.ToUnixTimeSeconds() - 86400L;
+        var readings24h = Store.CountRoomReadingsSince(since24h);
+        _settingsTrendStorageText = $"Trend DB: {readings24h} samples / 24h";
+        _settingsTrendStorageOk = readings24h > 0 && MonitorState.LastPollRoomsStored > 0;
+        if (readings24h == 0 && MonitorState.LastPollRoomsStored == 0)
+        {
+            _settingsTrendStorageDetail =
+                "Hub polls are succeeding but no room temperatures are being stored (TRVs may be offline or reporting invalid readings). Charts and home trends will show unavailable until valid samples arrive.";
+        }
+        else if (readings24h == 0)
+        {
+            _settingsTrendStorageDetail =
+                "No room readings in the last 24 hours in local storage. Trends need ongoing polls with valid room temperatures.";
+        }
+        else if (MonitorState.LastPollRoomsStored == 0)
+        {
+            _settingsTrendStorageDetail =
+                $"Last poll stored 0 rooms ({MonitorState.LastPollRoomsExcluded} excluded). Historical data remains ({readings24h} samples / 24h) but new trend points are not being added.";
+        }
+
         if (_openMeteoConfigured)
         {
             var outdoor = Store.GetLatestOutdoor();

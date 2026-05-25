@@ -615,6 +615,18 @@ public sealed class TemperatureStore
         return list;
     }
 
+    public int CountRoomReadingsSince(long sinceTs)
+    {
+        lock (_gate)
+        {
+            using var c = Open();
+            using var cmd = c.CreateCommand();
+            cmd.CommandText = "SELECT COUNT(*) FROM room_readings WHERE ts >= $since";
+            cmd.Parameters.AddWithValue("$since", sinceTs);
+            return Convert.ToInt32(cmd.ExecuteScalar(), CultureInfo.InvariantCulture);
+        }
+    }
+
     public IReadOnlyList<string> ListRooms()
     {
         lock (_gate)

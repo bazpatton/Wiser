@@ -717,6 +717,12 @@
             }
         }
 
+        if (_liveHubByRoom is not null)
+        {
+            BuildHomeRoomHeatMap();
+            BuildHomeFloorplanOverlay();
+        }
+
         LoadHomeBoilerSummary();
         StateHasChanged();
     }
@@ -1294,10 +1300,41 @@
         }
     }
 
+    private IReadOnlyList<string> GetHomeTrendRoomNames()
+    {
+        var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var r in Store.ListRooms())
+            names.Add(r);
+        if (_liveHubByRoom is not null)
+        {
+            foreach (var r in _liveHubByRoom.Keys)
+                names.Add(r);
+        }
+        else
+        {
+            foreach (var r in MonitorState.GetLastRooms())
+                names.Add(r);
+        }
+
+        return names.OrderBy(static x => x, StringComparer.OrdinalIgnoreCase).ToList();
+    }
+
+    private bool TryGetLiveTempC(string room, out double tempC)
+    {
+        tempC = 0;
+        if (_liveHubByRoom is null
+            || !_liveHubByRoom.TryGetValue(room, out var live)
+            || LiveHubRoomTemps.IsUnavailableTemp(live.TempC))
+            return false;
+
+        tempC = live.TempC;
+        return true;
+    }
+
     private void BuildHomeRoomHeatMap()
     {
         _homeRoomTiles.Clear();
-        var rooms = Store.ListRooms().OrderBy(x => x, StringComparer.OrdinalIgnoreCase).ToList();
+        var rooms = GetHomeTrendRoomNames();
         if (rooms.Count == 0)
             return;
 
@@ -1313,20 +1350,29 @@
             if (rows.Count == 0)
             {
                 var (missingMin, missingMax) = GetRecommendedTempRange(room, isActive);
+                var hasLive = TryGetLiveTempC(room, out var liveOnlyTemp);
+                var bandColor = hasLive
+                    ? ComfortColors.GetGradientColor(liveOnlyTemp, missingMin, missingMax)
+                    : "#334155";
+                var (cst, csc) = hasLive
+                    ? ComfortColors.GetCurrentState(liveOnlyTemp, missingMin, missingMax)
+                    : ("Current state unavailable", "#94a3b8");
                 tiles.Add(new HomeRoomHeatTile(
                     room,
-                    null,
-                    "—",
-                    "#334155",
+                    hasLive ? liveOnlyTemp : null,
+                    hasLive ? $"{liveOnlyTemp:0.0}C" : "—",
+                    bandColor,
                     $"Recommended {missingMin:0.#} - {missingMax:0.#}C",
-                    $"No data in selected period{(isActive ? string.Empty : ", inactive profile")}",
-                    "Trend unavailable",
+                    hasLive
+                        ? "Live hub temperature (no stored history in last 24h)"
+                        : $"No data in selected period{(isActive ? string.Empty : ", inactive profile")}",
+                    hasLive ? "Trend building" : "Trend unavailable",
                     null,
                     -1,
                     0,
                     0,
-                    "Current state unavailable",
-                    "#94a3b8"));
+                    cst,
+                    csc));
                 continue;
             }
 

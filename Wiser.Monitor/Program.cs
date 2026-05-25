@@ -119,13 +119,15 @@ const long MaxFloorplanImageBytes = 10L * 1024 * 1024;
 var floorplanDir = Path.Combine(Path.GetFullPath(monitorOptions.DataDir), "floorplan");
 Directory.CreateDirectory(floorplanDir);
 
-app.MapGet("/api/health", (MonitorState state, MonitorOptions o) =>
+app.MapGet("/api/health", (MonitorState state, TemperatureStore store, MonitorOptions o) =>
 {
     var (err, ok) = state.Snapshot();
     var (gasErr, gasOk) = state.GasMeterWorker.Snapshot();
     var (awayErr, awayOk) = state.TimedAwayWorker.Snapshot();
     var hubPollerOk = hubConfigured && ok is not null && string.IsNullOrWhiteSpace(err);
     var serviceOk = hubPollerOk && string.IsNullOrWhiteSpace(gasErr) && string.IsNullOrWhiteSpace(awayErr);
+    var since24h = DateTimeOffset.UtcNow.ToUnixTimeSeconds() - 86400L;
+    var roomSamples24h = store.CountRoomReadingsSince(since24h);
     return Results.Json(new
     {
         ok = serviceOk,
@@ -133,6 +135,9 @@ app.MapGet("/api/health", (MonitorState state, MonitorOptions o) =>
         configuration_errors = hubConfigured ? new List<string>() : hubConfigurationErrors,
         last_ok_ts = ok,
         last_error = err,
+        last_poll_rooms_stored = state.LastPollRoomsStored,
+        last_poll_rooms_excluded = state.LastPollRoomsExcluded,
+        room_readings_24h = roomSamples24h,
         interval_sec = o.IntervalSec,
         alert_rooms = "all",
         alerts_enabled = o.AlertsEnabled,

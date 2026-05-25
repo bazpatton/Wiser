@@ -71,7 +71,15 @@ public sealed class WiserPollWorker(
             // Non-critical; don't fail the poll if device parse fails.
         }
         var samples = poll.Rooms;
+        var excluded = poll.ExcludedReadings.Count;
         state.SetLastRooms(samples.Select(s => s.Name).ToList());
+        state.SetLastPollRoomStats(samples.Count, excluded);
+        if (samples.Count == 0)
+        {
+            log.LogWarning(
+                "hub poll stored 0 room samples ({Excluded} excluded); trends need valid room temperatures in domain JSON",
+                excluded);
+        }
 
         store.InsertSystem(ts, poll.HeatingRelayOn, poll.HeatingActive);
 
@@ -107,7 +115,14 @@ public sealed class WiserPollWorker(
         if (_pollCount % 6 == 0)
             store.Prune(options.RetentionDays);
 
-        await TimedAwayExpiry.TryExpireDueSessionAsync(store, hub, options, log, ct).ConfigureAwait(false);
+        try
+        {
+            await TimedAwayExpiry.TryExpireDueSessionAsync(store, hub, options, log, ct).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            log.LogWarning(ex, "[timed_away] event=error phase=poll_expire");
+        }
 
         state.SetPollSuccess();
         apiRoomsNamesCache.Invalidate();
