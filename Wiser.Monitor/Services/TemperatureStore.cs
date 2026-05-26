@@ -15,6 +15,8 @@ public sealed class TemperatureStore
     private readonly string _path;
     private readonly object _gate = new();
 
+    public string DatabasePath => _path;
+
     public TemperatureStore(MonitorOptions options)
     {
         var dir = Path.GetFullPath(options.DataDir);
@@ -624,6 +626,97 @@ public sealed class TemperatureStore
             cmd.CommandText = "SELECT COUNT(*) FROM room_readings WHERE ts >= $since";
             cmd.Parameters.AddWithValue("$since", sinceTs);
             return Convert.ToInt32(cmd.ExecuteScalar(), CultureInfo.InvariantCulture);
+        }
+    }
+
+    /// <summary>Maps a hub/UI room label to the canonical name stored in SQLite (case-insensitive).</summary>
+    public string? ResolveStoredRoomName(string room)
+    {
+        if (string.IsNullOrWhiteSpace(room))
+            return null;
+
+        lock (_gate)
+        {
+            using var c = Open();
+            using var cmd = c.CreateCommand();
+            cmd.CommandText =
+                """
+                SELECT room FROM room_readings
+                WHERE room = $room COLLATE NOCASE
+                LIMIT 1
+                """;
+            cmd.Parameters.AddWithValue("$room", room.Trim());
+            var scalar = cmd.ExecuteScalar();
+            return scalar is string s ? s : null;
+        }
+    }
+
+    public StorageDiagnostics GetStorageDiagnostics(long sinceTs)
+    {
+        lock (_gate)
+        {
+            using var c = Open();
+            long dbBytes = 0;
+            try
+            {
+                if (File.Exists(_path))
+                    dbBytes = new FileInfo(_path).Length;
+            }
+            catch
+            {
+                // ignore
+            }
+
+            int total;
+            int sinceCount;
+            long? oldest;
+            long? newest;
+            int distinct;
+
+            using (var cmd = c.CreateCommand())
+            {
+                cmd.CommandText = "SELECT COUNT(*), MIN(ts), MAX(ts), COUNT(DISTINCT room) FROM room_readings";
+                using var r = cmd.ExecuteReader();
+                r.Read();
+                total = (int)r.GetInt64(0);
+                oldest = r.IsDBNull(1) ? null : r.GetInt64(1);
+                newest = r.IsDBNull(2) ? null : r.GetInt64(2);
+                distinct = r.IsDBNull(3) ? 0 : (int)r.GetInt64(3);
+            }
+
+            using (var cmd = c.CreateCommand())
+            {
+                cmd.CommandText = "SELECT COUNT(*) FROM room_readings WHERE ts >= $since";
+                cmd.Parameters.AddWithValue("$since", sinceTs);
+                sinceCount = Convert.ToInt32(cmd.ExecuteScalar(), CultureInfo.InvariantCulture);
+            }
+
+            var perRoom = new List<RoomSampleCount>();
+            using (var cmd = c.CreateCommand())
+            {
+                cmd.CommandText =
+                    """
+                    SELECT room, COUNT(*) AS c FROM room_readings
+                    WHERE ts >= $since
+                    GROUP BY room
+                    ORDER BY c DESC, room COLLATE NOCASE
+                    LIMIT 20
+                    """;
+                cmd.Parameters.AddWithValue("$since", sinceTs);
+                using var r = cmd.ExecuteReader();
+                while (r.Read())
+                    perRoom.Add(new RoomSampleCount(r.GetString(0), (int)r.GetInt64(1)));
+            }
+
+            return new StorageDiagnostics(
+                _path,
+                dbBytes,
+                distinct,
+                total,
+                sinceCount,
+                oldest,
+                newest,
+                perRoom);
         }
     }
 
@@ -2017,6 +2110,7 @@ public sealed class TemperatureStore
 
     public IReadOnlyList<RoomSeriesRow> SeriesRoom(string room, long sinceTs)
     {
+        var storedName = ResolveStoredRoomName(room) ?? room.Trim();
         lock (_gate)
         {
             using var c = Open();
@@ -2026,7 +2120,7 @@ public sealed class TemperatureStore
                 SELECT ts, temp_c, setpoint_c, current_setpoint_c, scheduled_setpoint_c, heat_demand, percentage_demand FROM room_readings
                 WHERE room = $room AND ts >= $since ORDER BY ts ASC
                 """;
-            cmd.Parameters.AddWithValue("$room", room);
+            cmd.Parameters.AddWithValue("$room", storedName);
             cmd.Parameters.AddWithValue("$since", sinceTs);
             using var r = cmd.ExecuteReader();
             var list = new List<RoomSeriesRow>();

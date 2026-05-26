@@ -9,10 +9,12 @@
 @using Microsoft.AspNetCore.Components.Web
 @using MudBlazor
 @using Wiser.Monitor.Services
+@implements IDisposable
 
 @inject TemperatureStore Store
 @inject MonitorOptions Options
 @inject MonitorState MonitorState
+@inject MonitorEventLog EventLog
 @inject ISnackbar Snackbar
 @inject IDialogService DialogService
 @inject HttpClient Http
@@ -108,6 +110,14 @@
                 Outdoor data: @(Options.OpenMeteoLat is null ? "Off" : "On")
             </MudChip>
         </MudStack>
+        @if (_settingsPollStale)
+        {
+            <MudAlert Dense="true" Severity="Severity.Error" Class="mt-1">
+                Hub poller has not completed successfully for @_settingsPollStaleMinutes min
+                (expected every @Options.IntervalSec s). The process may be stuck or the hub unreachable.
+                Check container logs: <code>docker compose logs --tail=80 wiser-monitor</code>
+            </MudAlert>
+        }
         @if (!string.IsNullOrWhiteSpace(pollErr))
         {
             <MudAlert Dense="true" Severity="Severity.Warning" Class="mt-1">Hub poller: @pollErr</MudAlert>
@@ -133,6 +143,67 @@
                 Low battery (&lt;20%): @string.Join(", ", MonitorState.LowBatteryDevices)
             </MudAlert>
         }
+        <MudExpansionPanels Class="mt-2">
+            <MudExpansionPanel Expanded="true">
+                <TitleContent>
+                    <MudText Typo="Typo.subtitle2"><i class="fa-solid fa-stethoscope"></i> Diagnostics &amp; recent errors</MudText>
+                </TitleContent>
+                <ChildContent>
+                    <MudText Typo="Typo.caption" Class="mud-text-secondary d-block mb-2">
+                        Refreshes every 30s. Trends read from SQLite at <code>@Options.DataDir</code>.
+                    </MudText>
+                    <MudStack Row="true" Wrap="Wrap.Wrap" Spacing="1" Class="mb-2">
+                        <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined" Color="Color.Default">
+                            DB: @_settingsDbSizeText
+                        </MudChip>
+                        <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined" Color="Color.Default">
+                            @_settingsDistinctRoomsText
+                        </MudChip>
+                        <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined" Color="Color.Default">
+                            @_settingsNewestSampleText
+                        </MudChip>
+                    </MudStack>
+                    @if (_settingsPerRoomSamples.Count > 0)
+                    {
+                        <MudText Typo="Typo.caption" Class="mud-text-secondary mb-1">Samples per room (last 24h):</MudText>
+                        <MudText Typo="Typo.body2" Class="mb-2">@string.Join(" · ", _settingsPerRoomSamples)</MudText>
+                    }
+                    @if (_settingsTrendUiHint is not null)
+                    {
+                        <MudAlert Dense="true" Severity="Severity.Info" Class="mb-2">@_settingsTrendUiHint</MudAlert>
+                    }
+                    @if (_recentEvents.Count == 0)
+                    {
+                        <MudText Typo="Typo.body2" Class="mud-text-secondary">No warnings or errors recorded since last restart.</MudText>
+                    }
+                    else
+                    {
+                        <MudText Typo="Typo.caption" Class="mud-text-secondary mb-1">Recent warnings/errors (newest first):</MudText>
+                        <MudSimpleTable Dense="true" Class="diagnostics-event-table">
+                            <thead>
+                                <tr>
+                                    <th>Time</th>
+                                    <th>Level</th>
+                                    <th>Source</th>
+                                    <th>Message</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var ev in _recentEvents.Take(15))
+                                {
+                                    <tr>
+                                        <td>@FormatDiagnosticsLocalTime(ev.AtUnix)</td>
+                                        <td>@ev.Level</td>
+                                        <td>@ev.Category</td>
+                                        <td>@ev.Message</td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </MudSimpleTable>
+                    }
+                </ChildContent>
+            </MudExpansionPanel>
+        </MudExpansionPanels>
     </MudPaper>
 
     <MudExpansionPanels Class="home-expansion-panels">
@@ -932,6 +1003,16 @@
     private string _settingsTrendStorageText = "Trend storage: —";
     private string _settingsTrendStorageDetail = "";
     private bool _settingsTrendStorageOk = true;
+    private bool _settingsPollStale;
+    private int _settingsPollStaleMinutes;
+    private string _settingsDbSizeText = "—";
+    private string _settingsDistinctRoomsText = "—";
+    private string _settingsNewestSampleText = "Newest sample: —";
+    private string? _settingsTrendUiHint;
+    private readonly List<string> _settingsPerRoomSamples = [];
+    private readonly List<MonitorEventEntry> _recentEvents = [];
+    private PeriodicTimer? _settingsRefreshTimer;
+    private CancellationTokenSource? _settingsRefreshCts;
     private string _settingsOutdoorStatusText = "Outdoor: no samples yet";
     private bool _openMeteoConfigured;
 
@@ -954,6 +1035,36 @@
         await RefreshFloorplanPreviewSizeAsync();
         if (Nav.Uri.Contains("#timed-away", StringComparison.Ordinal))
             await Js.InvokeVoidAsync("wiserScrollToId", "timed-away");
+
+        _settingsRefreshCts = new CancellationTokenSource();
+        _settingsRefreshTimer = new PeriodicTimer(TimeSpan.FromSeconds(30));
+        _ = PumpSettingsRefreshAsync();
+    }
+
+    private async Task PumpSettingsRefreshAsync()
+    {
+        try
+        {
+            while (_settingsRefreshTimer is not null &&
+                   await _settingsRefreshTimer.WaitForNextTickAsync(_settingsRefreshCts?.Token ?? default))
+            {
+                await InvokeAsync(async () =>
+                {
+                    await RefreshServiceDiagnosticsAsync();
+                    StateHasChanged();
+                });
+            }
+        }
+        catch (OperationCanceledException)
+        {
+        }
+    }
+
+    public void Dispose()
+    {
+        _settingsRefreshCts?.Cancel();
+        _settingsRefreshCts?.Dispose();
+        _settingsRefreshTimer?.Dispose();
     }
 
     private Task OnGasReminderEnabledChanged(bool value)
@@ -1122,40 +1233,7 @@
                 prioritySet.Contains(room)));
         LoadFloorplanMapping(rooms);
         _roomRanges = Store.GetRoomRanges();
-        var snap = MonitorState.Snapshot();
         _openMeteoConfigured = Options.OpenMeteoLat is not null && Options.OpenMeteoLon is not null;
-        if (snap.LastOkUnix is null)
-            _settingsPollStatusText = "Last poll: no successful poll yet";
-        else
-        {
-            var local = TimeZoneInfo.ConvertTime(DateTimeOffset.FromUnixTimeSeconds(snap.LastOkUnix.Value), DisplayZone);
-            _settingsPollStatusText = $"Last poll OK: {local.ToString("g", CultureInfo.CurrentCulture)}";
-        }
-        if (!string.IsNullOrWhiteSpace(snap.LastError))
-            _settingsPollStatusText += $" · last error: {snap.LastError}";
-        if (snap.LastOkUnix is not null)
-            _settingsPollStatusText +=
-                $" · {MonitorState.LastPollRoomsStored} room(s) stored, {MonitorState.LastPollRoomsExcluded} excluded";
-
-        var since24h = DateTimeOffset.UtcNow.ToUnixTimeSeconds() - 86400L;
-        var readings24h = Store.CountRoomReadingsSince(since24h);
-        _settingsTrendStorageText = $"Trend DB: {readings24h} samples / 24h";
-        _settingsTrendStorageOk = readings24h > 0 && MonitorState.LastPollRoomsStored > 0;
-        if (readings24h == 0 && MonitorState.LastPollRoomsStored == 0)
-        {
-            _settingsTrendStorageDetail =
-                "Hub polls are succeeding but no room temperatures are being stored (TRVs may be offline or reporting invalid readings). Charts and home trends will show unavailable until valid samples arrive.";
-        }
-        else if (readings24h == 0)
-        {
-            _settingsTrendStorageDetail =
-                "No room readings in the last 24 hours in local storage. Trends need ongoing polls with valid room temperatures.";
-        }
-        else if (MonitorState.LastPollRoomsStored == 0)
-        {
-            _settingsTrendStorageDetail =
-                $"Last poll stored 0 rooms ({MonitorState.LastPollRoomsExcluded} excluded). Historical data remains ({readings24h} samples / 24h) but new trend points are not being added.";
-        }
 
         if (_openMeteoConfigured)
         {
@@ -1170,7 +1248,67 @@
             }
         }
         LoadTimedAwayFields();
+        await RefreshServiceDiagnosticsAsync();
         await RefreshSmartAwayValidationAsync();
+    }
+
+    private Task RefreshServiceDiagnosticsAsync()
+    {
+        var snap = MonitorState.Snapshot();
+        var now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+        if (snap.LastOkUnix is null)
+            _settingsPollStatusText = "Last poll: no successful poll yet";
+        else
+        {
+            var local = TimeZoneInfo.ConvertTime(DateTimeOffset.FromUnixTimeSeconds(snap.LastOkUnix.Value), DisplayZone);
+            _settingsPollStatusText = $"Last poll OK: {local.ToString("g", CultureInfo.CurrentCulture)}";
+            var staleSec = now - snap.LastOkUnix.Value;
+            _settingsPollStale = staleSec > Options.IntervalSec * 2;
+            _settingsPollStaleMinutes = Math.Max(1, (int)Math.Round(staleSec / 60.0));
+        }
+
+        if (!string.IsNullOrWhiteSpace(snap.LastError))
+            _settingsPollStatusText += $" · last error: {snap.LastError}";
+        if (snap.LastOkUnix is not null)
+            _settingsPollStatusText +=
+                $" · {MonitorState.LastPollRoomsStored} room(s) stored, {MonitorState.LastPollRoomsExcluded} excluded";
+
+        var since24h = now - 86400L;
+        var storage = Store.GetStorageDiagnostics(since24h);
+        _settingsTrendStorageText = $"Trend DB: {storage.RoomReadingsSince} samples / 24h";
+        _settingsTrendStorageOk = storage.RoomReadingsSince > 0 && storage.DistinctRooms > 0;
+        _settingsDbSizeText = storage.DatabaseBytes <= 0
+            ? "size unknown"
+            : $"{storage.DatabaseBytes / 1024.0:0.#} KB";
+        _settingsDistinctRoomsText = $"{storage.DistinctRooms} room(s) in DB";
+        _settingsNewestSampleText = storage.NewestReadingUnix is null
+            ? "Newest sample: none"
+            : $"Newest sample: {TimeZoneInfo.ConvertTime(DateTimeOffset.FromUnixTimeSeconds(storage.NewestReadingUnix.Value), DisplayZone):g}";
+        _settingsPerRoomSamples.Clear();
+        foreach (var row in storage.TopRoomSamplesSince.Take(12))
+            _settingsPerRoomSamples.Add($"{row.Room} ({row.SamplesSince})");
+
+        _settingsTrendStorageDetail = "";
+        _settingsTrendUiHint = null;
+        if (storage.RoomReadingsSince == 0)
+        {
+            _settingsTrendStorageDetail =
+                "No room readings in SQLite for the last 24 hours. Trends will show unavailable until polls store data.";
+        }
+        else if (_settingsPollStale)
+        {
+            _settingsTrendStorageDetail =
+                $"Database has {storage.RoomReadingsSince} samples but polling may have stopped. Trends show historical data only until polling resumes.";
+        }
+        else if (storage.RoomReadingsSince > 0 && MonitorState.LastPollRoomsStored > 0)
+        {
+            _settingsTrendUiHint =
+                "Storage looks healthy. If Home/Charts still say Trend unavailable, refresh the page — tiles reload from the database every 45s on Home and 60s on Charts.";
+        }
+
+        _recentEvents.Clear();
+        _recentEvents.AddRange(EventLog.Snapshot());
+        return Task.CompletedTask;
     }
 
     private void LoadTimedAwayFields()

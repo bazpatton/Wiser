@@ -59,6 +59,8 @@ foreach (var err in valErrors.Except(hubConfigurationErrors))
 builder.Services.AddSingleton(monitorOptions);
 builder.Services.AddSingleton<TemperatureStore>();
 builder.Services.AddSingleton<MonitorState>();
+builder.Services.AddSingleton<MonitorEventLog>();
+builder.Services.AddSingleton<ILoggerProvider, MonitorEventLogLoggerProvider>();
 builder.Services.Configure<FormOptions>(o =>
 {
     o.MultipartBodyLengthLimit = TemperatureStore.MaxDatabaseRestoreBytes;
@@ -128,6 +130,9 @@ app.MapGet("/api/health", (MonitorState state, TemperatureStore store, MonitorOp
     var serviceOk = hubPollerOk && string.IsNullOrWhiteSpace(gasErr) && string.IsNullOrWhiteSpace(awayErr);
     var since24h = DateTimeOffset.UtcNow.ToUnixTimeSeconds() - 86400L;
     var roomSamples24h = store.CountRoomReadingsSince(since24h);
+    var storage = store.GetStorageDiagnostics(since24h);
+    var pollStaleSec = ok is null ? null : (long?)(DateTimeOffset.UtcNow.ToUnixTimeSeconds() - ok.Value);
+    var pollStale = pollStaleSec is > 0 && pollStaleSec > o.IntervalSec * 2;
     return Results.Json(new
     {
         ok = serviceOk,
@@ -137,7 +142,14 @@ app.MapGet("/api/health", (MonitorState state, TemperatureStore store, MonitorOp
         last_error = err,
         last_poll_rooms_stored = state.LastPollRoomsStored,
         last_poll_rooms_excluded = state.LastPollRoomsExcluded,
+        poll_stale = pollStale,
+        poll_stale_sec = pollStaleSec,
         room_readings_24h = roomSamples24h,
+        data_dir = o.DataDir,
+        database_path = store.DatabasePath,
+        database_bytes = storage.DatabaseBytes,
+        distinct_rooms = storage.DistinctRooms,
+        newest_reading_ts = storage.NewestReadingUnix,
         interval_sec = o.IntervalSec,
         alert_rooms = "all",
         alerts_enabled = o.AlertsEnabled,
@@ -148,6 +160,30 @@ app.MapGet("/api/health", (MonitorState state, TemperatureStore store, MonitorOp
             gas_meter_reminder = new { ok = string.IsNullOrWhiteSpace(gasErr), last_ok_ts = gasOk, last_error = gasErr },
             timed_away = new { ok = string.IsNullOrWhiteSpace(awayErr), last_ok_ts = awayOk, last_error = awayErr },
         },
+    });
+});
+
+app.MapGet("/api/diagnostics", (MonitorState state, TemperatureStore store, MonitorOptions o, MonitorEventLog eventLog) =>
+{
+    var (err, ok) = state.Snapshot();
+    var since24h = DateTimeOffset.UtcNow.ToUnixTimeSeconds() - 86400L;
+    var storage = store.GetStorageDiagnostics(since24h);
+    var now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+    var pollStaleSec = ok is null ? null : (long?)(now - ok.Value);
+    var pollStale = pollStaleSec is > 0 && pollStaleSec > o.IntervalSec * 2;
+    return Results.Json(new
+    {
+        data_dir = o.DataDir,
+        time_zone = o.TimeZoneId,
+        poll_interval_sec = o.IntervalSec,
+        last_poll_ok_ts = ok,
+        last_poll_error = err,
+        last_poll_rooms_stored = state.LastPollRoomsStored,
+        last_poll_rooms_excluded = state.LastPollRoomsExcluded,
+        poll_stale = pollStale,
+        poll_stale_sec = pollStaleSec,
+        storage,
+        recent_events = eventLog.Snapshot(),
     });
 });
 

@@ -690,6 +690,8 @@
     private bool _includeOutdoor = true;
     private string? _error;
     private DateTimeOffset? _lastRefreshAt;
+    private PeriodicTimer? _chartsRefreshTimer;
+    private CancellationTokenSource? _chartsRefreshCts;
     private int _qualityTotal24h;
     private List<DataQualityReasonCount> _qualityReasons24h = [];
 
@@ -840,7 +842,29 @@
         await TryLoadPersistedChartFiltersAsync();
         ValidateChartFilters();
         await LoadChartAsync();
+        _chartsRefreshCts = new CancellationTokenSource();
+        _chartsRefreshTimer = new PeriodicTimer(TimeSpan.FromSeconds(60));
+        _ = PumpChartsRefreshAsync();
         StateHasChanged();
+    }
+
+    private async Task PumpChartsRefreshAsync()
+    {
+        try
+        {
+            while (_chartsRefreshTimer is not null &&
+                   await _chartsRefreshTimer.WaitForNextTickAsync(_chartsRefreshCts?.Token ?? default))
+            {
+                await InvokeAsync(async () =>
+                {
+                    await LoadChartAsync();
+                    StateHasChanged();
+                });
+            }
+        }
+        catch (OperationCanceledException)
+        {
+        }
     }
 
     private async Task OnViewportChangedAsync(BrowserViewportEventArgs _)
@@ -899,6 +923,9 @@
 
     public async ValueTask DisposeAsync()
     {
+        _chartsRefreshCts?.Cancel();
+        _chartsRefreshCts?.Dispose();
+        _chartsRefreshTimer?.Dispose();
         await Viewport.UnsubscribeAsync(_viewportObserverId);
     }
 

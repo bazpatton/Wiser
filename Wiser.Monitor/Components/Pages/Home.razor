@@ -137,6 +137,13 @@
         </MudAlert>
     }
 
+    @if (!string.IsNullOrWhiteSpace(_homeTrendBuildError))
+    {
+        <MudAlert Severity="Severity.Error" Dense="true" Class="home-trend-error-banner">
+            Room trend tiles failed to build: @_homeTrendBuildError
+        </MudAlert>
+    }
+
     @if (_homeBoilerSummary is { ShortCycleRatio: >= 0.35 } boil)
     {
         <MudAlert Severity="Severity.Warning"
@@ -535,6 +542,7 @@
     private CancellationTokenSource? _homeUiRefreshCts;
     private Guid? _extendPromptShownForSession;
     private bool _timedAwayActionBusy;
+    private string? _homeTrendBuildError;
     private BoilerCycleSummary? _homeBoilerSummary;
     private DateTime? _awayPromptEndDate;
     private TimeSpan? _awayPromptEndTime = new TimeSpan(18, 0, 0);
@@ -709,6 +717,7 @@
                 {
                     RoomsCache.Update(overview);
                     _hubSystemAway = overview.SystemAway;
+                    _liveHubByRoom = LiveHubRoomTemps.ToAvailableTempByRoomName(overview);
                 }
             }
             catch
@@ -717,10 +726,14 @@
             }
         }
 
-        if (_liveHubByRoom is not null)
+        try
         {
             BuildHomeRoomHeatMap();
             BuildHomeFloorplanOverlay();
+        }
+        catch (Exception ex)
+        {
+            _homeTrendBuildError = ex.Message;
         }
 
         LoadHomeBoilerSummary();
@@ -1308,12 +1321,18 @@
         if (_liveHubByRoom is not null)
         {
             foreach (var r in _liveHubByRoom.Keys)
-                names.Add(r);
+            {
+                var stored = Store.ResolveStoredRoomName(r);
+                names.Add(stored ?? r);
+            }
         }
         else
         {
             foreach (var r in MonitorState.GetLastRooms())
-                names.Add(r);
+            {
+                var stored = Store.ResolveStoredRoomName(r);
+                names.Add(stored ?? r);
+            }
         }
 
         return names.OrderBy(static x => x, StringComparer.OrdinalIgnoreCase).ToList();
@@ -1333,6 +1352,7 @@
 
     private void BuildHomeRoomHeatMap()
     {
+        _homeTrendBuildError = null;
         _homeRoomTiles.Clear();
         var rooms = GetHomeTrendRoomNames();
         if (rooms.Count == 0)
