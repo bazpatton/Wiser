@@ -43,7 +43,7 @@ so the **`Wiser.Monitor/.env`** file is picked up for `env_file` and for `${HOST
 
 ## Docker
 
-Full walkthrough (fresh Pi OS image → Docker): **[RASPBERRY-PI-SETUP.md](RASPBERRY-PI-SETUP.md)**.
+Full walkthrough (fresh Pi OS image → Docker, optional GitHub Actions self-hosted runner): **[RASPBERRY-PI-SETUP.md](RASPBERRY-PI-SETUP.md)**. Auto-deploy on push to **`main`** is [`.github/workflows/deploy-wiser-monitor.yml`](../.github/workflows/deploy-wiser-monitor.yml); runner install steps are **section 8** of the Pi guide.
 
 ```bash
 cp env.example .env
