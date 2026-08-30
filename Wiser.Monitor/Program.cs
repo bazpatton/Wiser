@@ -126,13 +126,13 @@ app.MapGet("/api/health", (MonitorState state, TemperatureStore store, MonitorOp
     var (err, ok) = state.Snapshot();
     var (gasErr, gasOk) = state.GasMeterWorker.Snapshot();
     var (awayErr, awayOk) = state.TimedAwayWorker.Snapshot();
-    var hubPollerOk = hubConfigured && ok is not null && string.IsNullOrWhiteSpace(err);
-    var serviceOk = hubPollerOk && string.IsNullOrWhiteSpace(gasErr) && string.IsNullOrWhiteSpace(awayErr);
     var since24h = DateTimeOffset.UtcNow.ToUnixTimeSeconds() - 86400L;
     var roomSamples24h = store.CountRoomReadingsSince(since24h);
     var storage = store.GetStorageDiagnostics(since24h);
     var pollStaleSec = ok is null ? null : (long?)(DateTimeOffset.UtcNow.ToUnixTimeSeconds() - ok.Value);
     var pollStale = pollStaleSec is > 0 && pollStaleSec > o.IntervalSec * 2;
+    var hubPollerOk = hubConfigured && ok is not null && string.IsNullOrWhiteSpace(err) && !pollStale;
+    var serviceOk = hubPollerOk && string.IsNullOrWhiteSpace(gasErr) && string.IsNullOrWhiteSpace(awayErr);
     return Results.Json(new
     {
         ok = serviceOk,

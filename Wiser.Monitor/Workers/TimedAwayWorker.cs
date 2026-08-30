@@ -19,7 +19,7 @@ public sealed class TimedAwayWorker(
         using var timer = new PeriodicTimer(TimeSpan.FromSeconds(45));
         try
         {
-            await TickAsync(stoppingToken).ConfigureAwait(false);
+            await TickOnceWithTimeoutAsync(stoppingToken).ConfigureAwait(false);
         }
         catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
         {
@@ -35,7 +35,7 @@ public sealed class TimedAwayWorker(
         {
             try
             {
-                await TickAsync(stoppingToken).ConfigureAwait(false);
+                await TickOnceWithTimeoutAsync(stoppingToken).ConfigureAwait(false);
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
             {
@@ -59,6 +59,21 @@ public sealed class TimedAwayWorker(
             await TrySmartAwayArmAsync(now, ct).ConfigureAwait(false);
 
         state.TimedAwayWorker.SetSuccess();
+    }
+
+    private async Task TickOnceWithTimeoutAsync(CancellationToken stoppingToken)
+    {
+        using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken);
+        timeoutCts.CancelAfter(TimeSpan.FromSeconds(40));
+        try
+        {
+            await TickAsync(timeoutCts.Token).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (!stoppingToken.IsCancellationRequested)
+        {
+            state.TimedAwayWorker.SetFailure("Timed away tick timed out after 40s");
+            log.LogWarning("[timed_away] event=error phase=tick_timeout");
+        }
     }
 
     private async Task ProcessActiveSessionAsync(TimedAwaySessionRow session, long now, CancellationToken ct)

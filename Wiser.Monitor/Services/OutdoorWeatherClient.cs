@@ -25,7 +25,7 @@ public sealed class OutdoorWeatherClient(HttpClient http)
             $"&longitude={Uri.EscapeDataString(lon.ToString(CultureInfo.InvariantCulture))}" +
             "&current=temperature_2m");
 
-        using var resp = await http.GetAsync(uri, HttpCompletionOption.ResponseHeadersRead, ct).ConfigureAwait(false);
+        using var resp = await http.GetAsync(uri, ct).ConfigureAwait(false);
         resp.EnsureSuccessStatusCode();
         await using var stream = await resp.Content.ReadAsStreamAsync(ct).ConfigureAwait(false);
         using var doc = await JsonDocument.ParseAsync(stream, cancellationToken: ct).ConfigureAwait(false);
@@ -65,7 +65,7 @@ public sealed class OutdoorWeatherClient(HttpClient http)
             "&forecast_days=7" +
             $"&timezone={Uri.EscapeDataString(tzParam)}";
 
-        using var resp = await http.GetAsync(uri, HttpCompletionOption.ResponseHeadersRead, ct).ConfigureAwait(false);
+        using var resp = await http.GetAsync(uri, ct).ConfigureAwait(false);
         resp.EnsureSuccessStatusCode();
         await using var stream = await resp.Content.ReadAsStreamAsync(ct).ConfigureAwait(false);
         using var doc = await JsonDocument.ParseAsync(stream, cancellationToken: ct).ConfigureAwait(false);
@@ -146,7 +146,7 @@ public sealed class OutdoorWeatherClient(HttpClient http)
             $"&forecast_hours={hours.ToString(CultureInfo.InvariantCulture)}" +
             $"&timezone={Uri.EscapeDataString(tzParam)}";
 
-        using var resp = await http.GetAsync(uri, HttpCompletionOption.ResponseHeadersRead, ct).ConfigureAwait(false);
+        using var resp = await http.GetAsync(uri, ct).ConfigureAwait(false);
         resp.EnsureSuccessStatusCode();
         await using var stream = await resp.Content.ReadAsStreamAsync(ct).ConfigureAwait(false);
         using var doc = await JsonDocument.ParseAsync(stream, cancellationToken: ct).ConfigureAwait(false);

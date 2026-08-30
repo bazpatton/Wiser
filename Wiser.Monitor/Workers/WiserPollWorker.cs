@@ -13,6 +13,7 @@ public sealed class WiserPollWorker(
     ApiRoomsNamesCache apiRoomsNamesCache,
     ILogger<WiserPollWorker> log) : BackgroundService
 {
+    private const int PollTimeoutSec = 60;
     private int _pollCount;
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -21,10 +22,11 @@ public sealed class WiserPollWorker(
 
         try
         {
-            await PollOnceAsync(stoppingToken).ConfigureAwait(false);
+            await PollOnceWithTimeoutAsync(stoppingToken).ConfigureAwait(false);
         }
         catch (Exception ex)
         {
+            state.SetPollFailure(ex.Message);
             log.LogWarning(ex, "Initial hub poll failed (will retry)");
         }
 
@@ -32,7 +34,7 @@ public sealed class WiserPollWorker(
         {
             try
             {
-                await PollOnceAsync(stoppingToken).ConfigureAwait(false);
+                await PollOnceWithTimeoutAsync(stoppingToken).ConfigureAwait(false);
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
             {
@@ -45,6 +47,21 @@ public sealed class WiserPollWorker(
                 state.SetPollFailure(ex.Message);
                 log.LogWarning(ex, "hub poll error (will retry next interval)");
             }
+        }
+    }
+
+    private async Task PollOnceWithTimeoutAsync(CancellationToken stoppingToken)
+    {
+        using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken);
+        timeoutCts.CancelAfter(TimeSpan.FromSeconds(PollTimeoutSec));
+        try
+        {
+            await PollOnceAsync(timeoutCts.Token).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (!stoppingToken.IsCancellationRequested)
+        {
+            state.SetPollFailure($"Hub poll timed out after {PollTimeoutSec}s");
+            log.LogWarning("hub poll timed out after {TimeoutSec}s (will retry next interval)", PollTimeoutSec);
         }
     }
 
@@ -89,6 +106,10 @@ public sealed class WiserPollWorker(
         foreach (var s in samples)
             store.InsertRoom(ts, s.Name, s.TempC, s.SetpointC, s.HeatDemand, s.PercentageDemand, s.CurrentSetpointC, s.ScheduledSetpointC);
 
+        state.SetPollSuccess();
+        apiRoomsNamesCache.Invalidate();
+        log.LogInformation("hub poll stored {Rooms} room(s), {Excluded} excluded", samples.Count, excluded);
+
         foreach (var s in samples)
         {
             var latch = state.GetLatchesForRoom(s.Name);
@@ -113,7 +134,16 @@ public sealed class WiserPollWorker(
 
         _pollCount++;
         if (_pollCount % 6 == 0)
-            store.Prune(options.RetentionDays);
+        {
+            try
+            {
+                store.Prune(options.RetentionDays);
+            }
+            catch (Exception ex)
+            {
+                log.LogWarning(ex, "history prune failed");
+            }
+        }
 
         try
         {
@@ -123,8 +153,5 @@ public sealed class WiserPollWorker(
         {
             log.LogWarning(ex, "[timed_away] event=error phase=poll_expire");
         }
-
-        state.SetPollSuccess();
-        apiRoomsNamesCache.Invalidate();
     }
 }

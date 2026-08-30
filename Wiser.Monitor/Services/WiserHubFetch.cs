@@ -32,7 +32,9 @@ public sealed class WiserHubFetch(HttpClient http)
         using var req = new HttpRequestMessage(HttpMethod.Get, url);
         req.Headers.TryAddWithoutValidation("SECRET", options.WiserSecret);
 
-        using var resp = await http.SendAsync(req, HttpCompletionOption.ResponseHeadersRead, ct).ConfigureAwait(false);
+        // ResponseContentRead (default) so HttpClient.Timeout covers the body. ResponseHeadersRead
+        // can hang forever on a half-open hub TCP connection after a 200, stalling the poll loop.
+        using var resp = await http.SendAsync(req, ct).ConfigureAwait(false);
         resp.EnsureSuccessStatusCode();
         var bytes = await resp.Content.ReadAsByteArrayAsync(ct).ConfigureAwait(false);
         return JsonDocument.Parse(bytes);
@@ -61,7 +63,7 @@ public sealed class WiserHubFetch(HttpClient http)
             using var req = new HttpRequestMessage(HttpMethod.Get, url);
             req.Headers.TryAddWithoutValidation("SECRET", options.WiserSecret);
 
-            using var resp = await http.SendAsync(req, HttpCompletionOption.ResponseHeadersRead, ct).ConfigureAwait(false);
+            using var resp = await http.SendAsync(req, ct).ConfigureAwait(false);
             var bytes = await resp.Content.ReadAsByteArrayAsync(ct).ConfigureAwait(false);
             var code = (int)resp.StatusCode;
             var probe = HubDomainSliceProbeBuilder.FromResponse(relativePath, url, code, bytes);

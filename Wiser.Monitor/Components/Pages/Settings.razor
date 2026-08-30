@@ -1257,7 +1257,10 @@
         var snap = MonitorState.Snapshot();
         var now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
         if (snap.LastOkUnix is null)
+        {
             _settingsPollStatusText = "Last poll: no successful poll yet";
+            _settingsPollStale = false;
+        }
         else
         {
             var local = TimeZoneInfo.ConvertTime(DateTimeOffset.FromUnixTimeSeconds(snap.LastOkUnix.Value), DisplayZone);
