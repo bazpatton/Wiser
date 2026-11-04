@@ -548,6 +548,8 @@
     private int _qualityTotal24h;
     private List<DataQualityReasonCount> _qualityReasons24h = [];
     private readonly List<HomeRoomHeatTile> _homeRoomTiles = [];
+    /// <summary>Last two stored polls per room, captured by <see cref="BuildHomeRoomHeatMap"/> for floorplan trend icons.</summary>
+    private readonly Dictionary<string, (double Prev, double Last)> _lastTwoTempsByRoom = new(StringComparer.OrdinalIgnoreCase);
 
     private bool _outlookLoading;
     private string? _outlookError;
@@ -676,24 +678,18 @@
 
     private async Task LoadLiveDataAsync()
     {
-        HubLiveOverview? liveOverview = null;
-        try
-        {
-            liveOverview = await LiveHubRoomTemps.TryFetchOverviewAsync(Hub, Options, CancellationToken.None).ConfigureAwait(false);
-        }
-        catch
-        {
-            // Hub offline; page already rendered with cached data; outlook/suggestions still load below.
-        }
+        // Start the hub fetch, 14-day summaries and weather outlook together; none depend on each other.
+        // One hub fetch feeds both the live overview and the savings hints.
+        var hubTask = LiveHubRoomTemps.TryFetchOverviewWithSavingsHintsAsync(Hub, Options, CancellationToken.None);
+        var dailyTask = Task.Run(() =>
+            Store.GetDailySummaries(14, Math.Max(10, Options.IntervalSec), DisplayZone));
+        var outlookTask = StartOutlookFetch();
 
-        // Fetch 14 days once off-circuit and share across all three consumers.
-        var sharedDaily = await Task.Run(() =>
-            Store.GetDailySummaries(14, Math.Max(10, Options.IntervalSec), DisplayZone))
-            .ConfigureAwait(false);
-
-        await InvokeAsync(async () =>
+        // Render live room data as soon as the hub answers, without waiting on Open-Meteo.
+        var (liveOverview, hubHints) = await hubTask.ConfigureAwait(false);
+        if (liveOverview is not null)
         {
-            if (liveOverview is not null)
+            await InvokeAsync(() =>
             {
                 _hubSystemAway = liveOverview.SystemAway;
                 RoomsCache.Update(liveOverview);
@@ -701,15 +697,25 @@
                 _liveHubByRoom = LiveHubRoomTemps.ToAvailableTempByRoomName(liveOverview);
                 BuildHomeRoomHeatMap();
                 BuildHomeFloorplanOverlay();
-            }
+                StateHasChanged();
+            });
+        }
 
+        var sharedDaily = await dailyTask.ConfigureAwait(false);
+        await InvokeAsync(async () =>
+        {
             LoadHomeDailySummary(sharedDaily);
-            await LoadHeatingOutlookAsync(sharedDaily);
-            await LoadSavingsSuggestionsAsync(sharedDaily);
-            await TryPromptExtendNearEndOnceAsync();
+            await LoadHeatingOutlookAsync(sharedDaily, outlookTask);
+            LoadSavingsSuggestions(sharedDaily, hubHints);
             StateHasChanged();
+            await TryPromptExtendNearEndOnceAsync();
         });
     }
+
+    private Task<SevenDayHddOutlook?>? StartOutlookFetch() =>
+        Options.OpenMeteoLat is { } lat && Options.OpenMeteoLon is { } lon
+            ? OutdoorWeather.GetSevenDayHddOutlookAsync(lat, lon, Options.TimeZoneId, CancellationToken.None)
+            : null;
 
     private async Task PumpHomeUiRefreshAsync()
     {
@@ -749,8 +755,8 @@
         {
             try
             {
-                var overview = await LiveHubRoomTemps.TryFetchOverviewAsync(Hub, Options, CancellationToken.None)
-                    .ConfigureAwait(false);
+                // No ConfigureAwait(false): the rest of this method mutates state and calls StateHasChanged on the dispatcher.
+                var overview = await LiveHubRoomTemps.TryFetchOverviewAsync(Hub, Options, CancellationToken.None);
                 if (overview is not null)
                 {
                     RoomsCache.Update(overview);
@@ -928,7 +934,9 @@
         _gasMeterReadingBannerText = null;
     }
 
-    private async Task LoadHeatingOutlookAsync(IReadOnlyList<DailySummaryRow>? shared = null)
+    private async Task LoadHeatingOutlookAsync(
+        IReadOnlyList<DailySummaryRow>? shared = null,
+        Task<SevenDayHddOutlook?>? prefetchedOutlook = null)
     {
         _outlookPastWeekHddSum = null;
         _outlookForecastWeekHddSum = null;
@@ -952,8 +960,9 @@
             _outlookPastWeekHddSum = pastHddSum;
             var pastHeatMin = daily.Sum(d => d.HeatingActiveEstimateMin);
 
-            var outlook = await OutdoorWeather.GetSevenDayHddOutlookAsync(lat, lon, Options.TimeZoneId, CancellationToken.None)
-                .ConfigureAwait(false);
+            // No ConfigureAwait(false): this runs on the circuit dispatcher and the caller renders afterwards.
+            var outlook = await (prefetchedOutlook
+                ?? OutdoorWeather.GetSevenDayHddOutlookAsync(lat, lon, Options.TimeZoneId, CancellationToken.None));
 
             if (outlook is null)
             {
@@ -1010,28 +1019,10 @@
         }
     }
 
-    private async Task LoadSavingsSuggestionsAsync(IReadOnlyList<DailySummaryRow>? shared = null)
+    /// <param name="hubHints">From the shared hub fetch in <see cref="LoadLiveDataAsync"/>; null when the hub is offline.</param>
+    private void LoadSavingsSuggestions(IReadOnlyList<DailySummaryRow> daily14, HubScheduleSavingsHints? hubHints)
     {
         var profile = Store.GetHeatingSavingsProfile();
-        var daily14 = shared ?? Store.GetDailySummaries(14, Math.Max(10, Options.IntervalSec), DisplayZone);
-
-        HubScheduleSavingsHints? hubHints = null;
-        if (!string.IsNullOrWhiteSpace(Options.WiserIp)
-            && Options.WiserIp != "192.168.x.x"
-            && !string.IsNullOrWhiteSpace(Options.WiserSecret)
-            && Options.WiserSecret != "your-secret-here")
-        {
-            try
-            {
-                using var doc = await Hub.FetchDomainDocumentAsync(Options, CancellationToken.None).ConfigureAwait(false);
-                hubHints = HubSchedulesParser.AnalyzeSavingsHints(doc);
-            }
-            catch
-            {
-                // Hub might be offline/degraded; skip hub-specific hints.
-            }
-        }
-
         var tips = HeatingSavingsSuggestionBuilder.Build(new HeatingSavingsSuggestionContext(
             profile,
             daily14,
@@ -1401,6 +1392,7 @@
     {
         _homeTrendBuildError = null;
         _homeRoomTiles.Clear();
+        _lastTwoTempsByRoom.Clear();
         var rooms = GetHomeTrendRoomNames();
         if (rooms.Count == 0)
             return;
@@ -1414,6 +1406,8 @@
         {
             var isActive = !activityMap.TryGetValue(room, out var activeFlag) || activeFlag;
             var rows = Store.SeriesRoom(room, sinceTs);
+            if (rows.Count >= 2)
+                _lastTwoTempsByRoom[room] = (rows[^2].TempC, rows[^1].TempC);
             if (rows.Count == 0)
             {
                 var (missingMin, missingMax) = GetRecommendedTempRange(room, isActive);
@@ -1602,13 +1596,21 @@
     private bool TryGetRoomPollTrendDelta(string room, out double trendDelta)
     {
         trendDelta = 0;
+        // Heat map already loaded this room's 24h series; reuse its last two polls.
+        if (_lastTwoTempsByRoom.TryGetValue(room, out var cached))
+        {
+            trendDelta = cached.Last - cached.Prev;
+            return true;
+        }
+
+        // Pin room not on the heat map (e.g. name mismatch): fetch only the two newest rows.
         var lookbackSec = Math.Max(HomeTrendHours * 3600L, Options.IntervalSec * 4L);
         var sinceTs = DateTimeOffset.UtcNow.ToUnixTimeSeconds() - lookbackSec;
-        var rows = Store.SeriesRoom(room, sinceTs);
-        if (rows.Count < 2)
+        var recent = Store.RecentRoomTemps(room, sinceTs, 2);
+        if (recent.Count < 2)
             return false;
 
-        trendDelta = rows[^1].TempC - rows[^2].TempC;
+        trendDelta = recent[0] - recent[1];
         return true;
     }
 

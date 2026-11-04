@@ -2108,6 +2108,30 @@ public sealed class TemperatureStore
         }
     }
 
+    /// <summary>Newest <paramref name="count"/> stored temperatures for a room since <paramref name="sinceTs"/>, newest first.</summary>
+    public IReadOnlyList<double> RecentRoomTemps(string room, long sinceTs, int count)
+    {
+        var storedName = ResolveStoredRoomName(room) ?? room.Trim();
+        lock (_gate)
+        {
+            using var c = Open();
+            using var cmd = c.CreateCommand();
+            cmd.CommandText =
+                """
+                SELECT temp_c FROM room_readings
+                WHERE room = $room AND ts >= $since ORDER BY ts DESC LIMIT $n
+                """;
+            cmd.Parameters.AddWithValue("$room", storedName);
+            cmd.Parameters.AddWithValue("$since", sinceTs);
+            cmd.Parameters.AddWithValue("$n", Math.Max(1, count));
+            using var r = cmd.ExecuteReader();
+            var list = new List<double>(count);
+            while (r.Read())
+                list.Add(r.GetDouble(0));
+            return list;
+        }
+    }
+
     public IReadOnlyList<RoomSeriesRow> SeriesRoom(string room, long sinceTs)
     {
         var storedName = ResolveStoredRoomName(room) ?? room.Trim();

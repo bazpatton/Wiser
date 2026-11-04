@@ -1,3 +1,5 @@
+using System.Text.Json;
+
 namespace Wiser.Monitor.Services;
 
 /// <summary>
@@ -36,6 +38,54 @@ public static class LiveHubRoomTemps
         catch
         {
             return null;
+        }
+    }
+
+    /// <summary>
+    /// One hub domain fetch parsed for both the live overview and schedule savings hints (Home page).
+    /// Either part is null if the hub is not configured, the fetch failed, or that parse failed.
+    /// </summary>
+    public static async Task<(HubLiveOverview? Overview, HubScheduleSavingsHints? SavingsHints)> TryFetchOverviewWithSavingsHintsAsync(
+        WiserHubFetch hub,
+        MonitorOptions options,
+        CancellationToken ct = default)
+    {
+        if (!IsHubConfigured(options))
+            return (null, null);
+
+        JsonDocument doc;
+        try
+        {
+            doc = await hub.FetchDomainDocumentAsync(options, ct).ConfigureAwait(false);
+        }
+        catch
+        {
+            return (null, null);
+        }
+
+        using (doc)
+        {
+            HubLiveOverview? overview = null;
+            HubScheduleSavingsHints? hints = null;
+            try
+            {
+                overview = HubLiveRoomsParser.ParseOverview(doc, BoostPresets);
+            }
+            catch
+            {
+                // leave null
+            }
+
+            try
+            {
+                hints = HubSchedulesParser.AnalyzeSavingsHints(doc);
+            }
+            catch
+            {
+                // leave null
+            }
+
+            return (overview, hints);
         }
     }
 
