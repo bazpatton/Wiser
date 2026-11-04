@@ -219,6 +219,40 @@
                     </MudSelectItem>
                 }
             </MudSelect>
+            <MudGrid Spacing="2" Class="mt-1">
+                <MudItem xs="6">
+                    <MudNumericField T="double"
+                                     Label="Target °C"
+                                     @bind-Value="_quickBoostTempC"
+                                     Min="@QuickBoostTempMin"
+                                     Max="@QuickBoostTempMax"
+                                     Step="0.5"
+                                     Format="F1"
+                                     Variant="Variant.Outlined"
+                                     Margin="Margin.Dense"
+                                     Class="touch-control"
+                                     Disabled="_quickActionsBusy" />
+                </MudItem>
+                <MudItem xs="6">
+                    <MudSelect T="int"
+                               Label="Duration"
+                               @bind-Value="_quickBoostMinutes"
+                               Variant="Variant.Outlined"
+                               Dense="true"
+                               Margin="Margin.Dense"
+                               Class="touch-control"
+                               Disabled="_quickActionsBusy">
+                        <MudSelectItem Value="15">15 minutes</MudSelectItem>
+                        <MudSelectItem Value="30">30 minutes</MudSelectItem>
+                        <MudSelectItem Value="45">45 minutes</MudSelectItem>
+                        <MudSelectItem Value="60">60 minutes</MudSelectItem>
+                        <MudSelectItem Value="90">90 minutes</MudSelectItem>
+                        <MudSelectItem Value="120">2 hours</MudSelectItem>
+                        <MudSelectItem Value="180">3 hours</MudSelectItem>
+                        <MudSelectItem Value="240">4 hours</MudSelectItem>
+                    </MudSelect>
+                </MudItem>
+            </MudGrid>
         }
         <MudStack Row="true" Wrap="Wrap.Wrap" Spacing="1" Class="mt-2">
             <MudButton Variant="Variant.Filled"
@@ -227,7 +261,7 @@
                        Class="touch-target"
                        Disabled="@(_quickActionsBusy || _quickActionRooms.Count == 0)"
                        OnClick="ApplyQuickBoostAsync">
-                Boost 30 mins
+                @($"Boost to {QuickBoostTempClamped:F1} °C · {FormatBoostDuration(_quickBoostMinutes)}")
             </MudButton>
             <MudButton Variant="Variant.Outlined"
                        Color="Color.Primary"
@@ -524,6 +558,10 @@
     private readonly List<QuickActionRoom> _quickActionRooms = [];
     private readonly List<AwayRoomSnapshot> _awayModeSnapshot = [];
     private HashSet<string> _boostRoomNames = new(StringComparer.OrdinalIgnoreCase);
+    private const double QuickBoostTempMin = 5.0;
+    private const double QuickBoostTempMax = 30.0;
+    private double _quickBoostTempC = 21.0;
+    private int _quickBoostMinutes = 30;
     private bool _quickActionsBusy;
     private bool _awayModeActive;
     /// <summary>Hub whole-house away (<see cref="HubLiveOverview.SystemAway"/>), distinct from quick-action "all rooms auto" state.</summary>
@@ -1013,6 +1051,13 @@
         return Task.CompletedTask;
     }
 
+    /// <summary>Quick-boost target snapped to 0.5 °C within hub limits.</summary>
+    private double QuickBoostTempClamped =>
+        Math.Clamp(Math.Round(_quickBoostTempC * 2, MidpointRounding.AwayFromZero) / 2, QuickBoostTempMin, QuickBoostTempMax);
+
+    private static string FormatBoostDuration(int minutes) =>
+        minutes >= 120 && minutes % 60 == 0 ? $"{minutes / 60} hours" : $"{minutes} mins";
+
     private async Task ApplyQuickBoostAsync()
     {
         if (_quickActionRooms.Count == 0)
@@ -1028,14 +1073,16 @@
             return;
         }
 
+        var tempC = QuickBoostTempClamped;
+        var minutes = Math.Clamp(_quickBoostMinutes, 5, 240);
         _quickActionsBusy = true;
         try
         {
             using var resp = await Http.PostAsJsonAsync("/api/rooms/boost", new
             {
                 room_ids = selectedIds,
-                temperature_c = 21.0,
-                minutes = 30,
+                temperature_c = tempC,
+                minutes,
             });
             using var json = await JsonDocument.ParseAsync(await resp.Content.ReadAsStreamAsync());
             var root = json.RootElement;
@@ -1048,7 +1095,7 @@
             }
             else
             {
-                Snackbar.Add($"Boost applied to {succeeded} room(s) for 30 minutes.", Severity.Success);
+                Snackbar.Add($"Boost applied to {succeeded} room(s): {tempC:F1} °C for {FormatBoostDuration(minutes)}.", Severity.Success);
             }
         }
         catch (Exception ex)
