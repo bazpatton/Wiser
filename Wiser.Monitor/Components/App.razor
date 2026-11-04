@@ -82,7 +82,7 @@
             <button onclick="location.reload()" class="wiser-reconnect-btn">Reload</button>
         </div>
         <div class="wiser-reconnect-banner wiser-reconnect-rejected">
-            Session expired.
+            Session expired &mdash; refreshing&hellip;
             <button onclick="location.reload()" class="wiser-reconnect-btn">Reload</button>
         </div>
     </div>
@@ -150,6 +150,45 @@
                 }
             }
         });
+
+        // A custom reconnect modal disables Blazor's built-in auto-refresh, so restore it here:
+        // - rejected (server restarted / circuit expired): the old session is unusable, reload straight away.
+        // - failed (retries exhausted, e.g. phone asleep or Pi mid-deploy): keep retrying when the page is
+        //   visible or the network comes back, and reload if the server answers but the circuit is gone.
+        (() => {
+            const modal = document.getElementById('components-reconnect-modal');
+            if (!modal) return;
+            const isFailed = () => modal.classList.contains('components-reconnect-failed');
+            let reloading = false;
+            let retrying = false;
+
+            const reload = () => {
+                if (reloading) return;
+                reloading = true;
+                location.reload();
+            };
+
+            const retry = async () => {
+                if (retrying || reloading || !isFailed() || document.visibilityState !== 'visible') return;
+                retrying = true;
+                try {
+                    // true = reconnected, false = server reachable but circuit released; throws while server is down.
+                    if (!(await Blazor.reconnect())) reload();
+                } catch {
+                    // Server still unreachable; the next tick / visibility / online event retries.
+                } finally {
+                    retrying = false;
+                }
+            };
+
+            new MutationObserver(() => {
+                if (modal.classList.contains('components-reconnect-rejected')) reload();
+            }).observe(modal, { attributes: true, attributeFilter: ['class'] });
+
+            setInterval(retry, 10000);
+            document.addEventListener('visibilitychange', retry);
+            window.addEventListener('online', retry);
+        })();
     </script>
 </body>
 </html>
