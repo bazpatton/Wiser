@@ -200,6 +200,45 @@
         }
         else
         {
+            var activeBoosts = ActiveBoostsNow();
+            if (activeBoosts.Count > 0)
+            {
+                <MudAlert Severity="Severity.Info" Dense="true" Class="mt-2 home-active-boosts" ShowCloseIcon="false">
+                    <MudStack Spacing="1">
+                        <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center" Wrap="Wrap.Wrap">
+                            <MudText Typo="Typo.subtitle2">Active boosts (@activeBoosts.Count)</MudText>
+                            @if (activeBoosts.Count > 1)
+                            {
+                                <MudButton Variant="Variant.Text"
+                                           Color="Color.Error"
+                                           Size="Size.Small"
+                                           Class="pa-0 ma-0"
+                                           Disabled="@(_quickActionsBusy || _cancelBoostBusyRoomId is not null)"
+                                           OnClick="@(() => CancelBoostsAsync(activeBoosts))">
+                                    Cancel all
+                                </MudButton>
+                            }
+                        </MudStack>
+                        @foreach (var boost in activeBoosts)
+                        {
+                            <div class="home-active-boost-row">
+                                <MudText Typo="Typo.body2" Class="flex-grow-1">
+                                    <strong>@boost.Name</strong>
+                                    @FormatActiveBoost(boost)
+                                </MudText>
+                                <MudButton Variant="Variant.Outlined"
+                                           Color="Color.Warning"
+                                           Size="Size.Small"
+                                           StartIcon="@Icons.Material.Filled.CancelScheduleSend"
+                                           Disabled="@(_quickActionsBusy || _cancelBoostBusyRoomId is not null)"
+                                           OnClick="@(() => CancelBoostsAsync([boost]))">
+                                    Cancel
+                                </MudButton>
+                            </div>
+                        }
+                    </MudStack>
+                </MudAlert>
+            }
             <MudSelect T="string"
                        Label="Rooms for boost"
                        MultiSelection="true"
@@ -246,17 +285,30 @@
                                Margin="Margin.Dense"
                                Class="touch-control"
                                Disabled="_quickActionsBusy">
-                        <MudSelectItem Value="15">15 minutes</MudSelectItem>
-                        <MudSelectItem Value="30">30 minutes</MudSelectItem>
-                        <MudSelectItem Value="45">45 minutes</MudSelectItem>
-                        <MudSelectItem Value="60">60 minutes</MudSelectItem>
-                        <MudSelectItem Value="90">90 minutes</MudSelectItem>
-                        <MudSelectItem Value="120">2 hours</MudSelectItem>
-                        <MudSelectItem Value="180">3 hours</MudSelectItem>
-                        <MudSelectItem Value="240">4 hours</MudSelectItem>
+                        @foreach (var m in QuickBoostDurationOptions)
+                        {
+                            <MudSelectItem Value="@m">@(m >= 120 ? $"{m / 60} hours" : $"{m} minutes")</MudSelectItem>
+                        }
                     </MudSelect>
                 </MudItem>
             </MudGrid>
+            @if (_boostPresets.Count > 0)
+            {
+                <MudStack Row="true" Wrap="Wrap.Wrap" Spacing="1" AlignItems="AlignItems.Center" Class="mt-1">
+                    <MudText Typo="Typo.caption" Class="mud-text-secondary">Presets:</MudText>
+                    @foreach (var preset in _boostPresets)
+                    {
+                        <MudChip T="string"
+                                 Size="Size.Small"
+                                 Variant="@(IsPresetSelected(preset) ? Variant.Filled : Variant.Outlined)"
+                                 Color="Color.Primary"
+                                 Disabled="_quickActionsBusy"
+                                 OnClick="@(() => SelectBoostPreset(preset))">
+                            @($"{preset.Name} · {preset.TemperatureC:0.#}° · {preset.Minutes} min")
+                        </MudChip>
+                    }
+                </MudStack>
+            }
         }
         <MudStack Row="true" Wrap="Wrap.Wrap" Spacing="1" Class="mt-2">
             <MudButton Variant="Variant.Filled"
@@ -568,6 +620,13 @@
     private const double QuickBoostTempMax = 30.0;
     private double _quickBoostTempC = 21.0;
     private int _quickBoostMinutes = 30;
+    private static readonly int[] QuickBoostDurationOptions = [15, 30, 45, 60, 90, 120, 180, 240];
+    private const string QuickBoostTempStorageKey = "wiser-home-boost-temp";
+    private const string QuickBoostMinutesStorageKey = "wiser-home-boost-minutes";
+    private IReadOnlyList<BoostPresetInfo> _boostPresets = [];
+    /// <summary>Rooms with a timed override still running on the hub, from the latest live overview.</summary>
+    private readonly List<ActiveBoost> _activeBoosts = [];
+    private int? _cancelBoostBusyRoomId;
     private bool _quickActionsBusy;
     private bool _awayModeActive;
     /// <summary>Hub whole-house away (<see cref="HubLiveOverview.SystemAway"/>), distinct from quick-action "all rooms auto" state.</summary>
@@ -653,6 +712,8 @@
             })
             .OrderByDescending(static r => r.IsFavorite)
             .ThenBy(static r => r.Name, StringComparer.OrdinalIgnoreCase));
+        _boostPresets = overview.BoostPresets;
+        PopulateActiveBoosts(overview);
         _boostRoomNames = _quickActionRooms
             .Where(static r => r.IsFavorite)
             .Select(static r => r.Name)
@@ -677,6 +738,8 @@
             return;
         // JS interop (localStorage) requires a live circuit; must run here, not in OnInitializedAsync.
         await TryLoadAwayStateAsync();
+        if (await TryLoadQuickBoostSettingsAsync())
+            StateHasChanged();
         _homeUiRefreshCts = new CancellationTokenSource();
         _homeUiRefreshTimer = new PeriodicTimer(TimeSpan.FromSeconds(45));
         _ = PumpHomeUiRefreshAsync();
@@ -779,6 +842,7 @@
                     _liveDataAt = DateTimeOffset.Now;
                     _hubSystemAway = overview.SystemAway;
                     _liveHubByRoom = LiveHubRoomTemps.ToAvailableTempByRoomName(overview);
+                    PopulateActiveBoosts(overview);
                 }
             }
             catch
@@ -1105,6 +1169,12 @@
             {
                 Snackbar.Add($"Boost applied to {succeeded} room(s): {tempC:F1} °C for {FormatBoostDuration(minutes)}.", Severity.Success);
             }
+
+            if (succeeded > 0)
+            {
+                await SaveQuickBoostSettingsAsync(tempC, minutes);
+                await RefreshActiveBoostsAsync();
+            }
         }
         catch (Exception ex)
         {
@@ -1113,6 +1183,151 @@
         finally
         {
             _quickActionsBusy = false;
+        }
+    }
+
+    private void PopulateActiveBoosts(HubLiveOverview overview)
+    {
+        _activeBoosts.Clear();
+        foreach (var room in overview.Rooms)
+        {
+            if (room.Id <= 0 || RoomDisplayHelpers.GetActiveOverrideEndUtc(room) is not { } endUtc)
+                continue;
+            var targetC = room.SetpointC is { } sp ? WiserSetpointDisplay.ToDisplayTargetC(sp) : (double?)null;
+            var isBoost = room.SetpointOrigin?.Contains("Boost", StringComparison.OrdinalIgnoreCase) == true;
+            _activeBoosts.Add(new ActiveBoost(room.Id, room.Name, endUtc, targetC, isBoost));
+        }
+
+        _activeBoosts.Sort(static (a, b) => a.EndUtc.CompareTo(b.EndUtc));
+    }
+
+    /// <summary>Drops boosts whose end time passed since the last hub fetch, so the list never shows "0 min left".</summary>
+    private List<ActiveBoost> ActiveBoostsNow()
+    {
+        var now = DateTimeOffset.UtcNow;
+        return _activeBoosts.Where(b => b.EndUtc > now).ToList();
+    }
+
+    private string FormatActiveBoost(ActiveBoost boost)
+    {
+        var endLocal = TimeZoneInfo.ConvertTime(boost.EndUtc, DisplayZone).ToString("t", CultureInfo.CurrentCulture);
+        var left = FormatTimedAwayRelative(boost.EndUtc - DateTimeOffset.UtcNow);
+        var target = boost.TargetC is { } t ? $" to {t:F1} °C" : string.Empty;
+        var kind = boost.IsBoost ? "boost" : "override";
+        return $"— {kind}{target} until {endLocal} ({left} left)";
+    }
+
+    /// <summary>Re-reads the hub so the active-boost list reflects a boost or cancel just made.</summary>
+    private async Task RefreshActiveBoostsAsync()
+    {
+        try
+        {
+            var overview = await LiveHubRoomTemps.TryFetchOverviewAsync(Hub, Options, CancellationToken.None);
+            if (overview is null)
+                return;
+            RoomsCache.Update(overview);
+            _liveDataAt = DateTimeOffset.Now;
+            _liveHubByRoom = LiveHubRoomTemps.ToAvailableTempByRoomName(overview);
+            PopulateActiveBoosts(overview);
+        }
+        catch
+        {
+            // the 45s refresh will catch up
+        }
+    }
+
+    private async Task CancelBoostsAsync(IReadOnlyList<ActiveBoost> boosts)
+    {
+        if (boosts.Count == 0)
+            return;
+
+        var succeeded = 0;
+        var failed = 0;
+        try
+        {
+            foreach (var boost in boosts)
+            {
+                _cancelBoostBusyRoomId = boost.RoomId;
+                try
+                {
+                    using var resp = await Http.PostAsJsonAsync("/api/room/cancel-override", new { room_id = boost.RoomId });
+                    if (resp.IsSuccessStatusCode)
+                        succeeded++;
+                    else
+                        failed++;
+                }
+                catch
+                {
+                    failed++;
+                }
+            }
+
+            if (failed > 0)
+                Snackbar.Add($"Cancel boost completed with issues: {succeeded} succeeded, {failed} failed.", Severity.Warning);
+            else if (boosts.Count == 1)
+                Snackbar.Add($"Boost cancelled for {boosts[0].Name}; room is back on schedule.", Severity.Success);
+            else
+                Snackbar.Add($"Boost cancelled for {succeeded} rooms; back on schedule.", Severity.Success);
+
+            await RefreshActiveBoostsAsync();
+            BuildHomeRoomHeatMap();
+            BuildHomeFloorplanOverlay();
+        }
+        finally
+        {
+            _cancelBoostBusyRoomId = null;
+        }
+    }
+
+    private bool IsPresetSelected(BoostPresetInfo preset) =>
+        Math.Abs(QuickBoostTempClamped - preset.TemperatureC) < 0.01 && _quickBoostMinutes == preset.Minutes;
+
+    private void SelectBoostPreset(BoostPresetInfo preset)
+    {
+        _quickBoostTempC = preset.TemperatureC;
+        _quickBoostMinutes = QuickBoostDurationOptions.Contains(preset.Minutes) ? preset.Minutes : _quickBoostMinutes;
+    }
+
+    /// <summary>Restores the last applied quick-boost target and duration; returns true when anything changed.</summary>
+    private async Task<bool> TryLoadQuickBoostSettingsAsync()
+    {
+        try
+        {
+            var changed = false;
+            var tempRaw = await Js.InvokeAsync<string?>("localStorage.getItem", QuickBoostTempStorageKey);
+            if (double.TryParse(tempRaw, NumberStyles.Float, CultureInfo.InvariantCulture, out var temp)
+                && temp is >= QuickBoostTempMin and <= QuickBoostTempMax)
+            {
+                _quickBoostTempC = temp;
+                changed = true;
+            }
+
+            var minutesRaw = await Js.InvokeAsync<string?>("localStorage.getItem", QuickBoostMinutesStorageKey);
+            if (int.TryParse(minutesRaw, NumberStyles.Integer, CultureInfo.InvariantCulture, out var minutes)
+                && QuickBoostDurationOptions.Contains(minutes))
+            {
+                _quickBoostMinutes = minutes;
+                changed = true;
+            }
+
+            return changed;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private async Task SaveQuickBoostSettingsAsync(double tempC, int minutes)
+    {
+        try
+        {
+            await Js.InvokeVoidAsync("localStorage.setItem", QuickBoostTempStorageKey, tempC.ToString(CultureInfo.InvariantCulture));
+            await Js.InvokeVoidAsync("localStorage.setItem", QuickBoostMinutesStorageKey, minutes.ToString(CultureInfo.InvariantCulture));
+        }
+        catch
+        {
+            // best effort
         }
     }
 
@@ -1701,6 +1916,7 @@
 
     private sealed record QuickActionRoom(int Id, string Name, bool IsFavorite, string ModeKey, double? ManualTemperatureC);
     private sealed record AwayRoomSnapshot(int RoomId, string Mode, double? ManualTemperatureC);
+    private sealed record ActiveBoost(int RoomId, string Name, DateTimeOffset EndUtc, double? TargetC, bool IsBoost);
 }
 
 <style>
@@ -1780,6 +1996,17 @@
         display: inline-flex;
         align-items: center;
         gap: 6px;
+    }
+
+    .home-active-boost-row {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 8px;
+    }
+
+    .home-active-boosts .mud-alert-message {
+        width: 100%;
     }
 
     .home-quick-room-fav-icon {

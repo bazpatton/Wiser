@@ -62,4 +62,30 @@ public static class RoomDisplayHelpers
 
     public static string GetRoomDetailsHref(string roomName) =>
         RoomLinkHelper.RoomsPagePath(roomName);
+
+    /// <summary>
+    /// End of a room's timed override (boost) when it is still in the future.
+    /// The hub reports <c>OverrideTimeoutUnixTime</c> in seconds or milliseconds depending on firmware.
+    /// </summary>
+    public static DateTimeOffset? GetActiveOverrideEndUtc(HubLiveRoom room)
+    {
+        var raw = room.OverrideTimeoutUnix;
+        if (raw is null or 0)
+            return null;
+
+        DateTimeOffset endUtc;
+        try
+        {
+            var v = raw.Value;
+            endUtc = v > 10_000_000_000L
+                ? DateTimeOffset.FromUnixTimeMilliseconds(v)
+                : DateTimeOffset.FromUnixTimeSeconds(v);
+        }
+        catch (ArgumentOutOfRangeException)
+        {
+            return null;
+        }
+
+        return endUtc > DateTimeOffset.UtcNow ? endUtc : null;
+    }
 }

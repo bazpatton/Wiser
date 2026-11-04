@@ -1035,24 +1035,7 @@
 
     private string? FormatBoostSummary(HubLiveRoom room)
     {
-        var raw = room.OverrideTimeoutUnix;
-        if (raw is null or 0)
-            return null;
-
-        DateTimeOffset endUtc;
-        try
-        {
-            var v = raw.Value;
-            endUtc = v > 10_000_000_000L
-                ? DateTimeOffset.FromUnixTimeMilliseconds(v)
-                : DateTimeOffset.FromUnixTimeSeconds(v);
-        }
-        catch (ArgumentOutOfRangeException)
-        {
-            return null;
-        }
-
-        if (endUtc <= DateTimeOffset.UtcNow)
+        if (RoomDisplayHelpers.GetActiveOverrideEndUtc(room) is not { } endUtc)
             return null;
 
         var endDisplay = TimeZoneInfo.ConvertTime(endUtc, DisplayZone);
