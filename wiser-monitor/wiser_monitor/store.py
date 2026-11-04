@@ -166,3 +166,18 @@ class Store:
                 return [dict(row) for row in rows]
             finally:
                 c.close()
+
+    def latest_outdoor_before(self, ts: int) -> dict[str, Any] | None:
+        with self._lock:
+            c = self._connect()
+            try:
+                row = c.execute(
+                    """
+                    SELECT ts, temp_c FROM outdoor_readings
+                    WHERE ts < ? ORDER BY ts DESC LIMIT 1
+                    """,
+                    (ts,),
+                ).fetchone()
+                return dict(row) if row else None
+            finally:
+                c.close()

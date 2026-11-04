@@ -15,11 +15,15 @@ def fetch_outdoor_temp_c(latitude: float, longitude: float) -> float | None:
             "longitude": longitude,
             "current": "temperature_2m",
         },
-        timeout=20,
+        timeout=(10, 20),
     )
     r.raise_for_status()
-    data: dict[str, Any] = r.json()
-    current = data.get("current") or {}
+    data: Any = r.json()
+    if not isinstance(data, dict):
+        return None
+    current = data.get("current")
+    if not isinstance(current, dict):
+        return None
     t = current.get("temperature_2m")
     if t is None:
         return None

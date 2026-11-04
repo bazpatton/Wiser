@@ -49,6 +49,8 @@ On Linux, if the container cannot reach the hub on the LAN, try `network_mode: h
 
 `OPEN_METEO_LAT` and `OPEN_METEO_LON` add a green **Outdoor** line on the chart. It is **not** used for control — it helps interpret how fast rooms move with the weather. Wiser still controls on room sensors and schedules.
 
+Outdoor temperature is fetched once an hour by default (`OUTDOOR_INTERVAL_SEC`, minimum 60), independently of the hub poll, so a hub outage doesn't stop it. A failed fetch is retried on the next hub-poll tick.
+
 ## API
 
 | Path | Purpose |

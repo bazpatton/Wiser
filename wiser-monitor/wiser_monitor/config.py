@@ -49,6 +49,7 @@ class Settings:
     retention_days: int
     open_meteo_lat: float | None
     open_meteo_lon: float | None
+    outdoor_interval_sec: int
 
     @property
     def db_path(self) -> Path:
@@ -90,6 +91,7 @@ def load_settings() -> Settings:
         retention_days=int(os.environ.get("RETENTION_DAYS", "60")),
         open_meteo_lat=lat,
         open_meteo_lon=lon,
+        outdoor_interval_sec=max(60, int(os.environ.get("OUTDOOR_INTERVAL_SEC", "3600"))),
     )
 
 

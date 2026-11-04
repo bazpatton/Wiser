@@ -26,6 +26,8 @@ class PollerRuntime:
         self.last_error: str | None = None
         self.last_ok_ts: float | None = None
         self._tick = 0
+        self._last_outdoor_mono: float | None = None
+        self.last_outdoor_error: str | None = None
 
     def poll_once(self) -> None:
         ts = int(time.time())
@@ -61,26 +63,38 @@ class PollerRuntime:
             if k not in current_keys:
                 del self._latches[k]
 
-        if self.settings.open_meteo_lat is not None and self.settings.open_meteo_lon is not None:
-            try:
-                outdoor = fetch_outdoor_temp_c(
-                    self.settings.open_meteo_lat,
-                    self.settings.open_meteo_lon,
-                )
-                if outdoor is not None:
-                    self.store.insert_outdoor(ts, outdoor)
-                    logger.debug("outdoor temp fetched: %.1f °C", outdoor)
-                else:
-                    logger.warning("outdoor fetch returned no temperature value")
-            except requests.RequestException as e:
-                logger.warning("outdoor fetch failed: %s", e)
-
         self._tick += 1
         if self._tick % 6 == 0:
             self.store.prune(self.settings.retention_days)
 
         self.last_error = None
         self.last_ok_ts = time.time()
+
+    def poll_outdoor_if_due(self) -> None:
+        """Fetch outdoor temp at most every outdoor_interval_sec; independent of hub success.
+
+        Only a successful fetch resets the timer, so failures retry on the next tick.
+        """
+        s = self.settings
+        if s.open_meteo_lat is None or s.open_meteo_lon is None:
+            return
+        now = time.monotonic()
+        if self._last_outdoor_mono is not None and now - self._last_outdoor_mono < s.outdoor_interval_sec:
+            return
+        try:
+            outdoor = fetch_outdoor_temp_c(s.open_meteo_lat, s.open_meteo_lon)
+        except requests.RequestException as e:
+            self.last_outdoor_error = str(e)
+            logger.warning("outdoor fetch failed: %s", e)
+            return
+        if outdoor is None:
+            self.last_outdoor_error = "no temperature value in response"
+            logger.warning("outdoor fetch returned no temperature value")
+            return
+        self.store.insert_outdoor(int(time.time()), outdoor)
+        self._last_outdoor_mono = now
+        self.last_outdoor_error = None
+        logger.debug("outdoor temp fetched: %.1f °C", outdoor)
 
 
 def poller_loop(runtime: PollerRuntime, stop: threading.Event) -> None:
@@ -92,9 +106,16 @@ def poller_loop(runtime: PollerRuntime, stop: threading.Event) -> None:
         except requests.RequestException as e:
             runtime.last_error = str(e)
             logger.warning("hub poll failed: %s", e)
-        except (ValueError, OSError) as e:
+        except Exception as e:
+            # Never let an unexpected error (sqlite, bad JSON shape, ...) kill the thread.
             runtime.last_error = str(e)
-            logger.warning("hub poll error: %s", e)
+            logger.exception("hub poll error")
+
+        try:
+            runtime.poll_outdoor_if_due()
+        except Exception as e:
+            runtime.last_outdoor_error = str(e)
+            logger.exception("outdoor poll error")
 
 
 def start_poller_thread(runtime: PollerRuntime) -> tuple[threading.Thread, threading.Event]:

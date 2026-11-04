@@ -62,6 +62,10 @@ async def lifespan(app: FastAPI):
         runtime.poll_once()
     except Exception as e:
         logger.warning("Initial hub poll failed (will retry): %s", e)
+    try:
+        runtime.poll_outdoor_if_due()
+    except Exception as e:
+        logger.warning("Initial outdoor fetch failed (will retry): %s", e)
 
     yield
 
@@ -83,6 +87,8 @@ def health(request: Request) -> dict[str, object]:
         "alert_rooms": "all",
         "alerts_enabled": s.alerts_enabled,
         "outdoor_enabled": s.open_meteo_lat is not None,
+        "outdoor_interval_sec": s.outdoor_interval_sec,
+        "last_outdoor_error": runtime.last_outdoor_error,
     }
 
 
@@ -121,8 +127,11 @@ def series(
         outdoor_rows = store.series_outdoor(since)
 
     room_series: list[dict[str, Any]] = []
-    if include_outdoor and outdoor_rows and rows_raw:
-        aligned = _align_outdoor_to_timeline([int(r["ts"]) for r in rows_raw], outdoor_rows)
+    if include_outdoor and settings.open_meteo_lat is not None and rows_raw:
+        seed = store.latest_outdoor_before(since)
+        aligned = _align_outdoor_to_timeline(
+            [int(r["ts"]) for r in rows_raw], ([seed] if seed else []) + outdoor_rows
+        )
         for i, r in enumerate(rows_raw):
             d = dict(r)
             d["outdoor_c"] = aligned[i]
