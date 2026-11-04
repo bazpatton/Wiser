@@ -187,6 +187,10 @@
         </MudText>
         <MudText Typo="Typo.caption" Class="mud-text-secondary d-block mt-1">
             Fast mobile controls for common tasks.
+            @if (_liveDataAt is { } liveAt)
+            {
+                @($" Live hub data as of {TimeZoneInfo.ConvertTime(liveAt, DisplayZone).ToString("t", CultureInfo.CurrentCulture)}.")
+            }
         </MudText>
         @if (_quickActionRooms.Count == 0)
         {
@@ -574,6 +578,8 @@
     private readonly List<HomeFloorplanPin> _homeFloorplanPins = [];
     /// <summary>Live hub °C per room (same source as <c>/rooms</c>); merged onto DB-backed tiles/floorplan.</summary>
     private Dictionary<string, HubLiveRoom>? _liveHubByRoom;
+    /// <summary>When the live hub snapshot shown on this page was taken (shared cache or own fetch).</summary>
+    private DateTimeOffset? _liveDataAt;
     private double? _outlookPastWeekHddSum;
     private double? _outlookForecastWeekHddSum;
 
@@ -609,8 +615,9 @@
 
 
         // Use the last cached hub snapshot for instant render; fresh data arrives via LoadLiveDataAsync after first render.
-        if (RoomsCache.TryGetSnapshot(out var cached, out _))
+        if (RoomsCache.TryGetSnapshot(out var cached, out var cachedAt))
         {
+            _liveDataAt = cachedAt;
             _hubSystemAway = cached.SystemAway;
             PopulateQuickActionRooms(cached);
             _liveHubByRoom = LiveHubRoomTemps.ToAvailableTempByRoomName(cached);
@@ -679,20 +686,26 @@
     private async Task LoadLiveDataAsync()
     {
         // Start the hub fetch, 14-day summaries and weather outlook together; none depend on each other.
+        // A fresh app-wide snapshot (poller or another page) skips the hub round trip entirely.
         // One hub fetch feeds both the live overview and the savings hints.
-        var hubTask = LiveHubRoomTemps.TryFetchOverviewWithSavingsHintsAsync(Hub, Options, CancellationToken.None);
+        var cacheFresh = RoomsCache.TryGetFresh(LiveCacheMaxAge, out var cachedOverview, out var cachedHints);
+        var hubTask = cacheFresh
+            ? Task.FromResult<(HubLiveOverview?, HubScheduleSavingsHints?)>((cachedOverview, cachedHints))
+            : LiveHubRoomTemps.TryFetchOverviewWithSavingsHintsAsync(Hub, Options, CancellationToken.None);
         var dailyTask = Task.Run(() =>
             Store.GetDailySummaries(14, Math.Max(10, Options.IntervalSec), DisplayZone));
         var outlookTask = StartOutlookFetch();
 
         // Render live room data as soon as the hub answers, without waiting on Open-Meteo.
         var (liveOverview, hubHints) = await hubTask.ConfigureAwait(false);
-        if (liveOverview is not null)
+        hubHints ??= cachedHints;
+        if (liveOverview is not null && !cacheFresh)
         {
             await InvokeAsync(() =>
             {
                 _hubSystemAway = liveOverview.SystemAway;
-                RoomsCache.Update(liveOverview);
+                RoomsCache.Update(liveOverview, hubHints);
+                _liveDataAt = DateTimeOffset.Now;
                 PopulateQuickActionRooms(liveOverview);
                 _liveHubByRoom = LiveHubRoomTemps.ToAvailableTempByRoomName(liveOverview);
                 BuildHomeRoomHeatMap();
@@ -711,6 +724,9 @@
             await TryPromptExtendNearEndOnceAsync();
         });
     }
+
+    /// <summary>Snapshots younger than this are used as-is on load; older ones render immediately and refresh from the hub.</summary>
+    private static readonly TimeSpan LiveCacheMaxAge = TimeSpan.FromSeconds(60);
 
     private Task<SevenDayHddOutlook?>? StartOutlookFetch() =>
         Options.OpenMeteoLat is { } lat && Options.OpenMeteoLon is { } lon
@@ -760,6 +776,7 @@
                 if (overview is not null)
                 {
                     RoomsCache.Update(overview);
+                    _liveDataAt = DateTimeOffset.Now;
                     _hubSystemAway = overview.SystemAway;
                     _liveHubByRoom = LiveHubRoomTemps.ToAvailableTempByRoomName(overview);
                 }

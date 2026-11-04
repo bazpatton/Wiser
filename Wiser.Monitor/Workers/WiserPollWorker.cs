@@ -11,6 +11,7 @@ public sealed class WiserPollWorker(
     OutdoorWeatherClient outdoor,
     RoomAlertService alerts,
     ApiRoomsNamesCache apiRoomsNamesCache,
+    RoomsLiveDataCache roomsLiveCache,
     ILogger<WiserPollWorker> log) : BackgroundService
 {
     private const int PollTimeoutSec = 60;
@@ -87,6 +88,19 @@ public sealed class WiserPollWorker(
         {
             // Non-critical; don't fail the poll if device parse fails.
         }
+
+        try
+        {
+            // Share this fetch with the UI so page loads render live data without their own hub round trip.
+            roomsLiveCache.Update(
+                HubLiveRoomsParser.ParseOverview(domainDoc, BoostPresets.Default),
+                HubSchedulesParser.AnalyzeSavingsHints(domainDoc));
+        }
+        catch (Exception ex)
+        {
+            log.LogDebug(ex, "live overview parse for UI cache failed");
+        }
+
         var samples = poll.Rooms;
         var excluded = poll.ExcludedReadings.Count;
         state.SetLastRooms(samples.Select(s => s.Name).ToList());

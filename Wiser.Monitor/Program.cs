@@ -105,7 +105,7 @@ builder.Services.AddHttpClient<WiserHubFetch>(c => c.Timeout = TimeSpan.FromSeco
 builder.Services.AddHttpClient<OutdoorWeatherClient>(c => c.Timeout = TimeSpan.FromSeconds(20));
 builder.Services.AddHttpClient<NtfyClient>(c => c.Timeout = TimeSpan.FromSeconds(15));
 builder.Services.AddSingleton<RoomAlertService>();
-builder.Services.AddScoped<RoomsLiveDataCache>();
+builder.Services.AddSingleton<RoomsLiveDataCache>();
 builder.Services.AddSingleton<ApiRoomsNamesCache>();
 if (hubConfigured)
     builder.Services.AddHostedService<WiserPollWorker>();
