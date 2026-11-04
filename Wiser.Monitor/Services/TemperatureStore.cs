@@ -13,6 +13,7 @@ public sealed class TemperatureStore
     public const long MaxDatabaseRestoreBytes = 512L * 1024 * 1024;
 
     private readonly string _path;
+    private readonly string _connectionString;
     private readonly object _gate = new();
 
     public string DatabasePath => _path;
@@ -22,6 +23,8 @@ public sealed class TemperatureStore
         var dir = Path.GetFullPath(options.DataDir);
         Directory.CreateDirectory(dir);
         _path = Path.Combine(dir, "wiser_monitor.sqlite3");
+        // Private cache (the default): shared cache is discouraged by SQLite and only adds table-lock contention under WAL.
+        _connectionString = new SqliteConnectionStringBuilder { DataSource = _path, Mode = SqliteOpenMode.ReadWriteCreate }.ToString();
         InitDb();
     }
 
@@ -30,6 +33,13 @@ public sealed class TemperatureStore
         lock (_gate)
         {
             using var c = Open();
+            using (var cmd = c.CreateCommand())
+            {
+                // WAL is persisted in the database file, so set it once here (also re-run after restore) rather than per connection.
+                cmd.CommandText = "PRAGMA journal_mode=WAL;";
+                cmd.ExecuteNonQuery();
+            }
+
             using (var cmd = c.CreateCommand())
             {
                 cmd.CommandText =
@@ -206,14 +216,8 @@ public sealed class TemperatureStore
 
     private SqliteConnection Open()
     {
-        var cs = new SqliteConnectionStringBuilder { DataSource = _path, Mode = SqliteOpenMode.ReadWriteCreate, Cache = SqliteCacheMode.Shared }.ToString();
-        var c = new SqliteConnection(cs);
+        var c = new SqliteConnection(_connectionString);
         c.Open();
-        using (var cmd = c.CreateCommand())
-        {
-            cmd.CommandText = "PRAGMA journal_mode=WAL;";
-            cmd.ExecuteNonQuery();
-        }
         return c;
     }
 
@@ -294,6 +298,8 @@ public sealed class TemperatureStore
             lock (_gate)
             {
                 RunWalCheckpointFull();
+                // Pooled connections keep the old file open (blocks delete on Windows, reads the unlinked file on Linux).
+                SqliteConnection.ClearAllPools();
 
                 var stamp = DateTimeOffset.UtcNow.ToString("yyyyMMdd-HHmmss", CultureInfo.InvariantCulture);
                 if (File.Exists(_path))
