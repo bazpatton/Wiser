@@ -705,12 +705,6 @@
 
     [Parameter] public string? RoomSlug { get; set; }
 
-    protected override void OnInitialized()
-    {
-        Nav.LocationChanged += OnLocationChanged;
-        _presets = Store.GetQuickActionPresets();
-    }
-
     protected override async Task OnParametersSetAsync()
     {
         await base.OnParametersSetAsync();
@@ -718,27 +712,45 @@
             await TryApplyRoomSlugFromRouteAsync();
     }
 
-    protected override async Task OnInitializedAsync()
+    /// <summary>A snapshot this recent (the poller refreshes it every poll) is shown without asking the hub again.</summary>
+    private static readonly TimeSpan LiveCacheMaxAge = TimeSpan.FromSeconds(30);
+
+    protected override void OnInitialized()
     {
+        Nav.LocationChanged += OnLocationChanged;
+        _presets = Store.GetQuickActionPresets();
+
         if (UriHasRoomFragment(Nav.Uri))
             _scrollFragmentOnce = true;
 
+        // Render straight from the app-wide snapshot; any hub fetch happens after first render (see OnAfterRenderAsync),
+        // so neither prerender nor the interactive start waits on the hub.
         if (RoomsCache.TryGetSnapshot(out var snap, out var cachedAt))
         {
             HydrateFromOverview(snap);
             _lastRefreshAt = cachedAt;
             _loading = false;
             _hasLoadedOnce = true;
-            await RefreshAsync(fullPageLoader: false);
         }
-        else
+    }
+
+    /// <summary>Fetches from the hub after first render unless the shared snapshot is already fresh.</summary>
+    private async Task RefreshAfterFirstRenderAsync()
+    {
+        if (_hasLoadedOnce && RoomsCache.TryGetFresh(LiveCacheMaxAge, out _, out _))
+            return;
+        await InvokeAsync(async () =>
         {
-            await RefreshAsync(fullPageLoader: true);
-        }
+            await RefreshAsync(fullPageLoader: !_hasLoadedOnce);
+            StateHasChanged();
+        });
     }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
+        if (firstRender)
+            _ = RefreshAfterFirstRenderAsync();
+
         if (!_scrollFragmentOnce || _loading || !_hasLoadedOnce)
             return;
         if (_rooms.Count == 0)
