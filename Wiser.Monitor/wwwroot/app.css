@@ -29,7 +29,6 @@
 }
 
 .card-soft,
-.hero-card,
 .status-card,
 .page-header-card,
 .room-card,
@@ -38,13 +37,6 @@
     border-radius: 14px;
     border: 1px solid var(--mud-palette-lines-default);
     box-shadow: 0 10px 24px color-mix(in srgb, var(--mud-palette-text-primary) 7%, transparent);
-}
-
-.hero-card {
-    background: linear-gradient(
-        135deg,
-        var(--mud-palette-surface) 0%,
-        color-mix(in srgb, var(--mud-palette-surface) 78%, var(--mud-palette-primary)) 100%);
 }
 
 .desktop-nav .mud-button-root {
@@ -433,11 +425,6 @@
         padding-bottom: 1.2rem;
     }
 
-    .hero-card .mud-typography-h4 {
-        font-size: 1.75rem;
-        line-height: 2rem;
-    }
-
     .status-card,
     .chart-card,
     .table-card {
@@ -456,7 +443,6 @@
     }
 
     .page-header-card,
-    .hero-card,
     .status-card,
     .chart-card,
     .table-card,
@@ -475,7 +461,6 @@
 }
 
 .compact-ui .page-header-card,
-.compact-ui .hero-card,
 .compact-ui .status-card,
 .compact-ui .chart-card,
 .compact-ui .table-card,
