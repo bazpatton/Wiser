@@ -259,17 +259,35 @@
     </MudPaper>
 
     <MudPaper Class="pa-4 status-card home-quick-card">
-        <div class="home-quick-header">
+        <div class="home-quick-header home-quick-header--toggle"
+             role="button"
+             tabindex="0"
+             aria-expanded="@(_quickActionsExpanded ? "true" : "false")"
+             aria-controls="home-quick-body"
+             @onclick="ToggleQuickActionsAsync"
+             @onkeydown="OnQuickActionsHeaderKeyDown">
             <MudText Typo="Typo.h6">
                 <i class="fa-solid fa-bolt"></i> Quick actions
             </MudText>
-            @if (_liveDataAt is { } liveAt)
-            {
-                <MudText Typo="Typo.caption" Class="mud-text-secondary">
-                    Live · @TimeZoneInfo.ConvertTime(liveAt, DisplayZone).ToString("t", CultureInfo.CurrentCulture)
-                </MudText>
-            }
+            <div class="home-quick-header-meta">
+                @if (!_quickActionsExpanded && QuickActionsCollapsedSummary is { } collapsedSummary)
+                {
+                    <MudText Typo="Typo.caption" Class="mud-text-secondary">@collapsedSummary</MudText>
+                }
+                else if (_liveDataAt is { } liveAt)
+                {
+                    <MudText Typo="Typo.caption" Class="mud-text-secondary">
+                        Live · @TimeZoneInfo.ConvertTime(liveAt, DisplayZone).ToString("t", CultureInfo.CurrentCulture)
+                    </MudText>
+                }
+                <MudIcon Icon="@(_quickActionsExpanded ? Icons.Material.Filled.ExpandLess : Icons.Material.Filled.ExpandMore)"
+                         Size="Size.Medium"
+                         aria-hidden="true" />
+            </div>
         </div>
+        @if (_quickActionsExpanded)
+        {
+        <div id="home-quick-body">
         @if (_quickActionRooms.Count == 0)
         {
             <MudAlert Severity="Severity.Info" Dense="true" Class="mt-2">
@@ -561,6 +579,8 @@
                 Gas reading
             </MudButton>
         </div>
+        </div>
+        }
     </MudPaper>
 
     <MudPaper Class="pa-4 status-card">
@@ -857,6 +877,8 @@
     private const double QuickAdjustDeltaMax = 10.0;
     private const string QuickAdjustModeStorageKey = "wiser-home-boost-adjust-mode";
     private const string QuickAdjustDeltaStorageKey = "wiser-home-boost-adjust-delta";
+    private bool _quickActionsExpanded = true;
+    private const string QuickActionsCollapsedStorageKey = "wiser-home-quick-collapsed";
     /// <summary>Rooms with a timed override still running on the hub, from the latest live overview.</summary>
     private readonly List<ActiveBoost> _activeBoosts = [];
     private int? _cancelBoostBusyRoomId;
@@ -981,7 +1003,8 @@
             return;
         // JS interop (localStorage) requires a live circuit; must run here, not in OnInitializedAsync.
         await TryLoadAwayStateAsync();
-        if (await TryLoadQuickBoostSettingsAsync())
+        var quickCollapsedChanged = await TryLoadQuickActionsCollapsedAsync();
+        if (await TryLoadQuickBoostSettingsAsync() || quickCollapsedChanged)
             StateHasChanged();
         _homeUiRefreshCts = new CancellationTokenSource();
         _homeUiRefreshTimer = new PeriodicTimer(TimeSpan.FromSeconds(45));
@@ -1893,6 +1916,62 @@
         minutes == QuickActionPresets.UntilNextChange
         || minutes is >= QuickActionPresets.MinMinutes and <= QuickActionPresets.MaxMinutes;
 
+    private async Task ToggleQuickActionsAsync()
+    {
+        _quickActionsExpanded = !_quickActionsExpanded;
+        try
+        {
+            await Js.InvokeVoidAsync("localStorage.setItem", QuickActionsCollapsedStorageKey, _quickActionsExpanded ? "0" : "1");
+        }
+        catch
+        {
+            // best effort
+        }
+    }
+
+    private async Task OnQuickActionsHeaderKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key is "Enter" or " ")
+            await ToggleQuickActionsAsync();
+    }
+
+    /// <returns>True when the saved state collapses the card.</returns>
+    private async Task<bool> TryLoadQuickActionsCollapsedAsync()
+    {
+        try
+        {
+            if (await Js.InvokeAsync<string?>("localStorage.getItem", QuickActionsCollapsedStorageKey) is "1")
+            {
+                _quickActionsExpanded = false;
+                return true;
+            }
+        }
+        catch
+        {
+            // keep expanded
+        }
+
+        return false;
+    }
+
+    /// <summary>What a collapsed card still tells you, e.g. "2 active · 1 heating"; null when there's nothing to flag.</summary>
+    private string? QuickActionsCollapsedSummary
+    {
+        get
+        {
+            var parts = new List<string>();
+            var active = ActiveBoostsNow().Count;
+            if (active > 0)
+                parts.Add($"{active} active");
+            var heating = CallingHeatRoomCount;
+            if (heating > 0)
+                parts.Add($"{heating} heating");
+            if (AwayQuickActionShowsActive)
+                parts.Add("away");
+            return parts.Count == 0 ? null : string.Join(" · ", parts);
+        }
+    }
+
     /// <summary>Restores the last applied quick-boost target and duration; returns true when anything changed.</summary>
     private async Task<bool> TryLoadQuickBoostSettingsAsync()
     {
@@ -2630,6 +2709,26 @@
         align-items: baseline;
         justify-content: space-between;
         gap: 4px 12px;
+    }
+
+    .home-quick-header--toggle {
+        align-items: center;
+        cursor: pointer;
+        user-select: none;
+        min-height: 44px;
+        border-radius: 6px;
+    }
+
+    .home-quick-header--toggle:focus-visible {
+        outline: 2px solid var(--mud-palette-primary);
+        outline-offset: 2px;
+    }
+
+    .home-quick-header-meta {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        margin-left: auto;
     }
 
     .home-quick-section {
