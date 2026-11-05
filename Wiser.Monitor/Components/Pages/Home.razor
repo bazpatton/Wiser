@@ -1183,13 +1183,15 @@
         _quickBoostTempC = Math.Clamp(QuickBoostTempClamped + delta, QuickBoostTempMin, QuickBoostTempMax);
 
     /// <summary>Compact label for the duration buttons, e.g. "45m", "1½h", "2h".</summary>
-    private static string FormatBoostDurationShort(int minutes) => minutes switch
+    /// <remarks>No relational switch pattern here: the .NET 9 Razor parser reads a line starting with "&lt;" as markup.</remarks>
+    private static string FormatBoostDurationShort(int minutes)
     {
-        < 60 => $"{minutes}m",
-        _ when minutes % 60 == 0 => $"{minutes / 60}h",
-        _ when minutes % 60 == 30 => $"{minutes / 60}½h",
-        _ => $"{minutes}m",
-    };
+        if (minutes >= 60 && minutes % 60 == 0)
+            return $"{minutes / 60}h";
+        if (minutes >= 60 && minutes % 60 == 30)
+            return $"{minutes / 60}½h";
+        return $"{minutes}m";
+    }
 
     private static string FormatBoostDuration(int minutes) =>
         minutes >= 60 && minutes % 60 == 0 ? (minutes == 60 ? "1 hour" : $"{minutes / 60} hours") : $"{minutes} mins";
