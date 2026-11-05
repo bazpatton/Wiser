@@ -289,13 +289,43 @@
                                             Offline
                                         </MudChip>
                                     }
-                                    <MudChip T="string"
-                                             Size="Size.Small"
-                                             Icon="@RoomStateChipIcon(room)"
-                                             Color="@RoomStateChipColor(room)"
-                                             Variant="@(room.HeatDemand != 0 ? Variant.Filled : Variant.Outlined)">
-                                        @(room.HeatDemand != 0 ? "Calling heat" : RoomIdleLabel(room))
-                                    </MudChip>
+                                    @if (CanEaseOff(room))
+                                    {
+                                        <MudMenu AnchorOrigin="Origin.BottomLeft"
+                                                 TransformOrigin="Origin.TopLeft"
+                                                 Dense="true"
+                                                 Disabled="@(_busyRoomId == room.Id)">
+                                            <ActivatorContent Context="easeMenu">
+                                                <MudChip T="string"
+                                                         Size="Size.Small"
+                                                         Icon="@RoomStateChipIcon(room)"
+                                                         Color="@RoomStateChipColor(room)"
+                                                         Variant="Variant.Filled"
+                                                         OnClick="@(e => easeMenu.ToggleAsync(e))">
+                                                    Calling heat ▾
+                                                </MudChip>
+                                            </ActivatorContent>
+                                            <ChildContent>
+                                                @foreach (var option in _easeOffOptions)
+                                                {
+                                                    <MudMenuItem Icon="@EaseOffIcon(option)"
+                                                                 OnClick="@(() => ApplyEaseOffAsync(room, option))">
+                                                        @EaseOffMenuLabel(room, option)
+                                                    </MudMenuItem>
+                                                }
+                                            </ChildContent>
+                                        </MudMenu>
+                                    }
+                                    else
+                                    {
+                                        <MudChip T="string"
+                                                 Size="Size.Small"
+                                                 Icon="@RoomStateChipIcon(room)"
+                                                 Color="@RoomStateChipColor(room)"
+                                                 Variant="@(room.HeatDemand != 0 ? Variant.Filled : Variant.Outlined)">
+                                            @(room.HeatDemand != 0 ? "Calling heat" : RoomIdleLabel(room))
+                                        </MudChip>
+                                    }
                                 </MudStack>
                             </MudStack>
 
@@ -485,6 +515,32 @@
                                 Hub mode: @(room.Mode ?? "—")
                             </MudText>
 
+                            @if (CanEaseOff(room))
+                            {
+                                <MudDivider Class="my-1" />
+                                <MudText Typo="Typo.caption" Class="mud-text-secondary room-section-label">
+                                    <MudIcon Icon="@Icons.Material.Filled.TrendingDown" Class="room-inline-icon" Size="Size.Small" aria-hidden="true" />
+                                    Ease off (timed, then back to schedule)
+                                </MudText>
+                                <MudStack Row="true" Spacing="1" Wrap="Wrap.Wrap" Class="boost-button-row">
+                                    @foreach (var option in _easeOffOptions)
+                                    {
+                                        <MudButton Variant="Variant.Outlined"
+                                                   Color="@(option.TurnOff ? Color.Default : Color.Info)"
+                                                   Size="Size.Small"
+                                                   Class="boost-preset-btn touch-target"
+                                                   StartIcon="@EaseOffIcon(option)"
+                                                   Disabled="@(_busyRoomId == room.Id)"
+                                                   OnClick="@(() => ApplyEaseOffAsync(room, option))">
+                                            <span class="boost-preset-btn-text">
+                                                <span class="boost-preset-label">@EaseOffLabel(option)</span>
+                                                <span class="boost-preset-meta mud-text-secondary">@EaseOffMeta(room, option)</span>
+                                            </span>
+                                        </MudButton>
+                                    }
+                                </MudStack>
+                            }
+
                             <MudDivider Class="my-1" />
                             <MudText Typo="Typo.caption" Class="mud-text-secondary room-section-label">
                                 <MudIcon Icon="@Icons.Material.Filled.Bolt" Class="room-inline-icon" Size="Size.Small" aria-hidden="true" />
@@ -493,17 +549,18 @@
                             <MudStack Row="true" Spacing="1" Wrap="Wrap.Wrap" Class="boost-button-row">
                                 @foreach (var preset in _boostPresets)
                                 {
-                                    <MudTooltip Text="@($"Timed boost to {preset.TemperatureC:F0} °C for {preset.Minutes} minutes")">
+                                    var direction = PresetDirection(room, preset);
+                                    <MudTooltip Text="@PresetTooltip(preset, direction)">
                                         <MudButton Variant="Variant.Outlined"
                                                    Color="Color.Primary"
                                                    Size="Size.Small"
                                                    Class="boost-preset-btn touch-target"
-                                                   StartIcon="@BoostPresetIcon(preset)"
-                                                   Disabled="@(room.Id <= 0 || _busyRoomId == room.Id)"
+                                                   StartIcon="@(direction < 0 ? Icons.Material.Filled.TrendingDown : BoostPresetIcon(preset))"
+                                                   Disabled="@(room.Id <= 0 || _busyRoomId == room.Id || direction == 0)"
                                                    OnClick="@(() => ApplyBoostAsync(room, preset))">
                                             <span class="boost-preset-btn-text">
                                                 <span class="boost-preset-label">@preset.Name</span>
-                                                <span class="boost-preset-meta mud-text-secondary">@($"{preset.TemperatureC:F0}°") · @preset.Minutes min</span>
+                                                <span class="boost-preset-meta mud-text-secondary">@PresetMeta(preset, direction)</span>
                                             </span>
                                         </MudButton>
                                     </MudTooltip>
@@ -530,6 +587,14 @@
         new BoostPresetInfo("Quick", 21, 30),
         new BoostPresetInfo("Comfort", 22, 60),
         new BoostPresetInfo("Gentle", 20, 45),
+    ];
+
+    /// <summary>Timed set-backs offered while a room is calling heat; relative to the room's current target.</summary>
+    private static readonly IReadOnlyList<EaseOffOption> _easeOffOptions =
+    [
+        new EaseOffOption(1, 60, TurnOff: false),
+        new EaseOffOption(2, 120, TurnOff: false),
+        new EaseOffOption(0, 60, TurnOff: true),
     ];
 
     private bool _heatingRelayOn;
@@ -955,6 +1020,63 @@
     private static bool IsOfflineTemperature(double tempC) =>
         Math.Abs(tempC - (-327.68)) < 0.001;
 
+    private sealed record EaseOffOption(double DropC, int Minutes, bool TurnOff);
+
+    /// <summary>The room's current target in °C, or null when unknown or the room is off.</summary>
+    private static double? CurrentTargetC(HubLiveRoom room) =>
+        room.SetpointC is { } sp && !WiserSetpointDisplay.IsHubOffSentinel(sp) ? sp : null;
+
+    private static bool CanEaseOff(HubLiveRoom room) =>
+        room.Id > 0 && room.HeatDemand != 0 && CurrentTargetC(room) is not null;
+
+    private static double EaseOffTargetC(HubLiveRoom room, EaseOffOption option) =>
+        option.TurnOff
+            ? WiserSetpointDisplay.HubOffSentinelC
+            : Math.Max(RoomTargetSliderMin, (CurrentTargetC(room) ?? RoomTargetSliderMin) - option.DropC);
+
+    private static string FormatEaseOffMinutes(int minutes) =>
+        minutes % 60 == 0 ? $"{minutes / 60} h" : $"{minutes} min";
+
+    private static string EaseOffLabel(EaseOffOption option) =>
+        option.TurnOff ? "Off" : $"−{option.DropC:0.#}°";
+
+    private static string EaseOffMeta(HubLiveRoom room, EaseOffOption option) =>
+        option.TurnOff
+            ? FormatEaseOffMinutes(option.Minutes)
+            : $"{EaseOffTargetC(room, option):0.#}° · {FormatEaseOffMinutes(option.Minutes)}";
+
+    private static string EaseOffMenuLabel(HubLiveRoom room, EaseOffOption option) =>
+        option.TurnOff
+            ? $"Heating off for {FormatEaseOffMinutes(option.Minutes)}"
+            : $"Lower to {EaseOffTargetC(room, option):0.#} °C for {FormatEaseOffMinutes(option.Minutes)}";
+
+    private static string EaseOffIcon(EaseOffOption option) =>
+        option.TurnOff ? Icons.Material.Filled.PowerSettingsNew : Icons.Material.Filled.TrendingDown;
+
+    /// <summary>1 when the preset raises the target, -1 when it lowers it, 0 when it would change nothing.</summary>
+    private static int PresetDirection(HubLiveRoom room, BoostPresetInfo preset)
+    {
+        if (CurrentTargetC(room) is not { } target)
+            return 1;
+        if (Math.Abs(preset.TemperatureC - target) < 0.05)
+            return 0;
+        return preset.TemperatureC > target ? 1 : -1;
+    }
+
+    private static string PresetMeta(BoostPresetInfo preset, int direction)
+    {
+        var arrow = direction < 0 ? "↓ " : string.Empty;
+        return $"{arrow}{preset.TemperatureC:F0}° · {preset.Minutes} min";
+    }
+
+    private static string PresetTooltip(BoostPresetInfo preset, int direction) =>
+        direction switch
+        {
+            0 => $"Already at {preset.TemperatureC:F0} °C",
+            -1 => $"Lowers the target to {preset.TemperatureC:F0} °C for {preset.Minutes} minutes",
+            _ => $"Timed boost to {preset.TemperatureC:F0} °C for {preset.Minutes} minutes",
+        };
+
     private HubLiveRoom? FindRoomByRouteSlug(string raw)
     {
         var s = raw.Trim();
@@ -1188,6 +1310,37 @@
         {
             await Hub.PatchRoomBoostAsync(Options, room.Id, preset.TemperatureC, preset.Minutes, CancellationToken.None);
             _actionMessage = $"Boost applied to {room.Name}.";
+            Snackbar.Add(_actionMessage!, Severity.Success);
+            await RefreshAsync();
+        }
+        catch (Exception ex)
+        {
+            _actionError = true;
+            _actionMessage = $"Action failed: {ex.Message}";
+            Snackbar.Add(_actionMessage!, Severity.Error);
+        }
+        finally
+        {
+            _busyRoomId = null;
+        }
+    }
+
+    private async Task ApplyEaseOffAsync(HubLiveRoom room, EaseOffOption option)
+    {
+        if (!EnsureLiveRoom(room))
+            return;
+
+        var targetC = EaseOffTargetC(room, option);
+        var duration = FormatEaseOffMinutes(option.Minutes);
+        _actionMessage = null;
+        _actionError = false;
+        _busyRoomId = room.Id;
+        try
+        {
+            await Hub.PatchRoomBoostAsync(Options, room.Id, targetC, option.Minutes, CancellationToken.None);
+            _actionMessage = option.TurnOff
+                ? $"{room.Name}: heating off for {duration}, then back to schedule."
+                : $"{room.Name}: lowered to {targetC:F1} °C for {duration}, then back to schedule.";
             Snackbar.Add(_actionMessage!, Severity.Success);
             await RefreshAsync();
         }

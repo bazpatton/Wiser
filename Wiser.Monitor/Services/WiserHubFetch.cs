@@ -79,12 +79,17 @@ public sealed class WiserHubFetch(HttpClient http)
             ?? new HubDomainSliceProbe(relativePath, $"http://{options.WiserIp}/data/domain/", 0, "no attempt", "None", null, null, 0);
     }
 
-    /// <summary>Wiser boost / timed manual — same JSON as Wiser.Control <c>SetRoomModeAsync(..., "boost", ...)</c>.</summary>
+    /// <summary>
+    /// Wiser boost / timed manual — same JSON as Wiser.Control <c>SetRoomModeAsync(..., "boost", ...)</c>.
+    /// Pass <see cref="WiserSetpointDisplay.HubOffSentinelC"/> for a timed "heating off" that returns to schedule.
+    /// </summary>
     public async Task PatchRoomBoostAsync(MonitorOptions options, int roomId, double temperatureC, int minutes, CancellationToken ct)
     {
         if (roomId <= 0)
             throw new ArgumentOutOfRangeException(nameof(roomId));
-        temperatureC = Math.Clamp(Math.Round(temperatureC, 1), TempMinimumC, TempMaximumC);
+        temperatureC = WiserSetpointDisplay.IsHubOffSentinel(temperatureC)
+            ? TempOffC
+            : Math.Clamp(Math.Round(temperatureC, 1), TempMinimumC, TempMaximumC);
         minutes = Math.Clamp(minutes, 5, 240);
 
         var setPoint = (int)Math.Round(temperatureC * 10, MidpointRounding.AwayFromZero);

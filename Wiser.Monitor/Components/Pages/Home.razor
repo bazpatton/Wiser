@@ -251,14 +251,27 @@
 
             <div class="home-quick-section">
                 <div class="home-quick-section-head">
-                    <span class="home-quick-label">Boost rooms</span>
-                    <MudButton Variant="Variant.Text"
-                               Color="Color.Primary"
-                               Size="Size.Small"
-                               Disabled="_quickActionsBusy"
-                               OnClick="ToggleAllBoostRooms">
-                        @(AllBoostRoomsSelected ? "Clear" : "Select all")
-                    </MudButton>
+                    <span class="home-quick-label">Rooms</span>
+                    <div class="home-quick-select-actions">
+                        @if (CallingHeatRoomCount > 0)
+                        {
+                            <MudButton Variant="Variant.Text"
+                                       Color="Color.Warning"
+                                       Size="Size.Small"
+                                       StartIcon="@Icons.Material.Filled.LocalFireDepartment"
+                                       Disabled="_quickActionsBusy"
+                                       OnClick="SelectCallingHeatRooms">
+                                Calling heat (@CallingHeatRoomCount)
+                            </MudButton>
+                        }
+                        <MudButton Variant="Variant.Text"
+                                   Color="Color.Primary"
+                                   Size="Size.Small"
+                                   Disabled="_quickActionsBusy"
+                                   OnClick="ToggleAllBoostRooms">
+                            @(AllBoostRoomsSelected ? "Clear" : "Select all")
+                        </MudButton>
+                    </div>
                 </div>
                 <div class="home-quick-chips">
                     @foreach (var room in _quickActionRooms)
@@ -270,8 +283,17 @@
                                  Icon="@(room.IsFavorite ? Icons.Material.Filled.Star : null)"
                                  IconColor="@(selected ? Color.Inherit : Color.Warning)"
                                  Disabled="_quickActionsBusy"
+                                 title="@QuickRoomChipTitle(room)"
                                  OnClick="@(() => ToggleBoostRoom(room.Name))">
+                            @if (room.CallingHeat)
+                            {
+                                <span class="home-chip-flame" aria-label="calling heat">🔥</span>
+                            }
                             @room.Name
+                            @if (QuickRoomChipTemps(room) is { } temps)
+                            {
+                                <span class="home-chip-temps">@temps</span>
+                            }
                         </MudChip>
                     }
                 </div>
@@ -340,7 +362,7 @@
                 <MudButton Variant="Variant.Filled"
                            Color="Color.Primary"
                            FullWidth="true"
-                           StartIcon="@(_quickActionsBusy ? null : Icons.Material.Filled.Bolt)"
+                           StartIcon="@(_quickActionsBusy ? null : QuickApplyIcon)"
                            Class="touch-target mt-3"
                            Disabled="@(_quickActionsBusy || SelectedBoostRoomCount == 0)"
                            OnClick="ApplyQuickBoostAsync">
@@ -617,11 +639,11 @@
 <div class="home-sticky-actionbar">
     <MudButton Variant="Variant.Filled"
                Color="Color.Primary"
-               StartIcon="@Icons.Material.Filled.Bolt"
+               StartIcon="@QuickApplyIcon"
                Class="touch-target"
                Disabled="@(_quickActionsBusy || SelectedBoostRoomCount == 0)"
                OnClick="ApplyQuickBoostAsync">
-        @($"Boost {FormatRoomCount(SelectedBoostRoomCount)}")
+        @($"{QuickApplyVerb} {FormatRoomCount(SelectedBoostRoomCount)}")
     </MudButton>
     <MudButton Variant="Variant.Outlined"
                Color="@(AwayQuickActionShowsActive ? Color.Warning : Color.Primary)"
@@ -744,7 +766,12 @@
                 var manualTemp = modeKey == "manual" && r.SetpointC is >= 5.0 and var sp
                     ? WiserSetpointDisplay.ToDisplayTargetC(sp)
                     : (double?)null;
-                return new QuickActionRoom(r.Id, r.Name, favoriteRooms.Contains(r.Name), modeKey, manualTemp);
+                var targetC = r.SetpointC is { } target && !WiserSetpointDisplay.IsHubOffSentinel(target)
+                    ? target
+                    : (double?)null;
+                var tempC = Math.Abs(r.TempC - (-327.68)) < 0.001 ? (double?)null : r.TempC;
+                return new QuickActionRoom(r.Id, r.Name, favoriteRooms.Contains(r.Name), modeKey, manualTemp,
+                    tempC, targetC, r.HeatDemand != 0);
             })
             .OrderByDescending(static r => r.IsFavorite)
             .ThenBy(static r => r.Name, StringComparer.OrdinalIgnoreCase));
@@ -1172,8 +1199,72 @@
     private static string FormatRoomCount(int count) => count == 1 ? "1 room" : $"{count} rooms";
 
     private string QuickBoostButtonText => SelectedBoostRoomCount == 0
-        ? "Select rooms to boost"
-        : $"Boost {FormatRoomCount(SelectedBoostRoomCount)} to {QuickBoostTempClamped:F1} °C · {FormatBoostDuration(_quickBoostMinutes)}";
+        ? "Select rooms"
+        : $"{QuickApplyVerb} {FormatRoomCount(SelectedBoostRoomCount)} to {QuickBoostTempClamped:F1} °C · {FormatBoostDuration(_quickBoostMinutes)}";
+
+    private int CallingHeatRoomCount => _quickActionRooms.Count(static r => r.CallingHeat);
+
+    /// <summary>Selects exactly the rooms currently calling for heat, ready to ease them off.</summary>
+    private void SelectCallingHeatRooms() =>
+        _boostRoomNames = _quickActionRooms
+            .Where(static r => r.CallingHeat)
+            .Select(static r => r.Name)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Whether the chosen temperature raises (1) or lowers (-1) the selected rooms' targets; 0 when mixed or unknown.
+    /// A timed override works either way, so the wording follows the direction.
+    /// </summary>
+    private int QuickApplyDirection
+    {
+        get
+        {
+            var targets = _quickActionRooms
+                .Where(r => _boostRoomNames.Contains(r.Name) && r.TargetC is not null)
+                .Select(static r => r.TargetC!.Value)
+                .ToList();
+            if (targets.Count == 0)
+                return 1;
+            var temp = QuickBoostTempClamped;
+            if (targets.All(t => temp > t + 0.05))
+                return 1;
+            if (targets.All(t => temp < t - 0.05))
+                return -1;
+            return 0;
+        }
+    }
+
+    private string QuickApplyVerb => QuickApplyDirection switch
+    {
+        1 => "Boost",
+        -1 => "Lower",
+        _ => "Set",
+    };
+
+    private string QuickApplyIcon => QuickApplyDirection switch
+    {
+        -1 => Icons.Material.Filled.TrendingDown,
+        1 => Icons.Material.Filled.Bolt,
+        _ => Icons.Material.Filled.Thermostat,
+    };
+
+    /// <summary>"20.3→21" for a room chip; null when neither reading is known.</summary>
+    private static string? QuickRoomChipTemps(QuickActionRoom room)
+    {
+        if (room.TempC is null && room.TargetC is null)
+            return null;
+        var now = room.TempC is { } t ? t.ToString("0.0", CultureInfo.CurrentCulture) : "—";
+        var target = room.TargetC is { } sp ? sp.ToString("0.#", CultureInfo.CurrentCulture) : "—";
+        return $"{now}→{target}";
+    }
+
+    private static string QuickRoomChipTitle(QuickActionRoom room)
+    {
+        var state = room.CallingHeat ? "Calling heat" : "Idle";
+        var now = room.TempC is { } t ? $"{t:F1} °C" : "unknown";
+        var target = room.TargetC is { } sp ? $"{sp:F1} °C" : "off/unknown";
+        return $"{room.Name}: {state} · now {now} · target {target}";
+    }
 
     /// <summary>Quick-boost target snapped to 0.5 °C within hub limits.</summary>
     private double QuickBoostTempClamped =>
@@ -1213,6 +1304,7 @@
 
         var tempC = QuickBoostTempClamped;
         var minutes = Math.Clamp(_quickBoostMinutes, 5, 240);
+        var verb = QuickApplyVerb;
         _quickActionsBusy = true;
         try
         {
@@ -1229,11 +1321,11 @@
             var failed = root.TryGetProperty("failed", out var fProp) ? fProp.GetInt32() : selectedIds.Length - succeeded;
             if (!resp.IsSuccessStatusCode || !ok)
             {
-                Snackbar.Add($"Boost completed with issues: {succeeded} succeeded, {failed} failed.", Severity.Warning);
+                Snackbar.Add($"{verb} completed with issues: {succeeded} succeeded, {failed} failed.", Severity.Warning);
             }
             else
             {
-                Snackbar.Add($"Boost applied to {succeeded} room(s): {tempC:F1} °C for {FormatBoostDuration(minutes)}.", Severity.Success);
+                Snackbar.Add($"{verb} applied to {succeeded} room(s): {tempC:F1} °C for {FormatBoostDuration(minutes)}, then back to schedule.", Severity.Success);
             }
 
             if (succeeded > 0)
@@ -1980,7 +2072,15 @@
         return "manual";
     }
 
-    private sealed record QuickActionRoom(int Id, string Name, bool IsFavorite, string ModeKey, double? ManualTemperatureC);
+    private sealed record QuickActionRoom(
+        int Id,
+        string Name,
+        bool IsFavorite,
+        string ModeKey,
+        double? ManualTemperatureC,
+        double? TempC,
+        double? TargetC,
+        bool CallingHeat);
     private sealed record AwayRoomSnapshot(int RoomId, string Mode, double? ManualTemperatureC);
     private sealed record ActiveBoost(int RoomId, string Name, DateTimeOffset EndUtc, double? TargetC, bool IsBoost);
 }
@@ -2095,6 +2195,24 @@
 
     .home-quick-chips .mud-chip {
         margin: 0;
+    }
+
+    .home-quick-select-actions {
+        display: flex;
+        flex-wrap: wrap;
+        justify-content: flex-end;
+        gap: 2px;
+    }
+
+    .home-chip-flame {
+        margin-right: 3px;
+    }
+
+    .home-chip-temps {
+        margin-left: 6px;
+        font-size: 0.8em;
+        opacity: 0.8;
+        font-variant-numeric: tabular-nums;
     }
 
     .home-boost-settings {
