@@ -4,6 +4,7 @@
 @inject MonitorOptions Options
 @inject WiserHubFetch Hub
 @inject TemperatureStore Store
+@inject RoomsLiveDataCache RoomsCache
 
 <PageTitle>Wiser Monitor - Devices</PageTitle>
 
@@ -91,10 +92,28 @@
     private bool _loading = true;
     private string? _error;
 
-    protected override async Task OnInitializedAsync()
+    protected override void OnInitialized()
     {
-        await RefreshAsync();
+        // Show the poller's device snapshot at once; the hub fetch runs after first render (see OnAfterRenderAsync).
+        if (RoomsCache.TryGetDevices(out var cached, out _))
+        {
+            _devices.AddRange(cached);
+            _loading = false;
+        }
     }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender)
+            return;
+        if (!_loading && RoomsCache.TryGetDevices(out _, out var cachedAt) && DateTimeOffset.Now - cachedAt < LiveCacheMaxAge)
+            return;
+        await RefreshAsync();
+        StateHasChanged();
+    }
+
+    /// <summary>A device snapshot this recent (the poller refreshes it every poll) is shown without asking the hub again.</summary>
+    private static readonly TimeSpan LiveCacheMaxAge = TimeSpan.FromSeconds(60);
 
     private async Task RefreshAsync()
     {
@@ -103,13 +122,17 @@
         try
         {
             using var doc = await Hub.FetchDomainDocumentAsync(Options, CancellationToken.None);
+            var devices = HubDeviceParser.ParseDevices(doc);
+            RoomsCache.UpdateDevices(devices);
             _devices.Clear();
-            _devices.AddRange(HubDeviceParser.ParseDevices(doc));
+            _devices.AddRange(devices);
         }
         catch (Exception ex)
         {
-            _error = $"Could not load live device data: {ex.Message}";
-            _devices.Clear();
+            // Keep any snapshot already on screen; the message says it isn't live.
+            _error = _devices.Count > 0
+                ? $"Could not refresh live device data: {ex.Message}. Showing the last poll."
+                : $"Could not load live device data: {ex.Message}";
         }
         finally
         {

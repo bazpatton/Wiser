@@ -36,7 +36,8 @@ WISER_IP=10.0.0.1 WISER_SECRET=dev-secret DATA_DIR=./data python -m uvicorn wise
 - Python venv for `wiser-monitor` lives at `wiser-monitor/.venv`.
 - Both services use the same env var names (`WISER_IP`, `WISER_SECRET`, `DATA_DIR`, etc.) — see `env.example` in each directory.
 - SQLite databases are stored in `DATA_DIR` (defaults to `./data`).
-- No automated test suite exists in the repo. Testing is manual via API endpoints and the web UI.
+- `Wiser.Monitor.Tests/` (xUnit, net9.0) covers the pure logic: schedule timing, quick-action presets, ease-off links, auto ease-off rules, override history and Home UI prefs. Run `dotnet test Wiser.Monitor.Tests`; GitHub Actions runs it on push (`test-wiser-monitor.yml`). It sits beside `Wiser.Monitor/`, not inside it, so the Docker build doesn't pick it up. UI and hub behaviour are still tested manually.
+- **Quick-action presets, ease-off, automatic ease-off and override history** (`override_log` table, Charts → Overrides) are `Wiser.Monitor` only, like timed away.
 - When running both services simultaneously, use different ports (e.g. 8080 and 8081).
 - **Timed / smart away**, persisted policy, diagnostics (`GET /api/away/diagnostics`), policy export/import, and related ntfy deep links are implemented in **`Wiser.Monitor` only**. The Python `wiser-monitor` service does not yet mirror those endpoints or behaviors.
 

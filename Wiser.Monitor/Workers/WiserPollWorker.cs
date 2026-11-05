@@ -12,6 +12,7 @@ public sealed class WiserPollWorker(
     RoomAlertService alerts,
     ApiRoomsNamesCache apiRoomsNamesCache,
     RoomsLiveDataCache roomsLiveCache,
+    AutoEaseOffService autoEaseOff,
     ILogger<WiserPollWorker> log) : BackgroundService
 {
     private const int PollTimeoutSec = 60;
@@ -78,7 +79,9 @@ public sealed class WiserPollWorker(
 
         try
         {
-            var lowBattery = HubDeviceParser.ParseDevices(domainDoc)
+            var devices = HubDeviceParser.ParseDevices(domainDoc);
+            roomsLiveCache.UpdateDevices(devices);
+            var lowBattery = devices
                 .Where(d => d.BatteryPercent is <= LowBatteryThresholdPercent)
                 .Select(d => string.IsNullOrWhiteSpace(d.Room) ? d.Name : $"{d.Name} ({d.Room})")
                 .ToList();
@@ -89,16 +92,29 @@ public sealed class WiserPollWorker(
             // Non-critical; don't fail the poll if device parse fails.
         }
 
+        HubLiveOverview? overview = null;
         try
         {
             // Share this fetch with the UI so page loads render live data without their own hub round trip.
-            roomsLiveCache.Update(
-                HubLiveRoomsParser.ParseOverview(domainDoc, store.GetQuickActionPresets().Boosts),
-                HubSchedulesParser.AnalyzeSavingsHints(domainDoc));
+            overview = HubLiveRoomsParser.ParseOverview(domainDoc, store.GetQuickActionPresets().Boosts);
+            roomsLiveCache.Update(overview, HubSchedulesParser.AnalyzeSavingsHints(domainDoc));
+            roomsLiveCache.UpdateSchedules(HubSchedulesParser.ParseOverview(domainDoc));
         }
         catch (Exception ex)
         {
             log.LogDebug(ex, "live overview parse for UI cache failed");
+        }
+
+        if (overview is not null)
+        {
+            try
+            {
+                await autoEaseOff.EvaluateAsync(overview, hub, options, ct).ConfigureAwait(false);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                log.LogWarning(ex, "auto ease-off evaluation failed");
+            }
         }
 
         var samples = poll.Rooms;

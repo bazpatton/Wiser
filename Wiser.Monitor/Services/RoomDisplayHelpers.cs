@@ -67,7 +67,10 @@ public static class RoomDisplayHelpers
     /// End of a room's timed override (boost) when it is still in the future.
     /// The hub reports <c>OverrideTimeoutUnixTime</c> in seconds or milliseconds depending on firmware.
     /// </summary>
-    public static DateTimeOffset? GetActiveOverrideEndUtc(HubLiveRoom room)
+    public static DateTimeOffset? GetActiveOverrideEndUtc(HubLiveRoom room) =>
+        GetActiveOverrideEndUtc(room, DateTimeOffset.UtcNow);
+
+    public static DateTimeOffset? GetActiveOverrideEndUtc(HubLiveRoom room, DateTimeOffset now)
     {
         var raw = room.OverrideTimeoutUnix;
         if (raw is null or 0)
@@ -86,6 +89,6 @@ public static class RoomDisplayHelpers
             return null;
         }
 
-        return endUtc > DateTimeOffset.UtcNow ? endUtc : null;
+        return endUtc > now ? endUtc : null;
     }
 }

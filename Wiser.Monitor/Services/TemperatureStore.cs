@@ -140,6 +140,19 @@ public sealed class TemperatureStore
                         updated_ts INTEGER NOT NULL
                     );
 
+                    CREATE TABLE IF NOT EXISTS override_log (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        room_id INTEGER NOT NULL,
+                        room TEXT NOT NULL,
+                        started_ts INTEGER NOT NULL,
+                        ends_ts INTEGER NOT NULL,
+                        setpoint_c REAL NOT NULL,
+                        previous_target_c REAL,
+                        source TEXT NOT NULL
+                    );
+                    CREATE INDEX IF NOT EXISTS idx_override_log_started ON override_log(started_ts);
+                    CREATE INDEX IF NOT EXISTS idx_override_log_room_ends ON override_log(room_id, ends_ts);
+
                     CREATE TABLE IF NOT EXISTS timed_away_session (
                         session_id TEXT PRIMARY KEY,
                         ends_at_unix INTEGER NOT NULL,
@@ -985,6 +998,99 @@ public sealed class TemperatureStore
         {
             using var c = Open();
             UpsertSetting(c, "heating_savings_profile_v1", json, normalized.UpdatedTs);
+        }
+
+        return normalized;
+    }
+
+    public long AddOverrideLog(int roomId, string room, long startedTs, long endsTs, double setpointC, double? previousTargetC, string source)
+    {
+        lock (_gate)
+        {
+            using var c = Open();
+            using var cmd = c.CreateCommand();
+            cmd.CommandText =
+                """
+                INSERT INTO override_log (room_id, room, started_ts, ends_ts, setpoint_c, previous_target_c, source)
+                VALUES ($rid, $room, $start, $end, $sp, $prev, $src);
+                SELECT last_insert_rowid();
+                """;
+            cmd.Parameters.AddWithValue("$rid", roomId);
+            cmd.Parameters.AddWithValue("$room", room);
+            cmd.Parameters.AddWithValue("$start", startedTs);
+            cmd.Parameters.AddWithValue("$end", endsTs);
+            cmd.Parameters.AddWithValue("$sp", setpointC);
+            cmd.Parameters.AddWithValue("$prev", (object?)previousTargetC ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("$src", source);
+            return (long)(cmd.ExecuteScalar() ?? 0L);
+        }
+    }
+
+    /// <summary>Moves the end of every override still running for the room (end after <paramref name="nowTs"/>) to <paramref name="newEndTs"/>.</summary>
+    public int SetOpenOverrideEnd(int roomId, long nowTs, long newEndTs)
+    {
+        lock (_gate)
+        {
+            using var c = Open();
+            using var cmd = c.CreateCommand();
+            cmd.CommandText =
+                "UPDATE override_log SET ends_ts = $end WHERE room_id = $rid AND ends_ts > $now AND started_ts <= $now";
+            cmd.Parameters.AddWithValue("$rid", roomId);
+            cmd.Parameters.AddWithValue("$now", nowTs);
+            cmd.Parameters.AddWithValue("$end", newEndTs);
+            return cmd.ExecuteNonQuery();
+        }
+    }
+
+    public IReadOnlyList<OverrideLogEntry> GetOverrideLog(long sinceTs)
+    {
+        lock (_gate)
+        {
+            using var c = Open();
+            using var cmd = c.CreateCommand();
+            cmd.CommandText =
+                """
+                SELECT id, room_id, room, started_ts, ends_ts, setpoint_c, previous_target_c, source
+                FROM override_log WHERE started_ts >= $since ORDER BY started_ts DESC
+                """;
+            cmd.Parameters.AddWithValue("$since", sinceTs);
+            using var r = cmd.ExecuteReader();
+            var list = new List<OverrideLogEntry>();
+            while (r.Read())
+            {
+                list.Add(new OverrideLogEntry(
+                    r.GetInt64(0),
+                    r.GetInt32(1),
+                    r.GetString(2),
+                    r.GetInt64(3),
+                    r.GetInt64(4),
+                    r.GetDouble(5),
+                    r.IsDBNull(6) ? null : r.GetDouble(6),
+                    r.GetString(7)));
+            }
+
+            return list;
+        }
+    }
+
+    public AutoEaseOffPolicy GetAutoEaseOffPolicy()
+    {
+        lock (_gate)
+        {
+            using var c = Open();
+            using var cmd = c.CreateCommand();
+            cmd.CommandText = "SELECT value FROM app_settings WHERE key = 'auto_ease_off_policy_v1' LIMIT 1";
+            return AutoEaseOffPolicy.Parse(cmd.ExecuteScalar() as string);
+        }
+    }
+
+    public AutoEaseOffPolicy SaveAutoEaseOffPolicy(AutoEaseOffPolicy policy)
+    {
+        var normalized = AutoEaseOffPolicy.Normalize(policy);
+        lock (_gate)
+        {
+            using var c = Open();
+            UpsertSetting(c, "auto_ease_off_policy_v1", JsonSerializer.Serialize(normalized), DateTimeOffset.UtcNow.ToUnixTimeSeconds());
         }
 
         return normalized;

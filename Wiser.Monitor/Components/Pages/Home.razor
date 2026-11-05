@@ -17,6 +17,8 @@
 @inject ISnackbar Snackbar
 @inject IJSRuntime Js
 @inject IDialogService DialogService
+@inject IHttpContextAccessor HttpContextAccessor
+@inject PersistentComponentState AppState
 
 <PageTitle>Wiser Monitor</PageTitle>
 
@@ -894,8 +896,62 @@
     private bool AwayQuickActionShowsActive =>
         _awayModeActive || _hubSystemAway || Store.TryGetActiveTimedAwaySession() is not null;
 
+    private const string HomePrefsStateKey = "home-ui-prefs";
+    private PersistingComponentStateSubscription? _prefsPersisting;
+    /// <summary>True when prefs came from the cookie, so the localStorage migration in OnAfterRenderAsync can be skipped.</summary>
+    private bool _prefsFromCookie;
+
+    /// <summary>
+    /// Reads the prefs cookie while prerendering and hands it to the interactive render through persisted state
+    /// (HttpContext isn't reliable once the circuit is running), so both renders agree and nothing jumps.
+    /// </summary>
+    private void LoadHomeUiPrefs()
+    {
+        if (!AppState.TryTakeFromJson<HomeUiPrefs>(HomePrefsStateKey, out var prefs) || prefs is null)
+            prefs = HomeUiPrefs.Parse(HttpContextAccessor.HttpContext?.Request.Cookies[HomeUiPrefs.CookieName]);
+        _prefsPersisting = AppState.RegisterOnPersisting(() =>
+        {
+            AppState.PersistAsJson(HomePrefsStateKey, prefs);
+            return Task.CompletedTask;
+        });
+
+        if (prefs.IsEmpty)
+            return;
+        _prefsFromCookie = true;
+        if (prefs.QuickCollapsed is { } collapsed)
+            _quickActionsExpanded = !collapsed;
+        if (prefs.BoostTempC is { } t)
+            _quickBoostTempC = t;
+        if (prefs.BoostMinutes is { } m)
+            _quickBoostMinutes = m;
+        if (prefs.AdjustMode is { } a)
+            _quickAdjustMode = a;
+        if (prefs.AdjustDeltaC is { } d)
+            _quickAdjustDeltaC = d;
+    }
+
+    private HomeUiPrefs CurrentHomeUiPrefs => new(
+        QuickCollapsed: !_quickActionsExpanded,
+        BoostTempC: QuickBoostTempClamped,
+        BoostMinutes: _quickBoostMinutes,
+        AdjustMode: _quickAdjustMode,
+        AdjustDeltaC: Math.Abs(_quickAdjustDeltaC) >= 0.5 ? _quickAdjustDeltaC : null);
+
+    private async Task SaveHomeUiPrefsAsync()
+    {
+        try
+        {
+            await Js.InvokeVoidAsync("wiserSetCookie", HomeUiPrefs.CookieName, CurrentHomeUiPrefs.Serialize(), HomeUiPrefs.CookieDays);
+        }
+        catch
+        {
+            // best effort
+        }
+    }
+
     protected override Task OnInitializedAsync()
     {
+        LoadHomeUiPrefs();
         var (err, ok) = MonitorState.Snapshot();
         _lastError = err;
         var okText = ok is null
@@ -979,9 +1035,16 @@
             return;
         // JS interop (localStorage) requires a live circuit; must run here, not in OnInitializedAsync.
         await TryLoadAwayStateAsync();
-        var quickCollapsedChanged = await TryLoadQuickActionsCollapsedAsync();
-        if (await TryLoadQuickBoostSettingsAsync() || quickCollapsedChanged)
-            StateHasChanged();
+        if (!_prefsFromCookie)
+        {
+            // One-off move from localStorage (pre-cookie versions); afterwards the cookie renders these server-side.
+            var quickCollapsedChanged = await TryLoadQuickActionsCollapsedAsync();
+            if (await TryLoadQuickBoostSettingsAsync() || quickCollapsedChanged)
+            {
+                await SaveHomeUiPrefsAsync();
+                StateHasChanged();
+            }
+        }
         _homeUiRefreshCts = new CancellationTokenSource();
         _homeUiRefreshTimer = new PeriodicTimer(TimeSpan.FromSeconds(45));
         _ = PumpHomeUiRefreshAsync();
@@ -1113,6 +1176,7 @@
         _homeUiRefreshCts?.Cancel();
         _homeUiRefreshCts?.Dispose();
         _homeUiRefreshTimer?.Dispose();
+        _prefsPersisting?.Dispose();
         await Task.CompletedTask;
     }
 
@@ -1542,6 +1606,7 @@
                         room_id = room.Id,
                         temperature_c = tempC,
                         minutes,
+                        source = OverrideSources.HeatingNow,
                     });
                     (resp.IsSuccessStatusCode ? succeeded : failed).Add(room.Name);
                 }
@@ -1704,6 +1769,7 @@
                         room_ids = ids,
                         temperature_c = group.Key.TempC,
                         minutes = group.Key.Minutes,
+                        source = OverrideSources.HomeQuick,
                     });
                     using var json = await JsonDocument.ParseAsync(await resp.Content.ReadAsStreamAsync());
                     var root = json.RootElement;
@@ -1763,6 +1829,7 @@
                 room_id = boost.RoomId,
                 temperature_c = setpointC,
                 minutes,
+                source = OverrideSources.Extend,
             });
             if (resp.IsSuccessStatusCode)
                 Snackbar.Add($"{boost.Name} extended until {FormatLocalTime(DateTimeOffset.UtcNow.AddMinutes(minutes))}.", Severity.Success);
@@ -1895,14 +1962,7 @@
     private async Task ToggleQuickActionsAsync()
     {
         _quickActionsExpanded = !_quickActionsExpanded;
-        try
-        {
-            await Js.InvokeVoidAsync("localStorage.setItem", QuickActionsCollapsedStorageKey, _quickActionsExpanded ? "0" : "1");
-        }
-        catch
-        {
-            // best effort
-        }
+        await SaveHomeUiPrefsAsync();
     }
 
     private async Task OnQuickActionsHeaderKeyDown(KeyboardEventArgs e)
@@ -1993,19 +2053,12 @@
         }
     }
 
+    /// <summary>Remembers the last applied settings (cookie, so the next visit renders with them).</summary>
     private async Task SaveQuickBoostSettingsAsync(double tempC, int minutes)
     {
-        try
-        {
-            await Js.InvokeVoidAsync("localStorage.setItem", QuickBoostTempStorageKey, tempC.ToString(CultureInfo.InvariantCulture));
-            await Js.InvokeVoidAsync("localStorage.setItem", QuickBoostMinutesStorageKey, minutes.ToString(CultureInfo.InvariantCulture));
-            await Js.InvokeVoidAsync("localStorage.setItem", QuickAdjustModeStorageKey, _quickAdjustMode ? "1" : "0");
-            await Js.InvokeVoidAsync("localStorage.setItem", QuickAdjustDeltaStorageKey, _quickAdjustDeltaC.ToString(CultureInfo.InvariantCulture));
-        }
-        catch
-        {
-            // best effort
-        }
+        _quickBoostTempC = tempC;
+        _quickBoostMinutes = minutes;
+        await SaveHomeUiPrefsAsync();
     }
 
     private async Task ToggleAwayModeAsync()

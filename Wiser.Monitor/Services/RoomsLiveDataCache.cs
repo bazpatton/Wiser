@@ -55,4 +55,32 @@ public sealed class RoomsLiveDataCache
             overview.AwaySetpointLimitC);
         _entry = new Entry(copy, savingsHints ?? _entry?.SavingsHints, DateTimeOffset.Now);
     }
+
+    private volatile Timestamped<IReadOnlyList<HubDeviceStatus>>? _devices;
+    private volatile Timestamped<HubSchedulesOverview>? _schedules;
+
+    private sealed record Timestamped<T>(T Value, DateTimeOffset CachedAt);
+
+    public void UpdateDevices(IReadOnlyList<HubDeviceStatus> devices) =>
+        _devices = new Timestamped<IReadOnlyList<HubDeviceStatus>>(devices.ToList(), DateTimeOffset.Now);
+
+    public bool TryGetDevices(out IReadOnlyList<HubDeviceStatus> devices, out DateTimeOffset cachedAt)
+    {
+        var e = _devices;
+        devices = e?.Value ?? [];
+        cachedAt = e?.CachedAt ?? default;
+        return e is not null;
+    }
+
+    public void UpdateSchedules(HubSchedulesOverview schedules) =>
+        _schedules = new Timestamped<HubSchedulesOverview>(schedules, DateTimeOffset.Now);
+
+    /// <remarks>"Next change" text in the snapshot is as of <paramref name="cachedAt"/>.</remarks>
+    public bool TryGetSchedules(out HubSchedulesOverview? schedules, out DateTimeOffset cachedAt)
+    {
+        var e = _schedules;
+        schedules = e?.Value;
+        cachedAt = e?.CachedAt ?? default;
+        return e is not null;
+    }
 }

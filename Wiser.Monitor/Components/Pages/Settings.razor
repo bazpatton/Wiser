@@ -620,6 +620,13 @@
         </MudExpansionPanel>
 
         <MudExpansionPanel>
+            <TitleContent><MudText Typo="Typo.subtitle1"><i class="fa-solid fa-robot"></i> Automatic ease-off</MudText></TitleContent>
+            <ChildContent>
+                <AutoEaseOffSettings />
+            </ChildContent>
+        </MudExpansionPanel>
+
+        <MudExpansionPanel>
             <TitleContent><MudText Typo="Typo.subtitle1"><i class="fa-solid fa-calendar-week"></i> Heating routine</MudText></TitleContent>
             <ChildContent>
         <MudText Typo="Typo.body2" Class="mud-text-secondary mb-2">Heating routine (for Home savings suggestions)</MudText>
@@ -948,7 +955,7 @@
             </MudButton>
             <MudButton Variant="Variant.Outlined"
                        Color="Color.Default"
-                       OnClick="LoadAsync"
+                       OnClick="@(() => LoadAsync())"
                        StartIcon="@Icons.Material.Filled.Refresh">
                 Reload
             </MudButton>
@@ -1003,7 +1010,8 @@
     private bool _timedAwayBusy;
     private TimedAwayDiagnostics? _taDiagnostics;
     private SmartAwayLiveValidationView? _taLiveValidation;
-    private bool _taLiveValidationBusy;
+    // Starts busy: the first check runs right after render, so the panel shows "checking" rather than "not checked".
+    private bool _taLiveValidationBusy = true;
     private string? _taLiveValidationError;
     private string? _taLiveActiveSessionEndsLocalText;
     private string _settingsPollStatusText = "";
@@ -1032,7 +1040,8 @@
             ? null
             : $"/api/floorplan/image?v={_floorplanImageVersion}";
 
-    protected override Task OnInitializedAsync() => LoadAsync();
+    // The live away validation asks the hub, so it runs after first render (OnAfterRenderAsync) instead of holding up the page.
+    protected override Task OnInitializedAsync() => LoadAsync(includeLiveValidation: false);
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
@@ -1040,6 +1049,7 @@
             return;
 
         await RefreshFloorplanPreviewSizeAsync();
+        _ = RefreshSmartAwayValidationAsync();
         if (Nav.Uri.Contains("#timed-away", StringComparison.Ordinal))
             await Js.InvokeVoidAsync("wiserScrollToId", "timed-away");
 
@@ -1211,7 +1221,7 @@
         await InvokeAsync(StateHasChanged);
     }
 
-    private async Task LoadAsync()
+    private async Task LoadAsync(bool includeLiveValidation = true)
     {
         _rooms.Clear();
         var rooms = Store.ListRooms().OrderBy(x => x, StringComparer.OrdinalIgnoreCase).ToList();
@@ -1256,7 +1266,8 @@
         }
         LoadTimedAwayFields();
         await RefreshServiceDiagnosticsAsync();
-        await RefreshSmartAwayValidationAsync();
+        if (includeLiveValidation)
+            await RefreshSmartAwayValidationAsync();
     }
 
     private Task RefreshServiceDiagnosticsAsync()

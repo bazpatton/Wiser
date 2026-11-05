@@ -1,0 +1,147 @@
+@inject TemperatureStore Store
+@inject MonitorOptions Options
+
+<MudPaper Class="pa-3 chart-card">
+    <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center" Wrap="Wrap.Wrap">
+        <MudText Typo="Typo.h6">
+            <MudIcon Icon="@Icons.Material.Filled.TrendingDown" Size="Size.Small" /> Ease-off results
+        </MudText>
+        <MudSelect T="int" Value="_days" ValueChanged="OnDaysChanged" Label="Period" Dense="true"
+                   Variant="Variant.Outlined" Margin="Margin.Dense" Style="max-width: 140px">
+            <MudSelectItem Value="7">7 days</MudSelectItem>
+            <MudSelectItem Value="14">14 days</MudSelectItem>
+            <MudSelectItem Value="30">30 days</MudSelectItem>
+        </MudSelect>
+    </MudStack>
+    <MudText Typo="Typo.body2" Class="mud-text-secondary mt-1">
+        Timed overrides sent from this app, and what the room did while they ran. "Calling heat" is the share of polls with the
+        room's valve open, during the override and over the same length of time just before it.
+    </MudText>
+
+    @if (_summaries.Count == 0)
+    {
+        <MudAlert Severity="Severity.Info" Dense="true" Class="mt-3">
+            No finished ease-offs in this period yet. They appear here once one has run its course.
+        </MudAlert>
+    }
+    else
+    {
+        <MudSimpleTable Dense="true" Hover="true" Class="mt-3 override-table">
+            <thead>
+                <tr>
+                    <th>Ease-off</th>
+                    <th>Times</th>
+                    <th>Avg °C change</th>
+                    <th>Calling heat before → during</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var s in _summaries)
+                {
+                    <tr>
+                        <td><strong>@s.ChangeLabel</strong></td>
+                        <td>@s.Count</td>
+                        <td>@FormatChange(s.AvgTempChangeC)</td>
+                        <td>@FormatShare(s.AvgCallingShareBefore) → @FormatShare(s.AvgCallingShareDuring)</td>
+                    </tr>
+                }
+            </tbody>
+        </MudSimpleTable>
+    }
+
+    @if (_outcomes.Count > 0)
+    {
+        <MudText Typo="Typo.subtitle2" Class="mt-4">All overrides (@_outcomes.Count)</MudText>
+        <div class="override-table-scroll">
+            <MudSimpleTable Dense="true" Hover="true" Class="override-table">
+                <thead>
+                    <tr>
+                        <th>Started</th>
+                        <th>Room</th>
+                        <th>Change</th>
+                        <th>Length</th>
+                        <th>From</th>
+                        <th>°C start → end</th>
+                        <th>Calling heat</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var o in _outcomes)
+                    {
+                        <tr>
+                            <td>@FormatStart(o.Entry.StartedTs)</td>
+                            <td>@o.Entry.Room</td>
+                            <td>
+                                @o.Entry.ChangeLabel
+                                @if (!o.Entry.IsEaseOff)
+                                {
+                                    <span class="mud-text-secondary"> (boost)</span>
+                                }
+                            </td>
+                            <td>@QuickActionPresets.FormatMinutes(Math.Max(1, o.DurationMinutes))@(o.Running ? " · running" : "")</td>
+                            <td>@OverrideSources.Describe(o.Entry.Source)</td>
+                            <td>@FormatTemp(o.TempStartC) → @FormatTemp(o.TempEndC)</td>
+                            <td>@FormatShare(o.CallingShareBefore) → @FormatShare(o.CallingShareDuring)</td>
+                        </tr>
+                    }
+                </tbody>
+            </MudSimpleTable>
+        </div>
+    }
+</MudPaper>
+
+<style>
+    .override-table-scroll {
+        overflow-x: auto;
+    }
+
+    .override-table td,
+    .override-table th {
+        white-space: nowrap;
+        font-variant-numeric: tabular-nums;
+    }
+</style>
+
+@code {
+    private int _days = 14;
+    private List<OverrideOutcome> _outcomes = [];
+    private IReadOnlyList<EaseOffPresetSummary> _summaries = [];
+
+    private TimeZoneInfo DisplayZone => TimeZoneResolver.Resolve(Options.TimeZoneId);
+
+    protected override void OnInitialized() => Load();
+
+    private void OnDaysChanged(int days)
+    {
+        _days = days;
+        Load();
+    }
+
+    private void Load()
+    {
+        var now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+        var entries = Store.GetOverrideLog(now - _days * 86400L);
+        var outcomes = new List<OverrideOutcome>(entries.Count);
+
+        // One stored-series query per room, reaching back far enough for the longest "before" baseline.
+        foreach (var byRoom in entries.GroupBy(static e => e.Room, StringComparer.OrdinalIgnoreCase))
+        {
+            var since = byRoom.Min(e => e.StartedTs - Math.Max(e.EndsTs - e.StartedTs, 3600));
+            var samples = Store.SeriesRoom(byRoom.Key, since);
+            outcomes.AddRange(byRoom.Select(e => OverrideOutcomeAnalyzer.Analyze(e, samples, now)));
+        }
+
+        _outcomes = outcomes.OrderByDescending(static o => o.Entry.StartedTs).ToList();
+        _summaries = OverrideOutcomeAnalyzer.SummarizeEaseOffs(_outcomes);
+    }
+
+    private string FormatStart(long ts) =>
+        TimeZoneInfo.ConvertTime(DateTimeOffset.FromUnixTimeSeconds(ts), DisplayZone).ToString("ddd HH:mm", CultureInfo.CurrentCulture);
+
+    private static string FormatTemp(double? c) => c is { } v ? v.ToString("F1", CultureInfo.CurrentCulture) : "—";
+
+    private static string FormatChange(double? c) =>
+        c is not { } v ? "—" : (v > 0 ? "+" : v < 0 ? "−" : "±") + Math.Abs(v).ToString("F1", CultureInfo.CurrentCulture);
+
+    private static string FormatShare(double? share) => share is { } s ? $"{s * 100:F0}%" : "—";
+}

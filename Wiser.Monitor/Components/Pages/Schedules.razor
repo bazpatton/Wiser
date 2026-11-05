@@ -6,6 +6,7 @@
 
 @inject MonitorOptions Options
 @inject WiserHubFetch Hub
+@inject RoomsLiveDataCache RoomsCache
 @inject ISnackbar Snackbar
 @inject IDialogService DialogService
 
@@ -188,7 +189,24 @@
     private string? _error;
     private string? _clockHint;
 
-    protected override async Task OnInitializedAsync() => await RefreshAsync();
+    protected override void OnInitialized()
+    {
+        // Show the poller's snapshot at once; "next change" in it may be a poll old, so always refresh after first render.
+        if (RoomsCache.TryGetSchedules(out var cached, out _) && cached is not null)
+        {
+            _overview = cached;
+            _clockHint = cached.ClockHint;
+            _loading = false;
+        }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender)
+            return;
+        await RefreshAsync();
+        StateHasChanged();
+    }
 
     private async Task RefreshAsync()
     {
@@ -199,12 +217,14 @@
             using var doc = await Hub.FetchDomainDocumentAsync(Options, CancellationToken.None);
             _overview = HubSchedulesParser.ParseOverview(doc);
             _clockHint = _overview.ClockHint;
+            RoomsCache.UpdateSchedules(_overview);
         }
         catch (Exception ex)
         {
-            _error = $"Could not load schedules: {ex.Message}";
-            _overview = null;
-            _clockHint = null;
+            // Keep a snapshot already on screen; the message says it isn't live.
+            _error = _overview is null
+                ? $"Could not load schedules: {ex.Message}"
+                : $"Could not refresh schedules: {ex.Message}. Showing the last poll.";
         }
         finally
         {

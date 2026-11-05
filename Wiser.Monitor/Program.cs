@@ -106,6 +106,8 @@ builder.Services.AddHttpClient<OutdoorWeatherClient>(c => c.Timeout = TimeSpan.F
 builder.Services.AddHttpClient<NtfyClient>(c => c.Timeout = TimeSpan.FromSeconds(15));
 builder.Services.AddSingleton<RoomAlertService>();
 builder.Services.AddSingleton<RoomsLiveDataCache>();
+builder.Services.AddSingleton<OverrideLogger>();
+builder.Services.AddSingleton<AutoEaseOffService>();
 builder.Services.AddSingleton<ApiRoomsNamesCache>();
 if (hubConfigured)
     builder.Services.AddHostedService<WiserPollWorker>();
@@ -321,7 +323,7 @@ app.MapGet("/api/hub-domain-slices", async (WiserHubFetch hub, MonitorOptions o,
     });
 });
 
-app.MapPost("/api/room/boost", async (BoostRoomRequest body, WiserHubFetch hub, MonitorOptions o, CancellationToken ct) =>
+app.MapPost("/api/room/boost", async (BoostRoomRequest body, WiserHubFetch hub, MonitorOptions o, OverrideLogger overrideLog, CancellationToken ct) =>
 {
     if (!hubConfigured)
     {
@@ -335,6 +337,11 @@ app.MapPost("/api/room/boost", async (BoostRoomRequest body, WiserHubFetch hub, 
     try
     {
         await hub.PatchRoomBoostAsync(o, body.room_id, body.temperature_c, body.minutes, ct).ConfigureAwait(false);
+        var minutes = Math.Clamp(body.minutes, 5, 240);
+        if (string.Equals(body.source, OverrideSources.Extend, StringComparison.OrdinalIgnoreCase))
+            overrideLog.RecordExtended(body.room_id, minutes);
+        else
+            overrideLog.RecordApplied(body.room_id, body.temperature_c, minutes, body.source ?? OverrideSources.Api);
         return Results.Json(new { ok = true });
     }
     catch (Exception ex)
@@ -343,7 +350,7 @@ app.MapPost("/api/room/boost", async (BoostRoomRequest body, WiserHubFetch hub, 
     }
 });
 
-app.MapPost("/api/room/cancel-override", async (CancelRoomOverrideRequest body, WiserHubFetch hub, MonitorOptions o, CancellationToken ct) =>
+app.MapPost("/api/room/cancel-override", async (CancelRoomOverrideRequest body, WiserHubFetch hub, MonitorOptions o, OverrideLogger overrideLog, CancellationToken ct) =>
 {
     if (!hubConfigured)
     {
@@ -357,6 +364,7 @@ app.MapPost("/api/room/cancel-override", async (CancelRoomOverrideRequest body, 
     try
     {
         await hub.PatchRoomCancelTimedOverrideAsync(o, body.room_id, ct).ConfigureAwait(false);
+        overrideLog.RecordEnded(body.room_id);
         return Results.Json(new { ok = true });
     }
     catch (Exception ex)
@@ -365,7 +373,7 @@ app.MapPost("/api/room/cancel-override", async (CancelRoomOverrideRequest body, 
     }
 });
 
-app.MapPost("/api/room/mode", async (RoomModeRequest body, WiserHubFetch hub, MonitorOptions o, CancellationToken ct) =>
+app.MapPost("/api/room/mode", async (RoomModeRequest body, WiserHubFetch hub, MonitorOptions o, OverrideLogger overrideLog, CancellationToken ct) =>
 {
     if (!hubConfigured)
     {
@@ -381,6 +389,8 @@ app.MapPost("/api/room/mode", async (RoomModeRequest body, WiserHubFetch hub, Mo
     try
     {
         await hub.PatchRoomModeAsync(o, body.room_id, body.mode, body.temperature_c, ct).ConfigureAwait(false);
+        // Every mode change replaces any timed override.
+        overrideLog.RecordEnded(body.room_id);
         return Results.Json(new { ok = true });
     }
     catch (Exception ex)
@@ -416,7 +426,7 @@ app.MapPost("/api/system/home-away", async (SystemHomeAwayRequest body, WiserHub
     }
 });
 
-app.MapPost("/api/rooms/boost", async (BatchBoostRoomsRequest body, WiserHubFetch hub, MonitorOptions o, CancellationToken ct) =>
+app.MapPost("/api/rooms/boost", async (BatchBoostRoomsRequest body, WiserHubFetch hub, MonitorOptions o, OverrideLogger overrideLog, CancellationToken ct) =>
 {
     if (!hubConfigured)
     {
@@ -443,6 +453,7 @@ app.MapPost("/api/rooms/boost", async (BatchBoostRoomsRequest body, WiserHubFetc
         {
             await hub.PatchRoomBoostAsync(o, roomId, tempC, minutes, ct).ConfigureAwait(false);
             succeeded.Add(roomId);
+            overrideLog.RecordApplied(roomId, tempC, minutes, body.source ?? OverrideSources.Api);
         }
         catch (Exception ex)
         {
@@ -462,7 +473,7 @@ app.MapPost("/api/rooms/boost", async (BatchBoostRoomsRequest body, WiserHubFetc
     });
 });
 
-app.MapPost("/api/rooms/mode", async (BatchRoomModeRequest body, WiserHubFetch hub, MonitorOptions o, CancellationToken ct) =>
+app.MapPost("/api/rooms/mode", async (BatchRoomModeRequest body, WiserHubFetch hub, MonitorOptions o, OverrideLogger overrideLog, CancellationToken ct) =>
 {
     if (!hubConfigured)
     {
@@ -492,6 +503,7 @@ app.MapPost("/api/rooms/mode", async (BatchRoomModeRequest body, WiserHubFetch h
         {
             await hub.PatchRoomModeAsync(o, roomId, mode, body.temperature_c, ct).ConfigureAwait(false);
             succeeded.Add(roomId);
+            overrideLog.RecordEnded(roomId);
         }
         catch (Exception ex)
         {
@@ -1355,11 +1367,12 @@ internal sealed record SeriesRoomRowDto(
     public bool CallingForHeat => HeatDemand != 0 || (PercentageDemand ?? 0) > 0;
 }
 
-internal sealed record BoostRoomRequest(int room_id, double temperature_c, int minutes);
+/// <param name="source">Where the override came from (see <see cref="OverrideSources"/>); "extend" lengthens the running one.</param>
+internal sealed record BoostRoomRequest(int room_id, double temperature_c, int minutes, string? source = null);
 internal sealed record CancelRoomOverrideRequest(int room_id);
 internal sealed record RoomModeRequest(int room_id, string mode, double? temperature_c);
 internal sealed record SystemHomeAwayRequest(string mode, double? temperature_c);
-internal sealed record BatchBoostRoomsRequest(int[] room_ids, double temperature_c, int minutes);
+internal sealed record BatchBoostRoomsRequest(int[] room_ids, double temperature_c, int minutes, string? source = null);
 internal sealed record BatchRoomModeRequest(int[] room_ids, string mode, double? temperature_c);
 internal sealed record TimedAwayScheduleRequest(long ends_at_unix, double? temperature_c);
 internal sealed record TimedAwayExtendRequest(int extend_minutes);

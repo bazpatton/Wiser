@@ -14,6 +14,11 @@ public sealed record EaseOffPreset(
 {
     [JsonIgnore]
     public bool UntilNextChange => Minutes == QuickActionPresets.UntilNextChange;
+
+    /// <summary>"Lower 1 °C for 1 h", "Heating off until next change".</summary>
+    [JsonIgnore]
+    public string Label =>
+        $"{(TurnOff ? "Heating off" : $"Lower {DropC:0.#} °C")} {(UntilNextChange ? "until next change" : $"for {QuickActionPresets.FormatMinutes(Minutes)}")}";
 }
 
 /// <summary>Boost and ease-off presets shown on Home and Rooms; edited in Settings and stored in <c>app_settings</c>.</summary>

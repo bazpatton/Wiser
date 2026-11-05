@@ -1,0 +1,159 @@
+@inject TemperatureStore Store
+@inject AutoEaseOffService AutoEaseOff
+@inject RoomsLiveDataCache RoomsCache
+@inject ISnackbar Snackbar
+@inject MonitorOptions Options
+
+<MudText Typo="Typo.body2" Class="mud-text-secondary mb-2">
+    When a room is close to its target but keeps calling for heat for a long time, the boiler is often running for the
+    last fraction of a degree. This applies one of your ease-off presets to that room, then lets it return to schedule.
+    Rooms already in a boost or override are left alone, and nothing happens in whole-house away mode.
+</MudText>
+
+<MudSwitch T="bool" @bind-Value="_enabled" Color="Color.Primary" Class="touch-control" Label="Ease off automatically" />
+
+<MudGrid Spacing="2" Class="mt-1">
+    <MudItem xs="6" sm="3">
+        <MudNumericField T="double" Label="Within °C of target" @bind-Value="_withinC" Step="0.1" Min="0" Max="3"
+                         Variant="Variant.Outlined" Margin="Margin.Dense" HelperText="0 = at or above target" />
+    </MudItem>
+    <MudItem xs="6" sm="3">
+        <MudNumericField T="int" Label="Calling for (min)" @bind-Value="_sustainedMinutes" Step="10" Min="10" Max="240"
+                         Variant="Variant.Outlined" Margin="Margin.Dense" />
+    </MudItem>
+    <MudItem xs="12" sm="6">
+        <MudSelect T="int" Label="Ease-off to apply" @bind-Value="_easeOffIndex" Variant="Variant.Outlined" Margin="Margin.Dense">
+            @for (var i = 0; i < _presets.Count; i++)
+            {
+                var index = i;
+                <MudSelectItem Value="index">@_presets[index].Label</MudSelectItem>
+            }
+        </MudSelect>
+    </MudItem>
+    <MudItem xs="6" sm="3">
+        <MudNumericField T="int" Label="Wait before repeating (min)" @bind-Value="_cooldownMinutes" Step="30" Min="30" Max="1440"
+                         Variant="Variant.Outlined" Margin="Margin.Dense" />
+    </MudItem>
+    <MudItem xs="6" sm="3" Class="d-flex align-center">
+        <MudCheckBox T="bool" @bind-Value="_notify" Label="Send ntfy alert" Dense="true" />
+    </MudItem>
+</MudGrid>
+
+@if (_roomNames.Count > 0)
+{
+    <MudText Typo="Typo.subtitle2" Class="mt-3">Rooms</MudText>
+    <MudText Typo="Typo.caption" Class="mud-text-secondary d-block">Tap to exclude a room (e.g. a nursery or bathroom).</MudText>
+    <div class="d-flex flex-wrap mt-1" style="gap: 6px;">
+        @foreach (var name in _roomNames)
+        {
+            var excluded = _excluded.Contains(name);
+            <MudChip T="string"
+                     Variant="@(excluded ? Variant.Outlined : Variant.Filled)"
+                     Color="@(excluded ? Color.Default : Color.Primary)"
+                     Icon="@(excluded ? Icons.Material.Filled.Block : Icons.Material.Filled.Check)"
+                     OnClick="@(() => ToggleExcluded(name))">
+                @name
+            </MudChip>
+        }
+    </div>
+}
+
+<MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Save" Class="mt-3" OnClick="Save">
+    Save automatic ease-off
+</MudButton>
+
+@if (_enabled)
+{
+    <MudText Typo="Typo.subtitle2" Class="mt-4">What it sees now</MudText>
+    @if (AutoEaseOff.LastDecisions.Count == 0)
+    {
+        <MudText Typo="Typo.caption" Class="mud-text-secondary">Checked after each hub poll; nothing evaluated yet since saving.</MudText>
+    }
+    else
+    {
+        <MudText Typo="Typo.caption" Class="mud-text-secondary d-block">
+            Last checked @(AutoEaseOff.LastEvaluatedAt is { } at
+                ? TimeZoneInfo.ConvertTime(at, TimeZoneResolver.Resolve(Options.TimeZoneId)).ToString("t", CultureInfo.CurrentCulture)
+                : "—").
+            The calling-for count restarts if the service restarts.
+        </MudText>
+        <MudSimpleTable Dense="true" Class="mt-1">
+            <tbody>
+                @foreach (var d in AutoEaseOff.LastDecisions)
+                {
+                    <tr>
+                        <td><strong>@d.Room</strong></td>
+                        <td>
+                            <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined" Color="@StatusColor(d.Status)">
+                                @d.Status
+                            </MudChip>
+                        </td>
+                        <td class="mud-text-secondary">@d.Reason</td>
+                    </tr>
+                }
+            </tbody>
+        </MudSimpleTable>
+    }
+}
+
+@code {
+    private bool _enabled;
+    private double _withinC;
+    private int _sustainedMinutes;
+    private int _easeOffIndex;
+    private int _cooldownMinutes;
+    private bool _notify;
+    private HashSet<string> _excluded = new(StringComparer.OrdinalIgnoreCase);
+    private IReadOnlyList<EaseOffPreset> _presets = [];
+    private List<string> _roomNames = [];
+
+    protected override void OnInitialized()
+    {
+        _presets = Store.GetQuickActionPresets().EaseOffs;
+        Load(Store.GetAutoEaseOffPolicy());
+
+        var names = RoomsCache.TryGetSnapshot(out var overview, out _)
+            ? overview.Rooms.Where(static r => r.Id > 0).Select(static r => r.Name)
+            : Store.LatestByRoom().Keys;
+        _roomNames = names
+            .Concat(_excluded)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(static n => n, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+    }
+
+    private void Load(AutoEaseOffPolicy policy)
+    {
+        _enabled = policy.Enabled;
+        _withinC = policy.WithinC;
+        _sustainedMinutes = policy.SustainedMinutes;
+        _easeOffIndex = policy.EaseOffIndex < _presets.Count ? policy.EaseOffIndex : 0;
+        _cooldownMinutes = policy.CooldownMinutes;
+        _notify = policy.Notify;
+        _excluded = policy.ExcludedRooms.ToHashSet(StringComparer.OrdinalIgnoreCase);
+    }
+
+    private void ToggleExcluded(string name)
+    {
+        if (!_excluded.Remove(name))
+            _excluded.Add(name);
+    }
+
+    private void Save()
+    {
+        var saved = Store.SaveAutoEaseOffPolicy(new AutoEaseOffPolicy(
+            _enabled, _withinC, _sustainedMinutes, _easeOffIndex, _cooldownMinutes, _excluded.ToList(), _notify));
+        Load(saved);
+        Snackbar.Add(saved.Enabled
+            ? $"Automatic ease-off on: {_presets.ElementAtOrDefault(saved.EaseOffIndex)?.Label ?? "first preset"} after {saved.SustainedMinutes} min within {saved.WithinC:0.#} °C of target."
+            : "Automatic ease-off off.", Severity.Success);
+    }
+
+    private static Color StatusColor(AutoEaseOffStatus status) => status switch
+    {
+        AutoEaseOffStatus.Apply => Color.Success,
+        AutoEaseOffStatus.Waiting => Color.Warning,
+        AutoEaseOffStatus.Blocked => Color.Info,
+        _ => Color.Default,
+    };
+}

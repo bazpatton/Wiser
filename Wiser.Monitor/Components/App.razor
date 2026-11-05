@@ -16,6 +16,10 @@
 <body>
     <Routes @rendermode="InteractiveServer" />
     <script>
+        window.wiserSetCookie = (name, value, days) => {
+            const maxAge = Math.round((days || 365) * 86400);
+            document.cookie = `${encodeURIComponent(name)}=${encodeURIComponent(value || '')}; Max-Age=${maxAge}; Path=/; SameSite=Lax`;
+        };
         window.wiserScrollToId = (id) => {
             const el = document.getElementById(id);
             if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });

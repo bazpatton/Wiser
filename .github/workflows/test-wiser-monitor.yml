@@ -1,0 +1,28 @@
+# Unit tests for Wiser.Monitor (pure logic: schedule timing, presets, links, auto ease-off, override history).
+# Runs on a GitHub-hosted runner so the Pi deploy isn't slowed down; no hub or secrets needed.
+
+name: Test Wiser.Monitor
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "Wiser.Monitor/**"
+      - "Wiser.Monitor.Tests/**"
+      - ".github/workflows/test-wiser-monitor.yml"
+  pull_request:
+    paths:
+      - "Wiser.Monitor/**"
+      - "Wiser.Monitor.Tests/**"
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "9.0.x"
+      - name: Test
+        run: dotnet test Wiser.Monitor.Tests/Wiser.Monitor.Tests.csproj --nologo
