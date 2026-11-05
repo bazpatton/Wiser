@@ -990,6 +990,30 @@ public sealed class TemperatureStore
         return normalized;
     }
 
+    public QuickActionPresets GetQuickActionPresets()
+    {
+        lock (_gate)
+        {
+            using var c = Open();
+            using var cmd = c.CreateCommand();
+            cmd.CommandText = "SELECT value FROM app_settings WHERE key = 'quick_action_presets_v1' LIMIT 1";
+            return QuickActionPresets.Parse(cmd.ExecuteScalar() as string);
+        }
+    }
+
+    public QuickActionPresets SaveQuickActionPresets(QuickActionPresets presets)
+    {
+        var normalized = QuickActionPresets.Normalize(presets, DateTimeOffset.UtcNow.ToUnixTimeSeconds());
+        var json = JsonSerializer.Serialize(normalized);
+        lock (_gate)
+        {
+            using var c = Open();
+            UpsertSetting(c, "quick_action_presets_v1", json, normalized.UpdatedTs);
+        }
+
+        return normalized;
+    }
+
     public IReadOnlyDictionary<int, DateOnly> GetGasMeterReminderLastSent()
     {
         lock (_gate)

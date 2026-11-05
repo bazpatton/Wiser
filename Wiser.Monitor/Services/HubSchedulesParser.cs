@@ -24,6 +24,9 @@ public sealed record HubScheduleSavingsHints(
     int MaxUserProgramSetpointTenths,
     IReadOnlyList<string> RoomsWithHighSetpoint);
 
+/// <summary>When a room's schedule next moves to a new setpoint. <see cref="SetpointC"/> is the hub off sentinel for "Off".</summary>
+public sealed record HubNextScheduleChange(long AtUnix, double SetpointC);
+
 public static class HubSchedulesParser
 {
     private static readonly string[] DayNames =
@@ -130,6 +133,51 @@ public static class HubSchedulesParser
             roomsOnProgram,
             maxTenths == int.MinValue ? -1 : maxTenths,
             roomsWithHighSetpoint);
+    }
+
+    /// <summary>
+    /// Next schedule setpoint per room id, timed from the hub's own clock and anchored to <paramref name="nowUnix"/>.
+    /// Rooms without a schedule or with no upcoming point in the next week are left out.
+    /// </summary>
+    public static IReadOnlyDictionary<int, HubNextScheduleChange> NextChangeByRoomId(JsonElement root, long nowUnix)
+    {
+        var system = TryGetObject(root, "System");
+        var todayName = HubScheduleHints.ResolveCurrentDay(system);
+        var currentSeconds = HubScheduleHints.ResolveCurrentSeconds(system);
+        var schedules = ParseSchedules(root);
+        var result = new Dictionary<int, HubNextScheduleChange>();
+        foreach (var room in ParseRooms(root))
+        {
+            if (!schedules.TryGetValue(room.ScheduleId, out var sched))
+                continue;
+            if (FindNextPoint(sched, todayName, currentSeconds) is not { } next)
+                continue;
+            var setpointC = next.Point.DegreesC <= -200 ? WiserSetpointDisplay.HubOffSentinelC : next.Point.DegreesC / 10.0;
+            result[room.Id] = new HubNextScheduleChange(nowUnix + next.SecondsUntil, setpointC);
+        }
+
+        return result;
+    }
+
+    private static (SetPoint Point, int SecondsUntil)? FindNextPoint(ScheduleDays sched, string currentDay, int currentSeconds)
+    {
+        var startIndex = Array.IndexOf(DayNames, currentDay);
+        if (startIndex < 0)
+            startIndex = 0;
+
+        for (var offset = 0; offset < 7; offset++)
+        {
+            var points = sched.OrderedPoints(DayNames[(startIndex + offset) % 7]);
+            foreach (var p in points)
+            {
+                var pointSeconds = HubScheduleHints.NormalizeSeconds(p.Time);
+                if (offset == 0 && pointSeconds <= currentSeconds)
+                    continue;
+                return (p, offset * 86400 + pointSeconds - currentSeconds);
+            }
+        }
+
+        return null;
     }
 
     private static string BuildClockHint(JsonElement? system)

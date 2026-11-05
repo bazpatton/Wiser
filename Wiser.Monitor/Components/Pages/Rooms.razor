@@ -71,6 +71,46 @@
                     @_actionMessage
                 </MudAlert>
             }
+            @if (LinkEaseOffRoom is { } linkRoom && LinkEaseOff is { } linkOption)
+            {
+                var canApply = linkRoom.Id > 0
+                    && (linkOption.TurnOff || CurrentTargetC(linkRoom) is not null)
+                    && EaseOffMinutes(linkRoom, linkOption) is not null;
+                <MudAlert Severity="Severity.Info" Class="room-link-ease-alert">
+                    <MudText Typo="Typo.body2">
+                        From alert: <strong>@EaseOffMenuLabel(linkRoom, linkOption)</strong> in @linkRoom.Name, then back to schedule?
+                    </MudText>
+                    @if (linkRoom.HeatDemand == 0)
+                    {
+                        <MudText Typo="Typo.caption" Class="mud-text-secondary d-block">
+                            @linkRoom.Name has stopped calling for heat since the alert.
+                        </MudText>
+                    }
+                    @if (!canApply)
+                    {
+                        <MudText Typo="Typo.caption" Class="mud-text-secondary d-block">
+                            Can't apply this now: the room's target or next schedule change is unknown.
+                        </MudText>
+                    }
+                    <MudStack Row="true" Spacing="1" Class="mt-2">
+                        <MudButton Variant="Variant.Filled"
+                                   Color="Color.Primary"
+                                   Size="Size.Small"
+                                   Class="touch-target"
+                                   StartIcon="@EaseOffIcon(linkOption)"
+                                   Disabled="@(!canApply || _busyRoomId == linkRoom.Id)"
+                                   OnClick="@(() => ApplyLinkEaseOffAsync(linkRoom, linkOption))">
+                            Apply
+                        </MudButton>
+                        <MudButton Variant="Variant.Text"
+                                   Size="Size.Small"
+                                   Class="touch-target"
+                                   OnClick="DismissLinkEaseOff">
+                            Dismiss
+                        </MudButton>
+                    </MudStack>
+                </MudAlert>
+            }
         </MudStack>
     </MudPaper>
 
@@ -309,6 +349,7 @@
                                                 @foreach (var option in _easeOffOptions)
                                                 {
                                                     <MudMenuItem Icon="@EaseOffIcon(option)"
+                                                                 Disabled="@(EaseOffMinutes(room, option) is null)"
                                                                  OnClick="@(() => ApplyEaseOffAsync(room, option))">
                                                         @EaseOffMenuLabel(room, option)
                                                     </MudMenuItem>
@@ -448,6 +489,15 @@
                                         <MudText Typo="Typo.body2" Class="room-override-alert-text">
                                             @FormatBoostSummary(room)
                                         </MudText>
+                                        <MudButton Variant="Variant.Outlined"
+                                                   Color="Color.Primary"
+                                                   Size="Size.Small"
+                                                   Class="touch-target"
+                                                   StartIcon="@Icons.Material.Filled.MoreTime"
+                                                   Disabled="@(_busyRoomId == room.Id || ExtendOverrideMinutes(room) is null)"
+                                                   OnClick="@(() => ExtendOverrideAsync(room))">
+                                            +30 min
+                                        </MudButton>
                                         <MudButton Variant="Variant.Filled"
                                                    Color="Color.Warning"
                                                    Size="Size.Small"
@@ -530,7 +580,7 @@
                                                    Size="Size.Small"
                                                    Class="boost-preset-btn touch-target"
                                                    StartIcon="@EaseOffIcon(option)"
-                                                   Disabled="@(_busyRoomId == room.Id)"
+                                                   Disabled="@(_busyRoomId == room.Id || EaseOffMinutes(room, option) is null)"
                                                    OnClick="@(() => ApplyEaseOffAsync(room, option))">
                                             <span class="boost-preset-btn-text">
                                                 <span class="boost-preset-label">@EaseOffLabel(option)</span>
@@ -582,20 +632,21 @@
 
 @code {
     private readonly List<HubLiveRoom> _rooms = [];
-    private readonly IReadOnlyList<BoostPresetInfo> _boostPresets =
-    [
-        new BoostPresetInfo("Quick", 21, 30),
-        new BoostPresetInfo("Comfort", 22, 60),
-        new BoostPresetInfo("Gentle", 20, 45),
-    ];
+    /// <summary>Boost and ease-off presets from Settings.</summary>
+    private QuickActionPresets _presets = QuickActionPresets.Default;
+    private IReadOnlyList<BoostPresetInfo> _boostPresets => _presets.Boosts;
+    private IReadOnlyList<EaseOffPreset> _easeOffOptions => _presets.EaseOffs;
 
-    /// <summary>Timed set-backs offered while a room is calling heat; relative to the room's current target.</summary>
-    private static readonly IReadOnlyList<EaseOffOption> _easeOffOptions =
-    [
-        new EaseOffOption(1, 60, TurnOff: false),
-        new EaseOffOption(2, 120, TurnOff: false),
-        new EaseOffOption(0, 60, TurnOff: true),
-    ];
+    /// <summary>Ease-off requested by an ntfy alert link, e.g. <c>/rooms/living-room?ease=1-60</c>; applied only after confirmation.</summary>
+    [SupplyParameterFromQuery(Name = "ease")] public string? EaseQuery { get; set; }
+    private bool _linkEaseOffDismissed;
+
+    private EaseOffPreset? LinkEaseOff => EaseOffLinks.TryParse(EaseQuery);
+
+    private HubLiveRoom? LinkEaseOffRoom =>
+        !_linkEaseOffDismissed && LinkEaseOff is not null && !string.IsNullOrWhiteSpace(RoomSlug) && _hasLoadedOnce
+            ? FindRoomByRouteSlug(RoomSlug.Trim())
+            : null;
 
     private bool _heatingRelayOn;
     private bool _heatingActive;
@@ -657,6 +708,7 @@
     protected override void OnInitialized()
     {
         Nav.LocationChanged += OnLocationChanged;
+        _presets = Store.GetQuickActionPresets();
     }
 
     protected override async Task OnParametersSetAsync()
@@ -1020,8 +1072,6 @@
     private static bool IsOfflineTemperature(double tempC) =>
         Math.Abs(tempC - (-327.68)) < 0.001;
 
-    private sealed record EaseOffOption(double DropC, int Minutes, bool TurnOff);
-
     /// <summary>The room's current target in °C, or null when unknown or the room is off.</summary>
     private static double? CurrentTargetC(HubLiveRoom room) =>
         room.SetpointC is { } sp && !WiserSetpointDisplay.IsHubOffSentinel(sp) ? sp : null;
@@ -1029,29 +1079,55 @@
     private static bool CanEaseOff(HubLiveRoom room) =>
         room.Id > 0 && room.HeatDemand != 0 && CurrentTargetC(room) is not null;
 
-    private static double EaseOffTargetC(HubLiveRoom room, EaseOffOption option) =>
+    private static double EaseOffTargetC(HubLiveRoom room, EaseOffPreset option) =>
         option.TurnOff
             ? WiserSetpointDisplay.HubOffSentinelC
             : Math.Max(RoomTargetSliderMin, (CurrentTargetC(room) ?? RoomTargetSliderMin) - option.DropC);
 
-    private static string FormatEaseOffMinutes(int minutes) =>
-        minutes % 60 == 0 ? $"{minutes / 60} h" : $"{minutes} min";
+    /// <summary>Override length for this room; null for "until next change" when the schedule change is unknown or too far off.</summary>
+    private static int? EaseOffMinutes(HubLiveRoom room, EaseOffPreset option) =>
+        option.UntilNextChange
+            ? TimedOverrideMath.MinutesUntilNextChange(room, DateTimeOffset.UtcNow)
+            : option.Minutes;
 
-    private static string EaseOffLabel(EaseOffOption option) =>
+    private string FormatLocalTime(long unix) =>
+        TimeZoneInfo.ConvertTime(DateTimeOffset.FromUnixTimeSeconds(unix), DisplayZone).ToString("t", CultureInfo.CurrentCulture);
+
+    private string EaseOffDuration(HubLiveRoom room, EaseOffPreset option)
+    {
+        if (!option.UntilNextChange)
+            return QuickActionPresets.FormatMinutes(option.Minutes);
+        return EaseOffMinutes(room, option) is not null && room.NextScheduleChangeUnix is { } at
+            ? $"until {FormatLocalTime(at)}"
+            : "until next change";
+    }
+
+    private static string EaseOffLabel(EaseOffPreset option) =>
         option.TurnOff ? "Off" : $"−{option.DropC:0.#}°";
 
-    private static string EaseOffMeta(HubLiveRoom room, EaseOffOption option) =>
+    private string EaseOffMeta(HubLiveRoom room, EaseOffPreset option) =>
         option.TurnOff
-            ? FormatEaseOffMinutes(option.Minutes)
-            : $"{EaseOffTargetC(room, option):0.#}° · {FormatEaseOffMinutes(option.Minutes)}";
+            ? EaseOffDuration(room, option)
+            : $"{EaseOffTargetC(room, option):0.#}° · {EaseOffDuration(room, option)}";
 
-    private static string EaseOffMenuLabel(HubLiveRoom room, EaseOffOption option) =>
-        option.TurnOff
-            ? $"Heating off for {FormatEaseOffMinutes(option.Minutes)}"
-            : $"Lower to {EaseOffTargetC(room, option):0.#} °C for {FormatEaseOffMinutes(option.Minutes)}";
+    private string EaseOffMenuLabel(HubLiveRoom room, EaseOffPreset option)
+    {
+        var duration = option.UntilNextChange ? EaseOffDuration(room, option) : $"for {EaseOffDuration(room, option)}";
+        return option.TurnOff
+            ? $"Heating off {duration}"
+            : $"Lower to {EaseOffTargetC(room, option):0.#} °C {duration}";
+    }
 
-    private static string EaseOffIcon(EaseOffOption option) =>
-        option.TurnOff ? Icons.Material.Filled.PowerSettingsNew : Icons.Material.Filled.TrendingDown;
+    private static string EaseOffIcon(EaseOffPreset option) =>
+        option.UntilNextChange
+            ? Icons.Material.Filled.Schedule
+            : option.TurnOff ? Icons.Material.Filled.PowerSettingsNew : Icons.Material.Filled.TrendingDown;
+
+    /// <summary>Duration that pushes the room's active override 30 minutes later; null when none is running or at the maximum.</summary>
+    private static int? ExtendOverrideMinutes(HubLiveRoom room) =>
+        room.Id > 0 && room.SetpointC is not null && RoomDisplayHelpers.GetActiveOverrideEndUtc(room) is { } endUtc
+            ? TimedOverrideMath.ExtendMinutes(endUtc, DateTimeOffset.UtcNow)
+            : null;
 
     /// <summary>1 when the preset raises the target, -1 when it lowers it, 0 when it would change nothing.</summary>
     private static int PresetDirection(HubLiveRoom room, BoostPresetInfo preset)
@@ -1325,22 +1401,73 @@
         }
     }
 
-    private async Task ApplyEaseOffAsync(HubLiveRoom room, EaseOffOption option)
+    private async Task ApplyEaseOffAsync(HubLiveRoom room, EaseOffPreset option)
     {
         if (!EnsureLiveRoom(room))
             return;
+        if (EaseOffMinutes(room, option) is not { } minutes)
+        {
+            Snackbar.Add($"{room.Name}: the next schedule change is unknown or more than {QuickActionPresets.FormatMinutes(QuickActionPresets.MaxMinutes)} away.", Severity.Warning);
+            return;
+        }
 
         var targetC = EaseOffTargetC(room, option);
-        var duration = FormatEaseOffMinutes(option.Minutes);
+        var duration = option.UntilNextChange ? EaseOffDuration(room, option) : $"for {EaseOffDuration(room, option)}";
         _actionMessage = null;
         _actionError = false;
         _busyRoomId = room.Id;
         try
         {
-            await Hub.PatchRoomBoostAsync(Options, room.Id, targetC, option.Minutes, CancellationToken.None);
+            await Hub.PatchRoomBoostAsync(Options, room.Id, targetC, minutes, CancellationToken.None);
             _actionMessage = option.TurnOff
-                ? $"{room.Name}: heating off for {duration}, then back to schedule."
-                : $"{room.Name}: lowered to {targetC:F1} °C for {duration}, then back to schedule.";
+                ? $"{room.Name}: heating off {duration}, then back to schedule."
+                : $"{room.Name}: lowered to {targetC:F1} °C {duration}, then back to schedule.";
+            Snackbar.Add(_actionMessage!, Severity.Success);
+            await RefreshAsync();
+        }
+        catch (Exception ex)
+        {
+            _actionError = true;
+            _actionMessage = $"Action failed: {ex.Message}";
+            Snackbar.Add(_actionMessage!, Severity.Error);
+        }
+        finally
+        {
+            _busyRoomId = null;
+        }
+    }
+
+    private async Task ApplyLinkEaseOffAsync(HubLiveRoom room, EaseOffPreset option)
+    {
+        await ApplyEaseOffAsync(room, option);
+        if (!_actionError)
+            DismissLinkEaseOff();
+    }
+
+    /// <summary>Hides the alert prompt and drops <c>?ease=</c> so a reload or back navigation can't offer it again.</summary>
+    private void DismissLinkEaseOff()
+    {
+        _linkEaseOffDismissed = true;
+        Nav.NavigateTo(Nav.GetUriWithQueryParameter("ease", (string?)null), replace: true);
+    }
+
+    /// <summary>Re-sends the running override at the same setpoint so it ends 30 minutes later.</summary>
+    private async Task ExtendOverrideAsync(HubLiveRoom room)
+    {
+        if (!EnsureLiveRoom(room))
+            return;
+        if (room.SetpointC is not { } setpointC || ExtendOverrideMinutes(room) is not { } minutes)
+            return;
+
+        _actionMessage = null;
+        _actionError = false;
+        _busyRoomId = room.Id;
+        try
+        {
+            await Hub.PatchRoomBoostAsync(Options, room.Id, setpointC, minutes, CancellationToken.None);
+            var endLocal = TimeZoneInfo.ConvertTime(DateTimeOffset.UtcNow.AddMinutes(minutes), DisplayZone)
+                .ToString("t", CultureInfo.CurrentCulture);
+            _actionMessage = $"{room.Name}: override extended until {endLocal}.";
             Snackbar.Add(_actionMessage!, Severity.Success);
             await RefreshAsync();
         }

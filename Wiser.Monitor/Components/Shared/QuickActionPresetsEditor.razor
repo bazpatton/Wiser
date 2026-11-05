@@ -1,0 +1,161 @@
+@inject TemperatureStore Store
+@inject ISnackbar Snackbar
+
+<MudText Typo="Typo.body2" Class="mud-text-secondary mb-2">
+    Buttons shown on Home quick actions and on each room card. Every preset is a timed override: the room returns to its
+    schedule when the time runs out. Durations are @QuickActionPresets.MinMinutes–@QuickActionPresets.MaxMinutes minutes.
+</MudText>
+
+<MudText Typo="Typo.subtitle2" Class="mt-2">Boost presets</MudText>
+<MudText Typo="Typo.caption" Class="mud-text-secondary d-block mb-1">Set a room to a fixed temperature.</MudText>
+@foreach (var row in _boosts)
+{
+    <div class="qa-preset-row">
+        <MudTextField T="string" Label="Name" @bind-Value="row.Name" Variant="Variant.Outlined" Margin="Margin.Dense" MaxLength="20" />
+        <MudNumericField T="double" Label="°C" @bind-Value="row.TemperatureC" Step="0.5"
+                         Min="QuickActionPresets.MinTempC" Max="QuickActionPresets.MaxTempC"
+                         Variant="Variant.Outlined" Margin="Margin.Dense" />
+        <MudNumericField T="int" Label="Minutes" @bind-Value="row.Minutes" Step="15"
+                         Min="QuickActionPresets.MinMinutes" Max="QuickActionPresets.MaxMinutes"
+                         Variant="Variant.Outlined" Margin="Margin.Dense" />
+        <MudIconButton Icon="@Icons.Material.Filled.Delete" aria-label="Remove boost preset"
+                       Disabled="@(_boosts.Count <= 1)" OnClick="@(() => _boosts.Remove(row))" />
+    </div>
+}
+<MudButton Variant="Variant.Text" Size="Size.Small" StartIcon="@Icons.Material.Filled.Add"
+           Disabled="@(_boosts.Count >= QuickActionPresets.MaxPresets)"
+           OnClick="@(() => _boosts.Add(new BoostRow { Name = "Boost", TemperatureC = 21, Minutes = 30 }))">
+    Add boost
+</MudButton>
+
+<MudText Typo="Typo.subtitle2" Class="mt-4">Ease-off presets</MudText>
+<MudText Typo="Typo.caption" Class="mud-text-secondary d-block mb-1">
+    Shown while a room is calling heat. Lower from the room's current target, or turn heating off.
+    "Until next change" runs to the room's next schedule point when that is within @QuickActionPresets.FormatMinutes(QuickActionPresets.MaxMinutes).
+    The first two also appear as buttons on high-temperature ntfy alerts.
+</MudText>
+@foreach (var row in _easeOffs)
+{
+    <div class="qa-preset-row">
+        <MudSelect T="bool" Label="Action" @bind-Value="row.TurnOff" Variant="Variant.Outlined" Margin="Margin.Dense">
+            <MudSelectItem Value="false">Lower by</MudSelectItem>
+            <MudSelectItem Value="true">Heating off</MudSelectItem>
+        </MudSelect>
+        <MudNumericField T="double" Label="°C" @bind-Value="row.DropC" Step="0.5" Min="0.5" Max="QuickActionPresets.MaxDropC"
+                         Disabled="row.TurnOff" Variant="Variant.Outlined" Margin="Margin.Dense" />
+        <div class="qa-duration">
+            <MudCheckBox T="bool" @bind-Value="row.UntilNextChange" Label="Until next change" Dense="true" />
+            @if (!row.UntilNextChange)
+            {
+                <MudNumericField T="int" Label="Minutes" @bind-Value="row.Minutes" Step="15"
+                                 Min="QuickActionPresets.MinMinutes" Max="QuickActionPresets.MaxMinutes"
+                                 Variant="Variant.Outlined" Margin="Margin.Dense" />
+            }
+        </div>
+        <MudIconButton Icon="@Icons.Material.Filled.Delete" aria-label="Remove ease-off preset"
+                       Disabled="@(_easeOffs.Count <= 1)" OnClick="@(() => _easeOffs.Remove(row))" />
+    </div>
+}
+<MudButton Variant="Variant.Text" Size="Size.Small" StartIcon="@Icons.Material.Filled.Add"
+           Disabled="@(_easeOffs.Count >= QuickActionPresets.MaxPresets)"
+           OnClick="@(() => _easeOffs.Add(new EaseOffRow { DropC = 1, Minutes = 60 }))">
+    Add ease-off
+</MudButton>
+
+<MudStack Row="true" Spacing="2" Class="mt-3">
+    <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Save" OnClick="Save">
+        Save presets
+    </MudButton>
+    <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Restore" OnClick="ResetToDefaults">
+        Reset to defaults
+    </MudButton>
+</MudStack>
+
+<style>
+    .qa-preset-row {
+        display: grid;
+        grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr) minmax(0, 1.2fr) auto;
+        gap: 8px;
+        align-items: center;
+        margin-bottom: 6px;
+    }
+
+    .qa-duration {
+        display: flex;
+        flex-direction: column;
+    }
+
+    @@media (max-width: 599px) {
+        .qa-preset-row {
+            grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
+        }
+
+        .qa-preset-row > :first-child {
+            grid-column: 1 / -1;
+        }
+    }
+</style>
+
+@code {
+    private List<BoostRow> _boosts = [];
+    private List<EaseOffRow> _easeOffs = [];
+
+    protected override void OnInitialized() => Load(Store.GetQuickActionPresets());
+
+    private void Load(QuickActionPresets presets)
+    {
+        _boosts = presets.Boosts
+            .Select(static b => new BoostRow { Name = b.Name, TemperatureC = b.TemperatureC, Minutes = b.Minutes })
+            .ToList();
+        _easeOffs = presets.EaseOffs
+            .Select(static e => new EaseOffRow
+            {
+                TurnOff = e.TurnOff,
+                DropC = e.TurnOff ? 1 : e.DropC,
+                UntilNextChange = e.UntilNextChange,
+                Minutes = e.UntilNextChange ? 60 : e.Minutes,
+            })
+            .ToList();
+    }
+
+    private void Save()
+    {
+        if (_boosts.Any(static b => string.IsNullOrWhiteSpace(b.Name)))
+        {
+            Snackbar.Add("Give every boost preset a name.", Severity.Warning);
+            return;
+        }
+
+        var saved = Store.SaveQuickActionPresets(new QuickActionPresets(
+            _boosts.Select(static b => new BoostPresetInfo(b.Name, b.TemperatureC, b.Minutes)).ToList(),
+            _easeOffs.Select(static e => new EaseOffPreset(
+                    e.TurnOff ? 0 : e.DropC,
+                    e.UntilNextChange ? QuickActionPresets.UntilNextChange : e.Minutes,
+                    e.TurnOff))
+                .ToList(),
+            0));
+        Load(saved);
+        Snackbar.Add("Quick action presets saved. Reopen Home or Rooms to see them.", Severity.Success);
+    }
+
+    private void ResetToDefaults()
+    {
+        Load(Store.SaveQuickActionPresets(QuickActionPresets.Default));
+        Snackbar.Add("Quick action presets reset to defaults.", Severity.Success);
+    }
+
+    private sealed class BoostRow
+    {
+        public string Name { get; set; } = "";
+        public double TemperatureC { get; set; }
+        public int Minutes { get; set; }
+    }
+
+    private sealed class EaseOffRow
+    {
+        public bool TurnOff { get; set; }
+        public double DropC { get; set; }
+        public bool UntilNextChange { get; set; }
+        public int Minutes { get; set; }
+    }
+}

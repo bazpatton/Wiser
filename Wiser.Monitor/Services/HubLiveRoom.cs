@@ -16,7 +16,11 @@ public sealed record HubLiveRoom(
     [property: JsonPropertyName("percentage_demand")] int? PercentageDemand,
     [property: JsonPropertyName("override_timeout_unix")] long? OverrideTimeoutUnix,
     [property: JsonPropertyName("setpoint_origin")] string? SetpointOrigin,
-    [property: JsonPropertyName("control_output_state")] string? ControlOutputState);
+    [property: JsonPropertyName("control_output_state")] string? ControlOutputState,
+    /// <summary>When the room's schedule next changes setpoint (unix seconds); null when unknown.</summary>
+    [property: JsonPropertyName("next_schedule_change_unix")] long? NextScheduleChangeUnix = null,
+    /// <summary>Setpoint the schedule moves to at <see cref="NextScheduleChangeUnix"/> (hub off sentinel for Off).</summary>
+    [property: JsonPropertyName("next_schedule_setpoint_c")] double? NextScheduleSetpointC = null);
 
 public sealed record HubLiveOverview(
     IReadOnlyList<HubLiveRoom> Rooms,
@@ -40,11 +44,31 @@ public static class HubLiveRoomsParser
     public static HubLiveOverview ParseOverview(JsonDocument domain, IReadOnlyList<BoostPresetInfo> boostPresets)
     {
         var root = domain.RootElement;
-        var rooms = ParseRooms(root);
+        var rooms = WithNextScheduleChange(ParseRooms(root), root);
         var relay = ParseHeatingRelayOn(root);
         var active = relay || rooms.Any(r => r.HeatDemand != 0);
         var (systemAway, awayLimitC) = ParseSystemAwayState(root);
         return new HubLiveOverview(rooms, relay, active, boostPresets, systemAway, awayLimitC);
+    }
+
+    /// <summary>Adds each room's next schedule change; schedule parse problems leave rooms unchanged.</summary>
+    private static IReadOnlyList<HubLiveRoom> WithNextScheduleChange(IReadOnlyList<HubLiveRoom> rooms, JsonElement root)
+    {
+        IReadOnlyDictionary<int, HubNextScheduleChange> next;
+        try
+        {
+            next = HubSchedulesParser.NextChangeByRoomId(root, DateTimeOffset.UtcNow.ToUnixTimeSeconds());
+        }
+        catch
+        {
+            return rooms;
+        }
+
+        return rooms
+            .Select(r => next.TryGetValue(r.Id, out var n)
+                ? r with { NextScheduleChangeUnix = n.AtUnix, NextScheduleSetpointC = n.SetpointC }
+                : r)
+            .ToList();
     }
 
     /// <summary>Matches aioWiserHeatAPI: <c>OverrideType == "Away"</c> and optional <c>AwayModeSetPointLimit</c> (tenths °C).</summary>

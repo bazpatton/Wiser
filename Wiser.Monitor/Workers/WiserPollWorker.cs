@@ -93,7 +93,7 @@ public sealed class WiserPollWorker(
         {
             // Share this fetch with the UI so page loads render live data without their own hub round trip.
             roomsLiveCache.Update(
-                HubLiveRoomsParser.ParseOverview(domainDoc, BoostPresets.Default),
+                HubLiveRoomsParser.ParseOverview(domainDoc, store.GetQuickActionPresets().Boosts),
                 HubSchedulesParser.AnalyzeSavingsHints(domainDoc));
         }
         catch (Exception ex)

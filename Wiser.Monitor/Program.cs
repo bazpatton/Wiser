@@ -193,7 +193,7 @@ app.MapGet("/api/rooms", (TemperatureStore store, MonitorState state, ApiRoomsNa
 app.MapGet("/api/latest", (TemperatureStore store) =>
     Results.Json(new { rooms = store.LatestByRoom(), system = store.GetLatestSystem() }));
 
-app.MapGet("/api/hub-live-rooms", async (WiserHubFetch hub, MonitorOptions o, CancellationToken ct) =>
+app.MapGet("/api/hub-live-rooms", async (WiserHubFetch hub, MonitorOptions o, TemperatureStore store, CancellationToken ct) =>
 {
     if (!hubConfigured)
     {
@@ -203,7 +203,7 @@ app.MapGet("/api/hub-live-rooms", async (WiserHubFetch hub, MonitorOptions o, Ca
     }
 
     using var doc = await hub.FetchDomainDocumentAsync(o, ct).ConfigureAwait(false);
-    var overview = HubLiveRoomsParser.ParseOverview(doc, BoostPresets.Default);
+    var overview = HubLiveRoomsParser.ParseOverview(doc, store.GetQuickActionPresets().Boosts);
     return Results.Json(new
     {
         rooms = overview.Rooms,
@@ -1353,16 +1353,6 @@ internal sealed record SeriesRoomRowDto(
     double? OutdoorC)
 {
     public bool CallingForHeat => HeatDemand != 0 || (PercentageDemand ?? 0) > 0;
-}
-
-internal static class BoostPresets
-{
-    public static readonly IReadOnlyList<BoostPresetInfo> Default =
-    [
-        new BoostPresetInfo("Quick", 21, 30),
-        new BoostPresetInfo("Comfort", 22, 60),
-        new BoostPresetInfo("Gentle", 20, 45),
-    ];
 }
 
 internal sealed record BoostRoomRequest(int room_id, double temperature_c, int minutes);

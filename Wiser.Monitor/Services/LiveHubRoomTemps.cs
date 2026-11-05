@@ -8,12 +8,8 @@ namespace Wiser.Monitor.Services;
 /// </summary>
 public static class LiveHubRoomTemps
 {
-    private static readonly IReadOnlyList<BoostPresetInfo> BoostPresets =
-    [
-        new BoostPresetInfo("Quick", 21, 30),
-        new BoostPresetInfo("Comfort", 22, 60),
-        new BoostPresetInfo("Gentle", 20, 45),
-    ];
+    /// <summary>Pages read the editable presets from the store; the overview carries the defaults.</summary>
+    private static IReadOnlyList<BoostPresetInfo> BoostPresets => QuickActionPresets.Default.Boosts;
 
     /// <summary>Same sentinel as <see cref="Rooms"/> offline handling.</summary>
     public static bool IsUnavailableTemp(double tempC) =>

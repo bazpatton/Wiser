@@ -24,12 +24,20 @@ public sealed class RoomAlertService(NtfyClient ntfy, TemperatureStore store, IL
                 {
                     try
                     {
+                        // Buttons open the room with an ease-off ready to confirm (no change happens until Apply).
                         await ntfy.SendAsync(
                             topic,
                             "Temperature high",
                             $"{observedRoom} is {tempC:F1} °C — above {options.TempAlertAboveC:F1} °C",
                             ct,
-                            kind: "temp_high").ConfigureAwait(false);
+                            tags: null,
+                            priority: null,
+                            kind: "temp_high",
+                            clickUrl: EaseOffLinks.RoomPage(options.AppPublicBaseUrl, observedRoom),
+                            actions: EaseOffLinks.NtfyActions(
+                                options.AppPublicBaseUrl,
+                                observedRoom,
+                                store.GetQuickActionPresets().EaseOffs.Take(2))).ConfigureAwait(false);
                     }
                     catch (Exception ex)
                     {

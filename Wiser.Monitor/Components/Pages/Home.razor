@@ -234,6 +234,14 @@
                                 }
                                 else
                                 {
+                                    <MudButton Variant="Variant.Text"
+                                               Color="Color.Primary"
+                                               Size="Size.Small"
+                                               aria-label="@($"Extend {boost.Name} by 30 minutes")"
+                                               Disabled="@(cancelBusy || TimedOverrideMath.ExtendMinutes(boost.EndUtc, DateTimeOffset.UtcNow) is null)"
+                                               OnClick="@(() => ExtendBoostAsync(boost))">
+                                        +30m
+                                    </MudButton>
                                     <MudTooltip Text="@($"Cancel and return {boost.Name} to schedule")">
                                         <MudIconButton Icon="@Icons.Material.Filled.Close"
                                                        Color="Color.Error"
@@ -298,7 +306,7 @@
                     }
                 </div>
 
-                @if (_boostPresets.Count > 0)
+                @if (_boostPresets.Count > 0 || QuickEaseOffPresets.Count > 0)
                 {
                     <div class="home-quick-chips mt-2">
                         @foreach (var preset in _boostPresets)
@@ -312,31 +320,95 @@
                                 @($"{preset.Name} · {preset.TemperatureC:0.#}° · {FormatBoostDuration(preset.Minutes)}")
                             </MudChip>
                         }
+                        @foreach (var easeOff in QuickEaseOffPresets)
+                        {
+                            <MudChip T="string"
+                                     Size="Size.Small"
+                                     Variant="@(IsEaseOffSelected(easeOff) ? Variant.Filled : Variant.Outlined)"
+                                     Color="Color.Info"
+                                     Icon="@Icons.Material.Filled.TrendingDown"
+                                     Disabled="_quickActionsBusy"
+                                     OnClick="@(() => SelectEaseOffPreset(easeOff))">
+                                @($"−{easeOff.DropC:0.#}° · {FormatBoostDuration(easeOff.Minutes)}")
+                            </MudChip>
+                        }
                     </div>
                 }
 
                 <div class="home-boost-settings">
                     <div>
-                        <span class="home-quick-label">Target</span>
-                        <div class="home-temp-stepper">
-                            <MudIconButton Icon="@Icons.Material.Filled.Remove"
-                                           Variant="Variant.Outlined"
+                        <div class="home-target-head">
+                            <span class="home-quick-label">@(_quickAdjustMode ? "Change by" : "Target")</span>
+                            <div class="home-target-mode" role="radiogroup" aria-label="Target mode">
+                                <MudButton Variant="@(_quickAdjustMode ? Variant.Text : Variant.Filled)"
                                            Color="Color.Primary"
-                                           Class="touch-target-icon"
-                                           aria-label="Lower target by 0.5 °C"
-                                           Disabled="@(_quickActionsBusy || QuickBoostTempClamped <= QuickBoostTempMin)"
-                                           OnClick="@(() => StepQuickBoostTemp(-0.5))" />
-                            <div class="home-temp-value" aria-live="polite">
-                                @QuickBoostTempClamped.ToString("F1", CultureInfo.CurrentCulture)<span class="home-temp-unit">°C</span>
+                                           Size="Size.Small"
+                                           DropShadow="false"
+                                           role="radio"
+                                           aria-checked="@(_quickAdjustMode ? "false" : "true")"
+                                           Disabled="_quickActionsBusy"
+                                           OnClick="@(() => _quickAdjustMode = false)">
+                                    Set °C
+                                </MudButton>
+                                <MudButton Variant="@(_quickAdjustMode ? Variant.Filled : Variant.Text)"
+                                           Color="Color.Primary"
+                                           Size="Size.Small"
+                                           DropShadow="false"
+                                           role="radio"
+                                           aria-checked="@(_quickAdjustMode ? "true" : "false")"
+                                           Disabled="_quickActionsBusy"
+                                           OnClick="@(() => _quickAdjustMode = true)">
+                                    Adjust ±
+                                </MudButton>
                             </div>
-                            <MudIconButton Icon="@Icons.Material.Filled.Add"
-                                           Variant="Variant.Outlined"
-                                           Color="Color.Primary"
-                                           Class="touch-target-icon"
-                                           aria-label="Raise target by 0.5 °C"
-                                           Disabled="@(_quickActionsBusy || QuickBoostTempClamped >= QuickBoostTempMax)"
-                                           OnClick="@(() => StepQuickBoostTemp(0.5))" />
                         </div>
+                        @if (_quickAdjustMode)
+                        {
+                            <div class="home-temp-stepper">
+                                <MudIconButton Icon="@Icons.Material.Filled.Remove"
+                                               Variant="Variant.Outlined"
+                                               Color="Color.Primary"
+                                               Class="touch-target-icon"
+                                               aria-label="Change by 0.5 °C less"
+                                               Disabled="@(_quickActionsBusy || _quickAdjustDeltaC <= -QuickAdjustDeltaMax)"
+                                               OnClick="@(() => StepQuickAdjustDelta(-0.5))" />
+                                <div class="home-temp-value" aria-live="polite">
+                                    @FormatDelta(_quickAdjustDeltaC)<span class="home-temp-unit">°C</span>
+                                </div>
+                                <MudIconButton Icon="@Icons.Material.Filled.Add"
+                                               Variant="Variant.Outlined"
+                                               Color="Color.Primary"
+                                               Class="touch-target-icon"
+                                               aria-label="Change by 0.5 °C more"
+                                               Disabled="@(_quickActionsBusy || _quickAdjustDeltaC >= QuickAdjustDeltaMax)"
+                                               OnClick="@(() => StepQuickAdjustDelta(0.5))" />
+                            </div>
+                            <MudText Typo="Typo.caption" Class="mud-text-secondary d-block mt-1">
+                                From each room's current target.
+                            </MudText>
+                        }
+                        else
+                        {
+                            <div class="home-temp-stepper">
+                                <MudIconButton Icon="@Icons.Material.Filled.Remove"
+                                               Variant="Variant.Outlined"
+                                               Color="Color.Primary"
+                                               Class="touch-target-icon"
+                                               aria-label="Lower target by 0.5 °C"
+                                               Disabled="@(_quickActionsBusy || QuickBoostTempClamped <= QuickBoostTempMin)"
+                                               OnClick="@(() => StepQuickBoostTemp(-0.5))" />
+                                <div class="home-temp-value" aria-live="polite">
+                                    @QuickBoostTempClamped.ToString("F1", CultureInfo.CurrentCulture)<span class="home-temp-unit">°C</span>
+                                </div>
+                                <MudIconButton Icon="@Icons.Material.Filled.Add"
+                                               Variant="Variant.Outlined"
+                                               Color="Color.Primary"
+                                               Class="touch-target-icon"
+                                               aria-label="Raise target by 0.5 °C"
+                                               Disabled="@(_quickActionsBusy || QuickBoostTempClamped >= QuickBoostTempMax)"
+                                               OnClick="@(() => StepQuickBoostTemp(0.5))" />
+                            </div>
+                        }
                     </div>
                     <div>
                         <span class="home-quick-label">Duration</span>
@@ -355,7 +427,26 @@
                                     @FormatBoostDurationShort(m)
                                 </MudButton>
                             }
+                            @{
+                                var untilNextSelected = _quickBoostMinutes == QuickActionPresets.UntilNextChange;
+                            }
+                            <MudButton Variant="@(untilNextSelected ? Variant.Filled : Variant.Outlined)"
+                                       Color="Color.Primary"
+                                       DropShadow="false"
+                                       Class="home-duration-next"
+                                       StartIcon="@Icons.Material.Filled.Schedule"
+                                       role="radio"
+                                       aria-checked="@(untilNextSelected ? "true" : "false")"
+                                       aria-label="Until each room's next schedule change"
+                                       Disabled="_quickActionsBusy"
+                                       OnClick="@(() => _quickBoostMinutes = QuickActionPresets.UntilNextChange)">
+                                Until next schedule change
+                            </MudButton>
                         </div>
+                        @if (untilNextSelected && UntilNextChangeSummary is { } untilSummary)
+                        {
+                            <MudText Typo="Typo.caption" Class="mud-text-secondary d-block mt-1">@untilSummary</MudText>
+                        }
                     </div>
                 </div>
 
@@ -364,7 +455,7 @@
                            FullWidth="true"
                            StartIcon="@(_quickActionsBusy ? null : QuickApplyIcon)"
                            Class="touch-target mt-3"
-                           Disabled="@(_quickActionsBusy || SelectedBoostRoomCount == 0)"
+                           Disabled="@QuickApplyDisabled"
                            OnClick="ApplyQuickBoostAsync">
                     @if (_quickActionsBusy)
                     {
@@ -641,7 +732,7 @@
                Color="Color.Primary"
                StartIcon="@QuickApplyIcon"
                Class="touch-target"
-               Disabled="@(_quickActionsBusy || SelectedBoostRoomCount == 0)"
+               Disabled="@QuickApplyDisabled"
                OnClick="ApplyQuickBoostAsync">
         @($"{QuickApplyVerb} {FormatRoomCount(SelectedBoostRoomCount)}")
     </MudButton>
@@ -682,6 +773,13 @@
     private const string QuickBoostTempStorageKey = "wiser-home-boost-temp";
     private const string QuickBoostMinutesStorageKey = "wiser-home-boost-minutes";
     private IReadOnlyList<BoostPresetInfo> _boostPresets = [];
+    private IReadOnlyList<EaseOffPreset> _easeOffPresets = [];
+    /// <summary>When true the stepper is a change from each room's own target rather than one °C for all.</summary>
+    private bool _quickAdjustMode;
+    private double _quickAdjustDeltaC = -1.0;
+    private const double QuickAdjustDeltaMax = 10.0;
+    private const string QuickAdjustModeStorageKey = "wiser-home-boost-adjust-mode";
+    private const string QuickAdjustDeltaStorageKey = "wiser-home-boost-adjust-delta";
     /// <summary>Rooms with a timed override still running on the hub, from the latest live overview.</summary>
     private readonly List<ActiveBoost> _activeBoosts = [];
     private int? _cancelBoostBusyRoomId;
@@ -740,6 +838,9 @@
             _liveHubByRoom = LiveHubRoomTemps.ToAvailableTempByRoomName(cached);
         }
 
+        var presets = Store.GetQuickActionPresets();
+        _boostPresets = presets.Boosts;
+        _easeOffPresets = presets.EaseOffs;
         _roomRanges = Store.GetRoomRanges();
         var quality = Store.GetDataQualitySummary(24);
         _qualityTotal24h = quality.TotalIgnored;
@@ -752,7 +853,8 @@
         return Task.CompletedTask;
     }
 
-    private void PopulateQuickActionRooms(HubLiveOverview overview)
+    /// <param name="resetSelection">False after an action, so fresh targets show without losing the chosen rooms.</param>
+    private void PopulateQuickActionRooms(HubLiveOverview overview, bool resetSelection = true)
     {
         var favoriteRooms = Store.GetHeatingSavingsProfile()
             .PriorityRooms
@@ -771,12 +873,13 @@
                     : (double?)null;
                 var tempC = Math.Abs(r.TempC - (-327.68)) < 0.001 ? (double?)null : r.TempC;
                 return new QuickActionRoom(r.Id, r.Name, favoriteRooms.Contains(r.Name), modeKey, manualTemp,
-                    tempC, targetC, r.HeatDemand != 0);
+                    tempC, targetC, r.HeatDemand != 0, r.NextScheduleChangeUnix);
             })
             .OrderByDescending(static r => r.IsFavorite)
             .ThenBy(static r => r.Name, StringComparer.OrdinalIgnoreCase));
-        _boostPresets = overview.BoostPresets;
         PopulateActiveBoosts(overview);
+        if (!resetSelection)
+            return;
         _boostRoomNames = _quickActionRooms
             .Where(static r => r.IsFavorite)
             .Select(static r => r.Name)
@@ -1198,9 +1301,117 @@
 
     private static string FormatRoomCount(int count) => count == 1 ? "1 room" : $"{count} rooms";
 
-    private string QuickBoostButtonText => SelectedBoostRoomCount == 0
-        ? "Select rooms"
-        : $"{QuickApplyVerb} {FormatRoomCount(SelectedBoostRoomCount)} to {QuickBoostTempClamped:F1} °C · {FormatBoostDuration(_quickBoostMinutes)}";
+    private string QuickBoostButtonText
+    {
+        get
+        {
+            if (SelectedBoostRoomCount == 0)
+                return "Select rooms";
+            var change = _quickAdjustMode
+                ? $"by {Math.Abs(_quickAdjustDeltaC):F1} °C"
+                : $"to {QuickBoostTempClamped:F1} °C";
+            return $"{QuickApplyVerb} {FormatRoomCount(SelectedBoostRoomCount)} {change} · {FormatBoostDuration(_quickBoostMinutes)}";
+        }
+    }
+
+    /// <summary>Ease-off presets that work as a relative change on Home (timed "Off" stays on the room cards).</summary>
+    private IReadOnlyList<EaseOffPreset> QuickEaseOffPresets =>
+        _easeOffPresets.Where(static e => !e.TurnOff).ToList();
+
+    private bool IsEaseOffSelected(EaseOffPreset preset) =>
+        _quickAdjustMode
+        && Math.Abs(_quickAdjustDeltaC + preset.DropC) < 0.01
+        && _quickBoostMinutes == preset.Minutes;
+
+    private void SelectEaseOffPreset(EaseOffPreset preset)
+    {
+        _quickAdjustMode = true;
+        _quickAdjustDeltaC = -preset.DropC;
+        _quickBoostMinutes = preset.Minutes;
+    }
+
+    private void StepQuickAdjustDelta(double step) =>
+        _quickAdjustDeltaC = Math.Clamp(
+            Math.Round((_quickAdjustDeltaC + step) * 2, MidpointRounding.AwayFromZero) / 2,
+            -QuickAdjustDeltaMax,
+            QuickAdjustDeltaMax);
+
+    /// <remarks>If-chain, not a relational switch: the .NET 9 Razor parser mis-reads some pattern lines as markup.</remarks>
+    private static string FormatDelta(double delta)
+    {
+        var magnitude = Math.Abs(delta).ToString("F1", CultureInfo.CurrentCulture);
+        if (Math.Abs(delta) < 0.01)
+            return $"±{magnitude}";
+        return delta > 0 ? $"+{magnitude}" : $"−{magnitude}";
+    }
+
+    private static int? MinutesUntilNextChange(QuickActionRoom room)
+    {
+        if (room.NextScheduleChangeUnix is not { } at)
+            return null;
+        var minutes = (int)Math.Ceiling((at - DateTimeOffset.UtcNow.ToUnixTimeSeconds()) / 60.0);
+        return minutes is >= QuickActionPresets.MinMinutes and <= QuickActionPresets.MaxMinutes ? minutes : null;
+    }
+
+    /// <summary>One room's part of a quick action: the °C and minutes it gets, or why it was skipped.</summary>
+    private sealed record QuickPlanItem(QuickActionRoom Room, double TempC, int Minutes, string? SkipReason);
+
+    /// <summary>Works out each selected room's override; rooms the action can't apply to carry a skip reason.</summary>
+    private List<QuickPlanItem> BuildQuickPlan()
+    {
+        var plan = new List<QuickPlanItem>();
+        foreach (var room in _quickActionRooms.Where(r => _boostRoomNames.Contains(r.Name)))
+        {
+            double tempC;
+            if (_quickAdjustMode)
+            {
+                if (room.TargetC is not { } target)
+                {
+                    plan.Add(new QuickPlanItem(room, 0, 0, "no current target"));
+                    continue;
+                }
+
+                tempC = Math.Clamp(target + _quickAdjustDeltaC, QuickBoostTempMin, QuickBoostTempMax);
+            }
+            else
+                tempC = QuickBoostTempClamped;
+
+            int minutes;
+            if (_quickBoostMinutes == QuickActionPresets.UntilNextChange)
+            {
+                if (MinutesUntilNextChange(room) is not { } untilNext)
+                {
+                    plan.Add(new QuickPlanItem(room, tempC, 0, $"no schedule change within {FormatBoostDuration(QuickActionPresets.MaxMinutes)}"));
+                    continue;
+                }
+
+                minutes = untilNext;
+            }
+            else
+                minutes = Math.Clamp(_quickBoostMinutes, QuickActionPresets.MinMinutes, QuickActionPresets.MaxMinutes);
+
+            plan.Add(new QuickPlanItem(room, tempC, minutes, null));
+        }
+
+        return plan;
+    }
+
+    /// <summary>"Living room until 22:30 · Bedroom skipped (…)" for the "until next change" duration.</summary>
+    private string? UntilNextChangeSummary
+    {
+        get
+        {
+            var parts = BuildQuickPlan()
+                .Select(p => p.SkipReason is null
+                    ? $"{p.Room.Name} until {FormatLocalTime(DateTimeOffset.UtcNow.AddMinutes(p.Minutes))}"
+                    : $"{p.Room.Name} skipped ({p.SkipReason})")
+                .ToList();
+            return parts.Count == 0 ? null : string.Join(" · ", parts);
+        }
+    }
+
+    private string FormatLocalTime(DateTimeOffset utc) =>
+        TimeZoneInfo.ConvertTime(utc, DisplayZone).ToString("t", CultureInfo.CurrentCulture);
 
     private int CallingHeatRoomCount => _quickActionRooms.Count(static r => r.CallingHeat);
 
@@ -1219,6 +1430,8 @@
     {
         get
         {
+            if (_quickAdjustMode)
+                return Math.Sign(_quickAdjustDeltaC);
             var targets = _quickActionRooms
                 .Where(r => _boostRoomNames.Contains(r.Name) && r.TargetC is not null)
                 .Select(static r => r.TargetC!.Value)
@@ -1284,63 +1497,125 @@
         return $"{minutes}m";
     }
 
-    private static string FormatBoostDuration(int minutes) =>
-        minutes >= 60 && minutes % 60 == 0 ? (minutes == 60 ? "1 hour" : $"{minutes / 60} hours") : $"{minutes} mins";
+    private static string FormatBoostDuration(int minutes)
+    {
+        if (minutes == QuickActionPresets.UntilNextChange)
+            return "until next change";
+        return minutes >= 60 && minutes % 60 == 0 ? (minutes == 60 ? "1 hour" : $"{minutes / 60} hours") : $"{minutes} mins";
+    }
+
+    private bool QuickApplyDisabled =>
+        _quickActionsBusy || SelectedBoostRoomCount == 0 || (_quickAdjustMode && Math.Abs(_quickAdjustDeltaC) < 0.01);
 
     private async Task ApplyQuickBoostAsync()
     {
         if (_quickActionRooms.Count == 0)
             return;
-        var selectedIds = _quickActionRooms
-            .Where(r => _boostRoomNames.Contains(r.Name))
-            .Select(static r => r.Id)
-            .Distinct()
-            .ToArray();
-        if (selectedIds.Length == 0)
+        var plan = BuildQuickPlan();
+        if (plan.Count == 0)
         {
-            Snackbar.Add("Select at least one room for boost.", Severity.Warning);
+            Snackbar.Add("Select at least one room.", Severity.Warning);
             return;
         }
 
-        var tempC = QuickBoostTempClamped;
-        var minutes = Math.Clamp(_quickBoostMinutes, 5, 240);
+        var toApply = plan.Where(static p => p.SkipReason is null).ToList();
+        var skipped = plan.Where(static p => p.SkipReason is not null).ToList();
+        if (toApply.Count == 0)
+        {
+            Snackbar.Add($"Nothing to apply: {string.Join("; ", skipped.Select(static p => $"{p.Room.Name} ({p.SkipReason})"))}.", Severity.Warning);
+            return;
+        }
+
         var verb = QuickApplyVerb;
         _quickActionsBusy = true;
+        var succeeded = 0;
+        var failed = 0;
         try
         {
-            using var resp = await Http.PostAsJsonAsync("/api/rooms/boost", new
+            // Rooms differ in target and schedule, so send one batch per distinct (°C, minutes).
+            foreach (var group in toApply.GroupBy(static p => (p.TempC, p.Minutes)))
             {
-                room_ids = selectedIds,
-                temperature_c = tempC,
-                minutes,
-            });
-            using var json = await JsonDocument.ParseAsync(await resp.Content.ReadAsStreamAsync());
-            var root = json.RootElement;
-            var ok = root.TryGetProperty("ok", out var okProp) && okProp.GetBoolean();
-            var succeeded = root.TryGetProperty("succeeded", out var sProp) ? sProp.GetInt32() : 0;
-            var failed = root.TryGetProperty("failed", out var fProp) ? fProp.GetInt32() : selectedIds.Length - succeeded;
-            if (!resp.IsSuccessStatusCode || !ok)
+                var ids = group.Select(static p => p.Room.Id).Distinct().ToArray();
+                try
+                {
+                    using var resp = await Http.PostAsJsonAsync("/api/rooms/boost", new
+                    {
+                        room_ids = ids,
+                        temperature_c = group.Key.TempC,
+                        minutes = group.Key.Minutes,
+                    });
+                    using var json = await JsonDocument.ParseAsync(await resp.Content.ReadAsStreamAsync());
+                    var root = json.RootElement;
+                    var groupOk = root.TryGetProperty("succeeded", out var sProp) ? sProp.GetInt32() : 0;
+                    succeeded += groupOk;
+                    failed += root.TryGetProperty("failed", out var fProp) ? fProp.GetInt32() : ids.Length - groupOk;
+                }
+                catch
+                {
+                    failed += ids.Length;
+                }
+            }
+
+            var skippedNote = skipped.Count == 0
+                ? string.Empty
+                : $" Skipped {string.Join(", ", skipped.Select(static p => $"{p.Room.Name} ({p.SkipReason})"))}.";
+            if (failed > 0)
             {
-                Snackbar.Add($"{verb} completed with issues: {succeeded} succeeded, {failed} failed.", Severity.Warning);
+                Snackbar.Add($"{verb} completed with issues: {succeeded} succeeded, {failed} failed.{skippedNote}", Severity.Warning);
             }
             else
             {
-                Snackbar.Add($"{verb} applied to {succeeded} room(s): {tempC:F1} °C for {FormatBoostDuration(minutes)}, then back to schedule.", Severity.Success);
+                var change = _quickAdjustMode
+                    ? $"{FormatDelta(_quickAdjustDeltaC)} °C"
+                    : $"{QuickBoostTempClamped:F1} °C";
+                var duration = _quickBoostMinutes == QuickActionPresets.UntilNextChange
+                    ? "until each room's next schedule change"
+                    : $"for {FormatBoostDuration(_quickBoostMinutes)}";
+                Snackbar.Add($"{verb} applied to {FormatRoomCount(succeeded)}: {change} {duration}, then back to schedule.{skippedNote}",
+                    skipped.Count == 0 ? Severity.Success : Severity.Info);
             }
 
             if (succeeded > 0)
             {
-                await SaveQuickBoostSettingsAsync(tempC, minutes);
+                await SaveQuickBoostSettingsAsync(QuickBoostTempClamped, _quickBoostMinutes);
                 await RefreshActiveBoostsAsync();
             }
-        }
-        catch (Exception ex)
-        {
-            Snackbar.Add($"Boost failed: {ex.Message}", Severity.Error);
         }
         finally
         {
             _quickActionsBusy = false;
+        }
+    }
+
+    /// <summary>Re-sends a running override at its current setpoint so it ends 30 minutes later.</summary>
+    private async Task ExtendBoostAsync(ActiveBoost boost)
+    {
+        if (boost.SetpointC is not { } setpointC
+            || TimedOverrideMath.ExtendMinutes(boost.EndUtc, DateTimeOffset.UtcNow) is not { } minutes)
+            return;
+
+        _cancelBoostBusyRoomId = boost.RoomId;
+        try
+        {
+            using var resp = await Http.PostAsJsonAsync("/api/room/boost", new
+            {
+                room_id = boost.RoomId,
+                temperature_c = setpointC,
+                minutes,
+            });
+            if (resp.IsSuccessStatusCode)
+                Snackbar.Add($"{boost.Name} extended until {FormatLocalTime(DateTimeOffset.UtcNow.AddMinutes(minutes))}.", Severity.Success);
+            else
+                Snackbar.Add($"Couldn't extend {boost.Name} (HTTP {(int)resp.StatusCode}).", Severity.Warning);
+            await RefreshActiveBoostsAsync();
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Extend failed: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            _cancelBoostBusyRoomId = null;
         }
     }
 
@@ -1353,7 +1628,7 @@
                 continue;
             var targetC = room.SetpointC is { } sp ? WiserSetpointDisplay.ToDisplayTargetC(sp) : (double?)null;
             var isBoost = room.SetpointOrigin?.Contains("Boost", StringComparison.OrdinalIgnoreCase) == true;
-            _activeBoosts.Add(new ActiveBoost(room.Id, room.Name, endUtc, targetC, isBoost));
+            _activeBoosts.Add(new ActiveBoost(room.Id, room.Name, endUtc, targetC, isBoost, room.SetpointC));
         }
 
         _activeBoosts.Sort(static (a, b) => a.EndUtc.CompareTo(b.EndUtc));
@@ -1371,7 +1646,9 @@
         var endLocal = TimeZoneInfo.ConvertTime(boost.EndUtc, DisplayZone).ToString("t", CultureInfo.CurrentCulture);
         var left = FormatTimedAwayRelative(boost.EndUtc - DateTimeOffset.UtcNow);
         var kind = boost.IsBoost ? "Boost" : "Override";
-        var target = boost.TargetC is { } t ? $" {t:F1} °C" : string.Empty;
+        var target = boost.SetpointC is { } raw && WiserSetpointDisplay.IsHubOffSentinel(raw)
+            ? " heating off"
+            : boost.TargetC is { } t ? $" {t:F1} °C" : string.Empty;
         return $"{kind}{target} · until {endLocal} · {left} left";
     }
 
@@ -1386,7 +1663,7 @@
             RoomsCache.Update(overview);
             _liveDataAt = DateTimeOffset.Now;
             _liveHubByRoom = LiveHubRoomTemps.ToAvailableTempByRoomName(overview);
-            PopulateActiveBoosts(overview);
+            PopulateQuickActionRooms(overview, resetSelection: false);
         }
         catch
         {
@@ -1438,13 +1715,21 @@
     }
 
     private bool IsPresetSelected(BoostPresetInfo preset) =>
-        Math.Abs(QuickBoostTempClamped - preset.TemperatureC) < 0.01 && _quickBoostMinutes == preset.Minutes;
+        !_quickAdjustMode
+        && Math.Abs(QuickBoostTempClamped - preset.TemperatureC) < 0.01
+        && _quickBoostMinutes == preset.Minutes;
 
     private void SelectBoostPreset(BoostPresetInfo preset)
     {
+        _quickAdjustMode = false;
         _quickBoostTempC = preset.TemperatureC;
-        _quickBoostMinutes = QuickBoostDurationOptions.Contains(preset.Minutes) ? preset.Minutes : _quickBoostMinutes;
+        // Presets are editable, so their minutes may not match a duration button; the apply button still shows them.
+        _quickBoostMinutes = preset.Minutes;
     }
+
+    private static bool IsValidQuickMinutes(int minutes) =>
+        minutes == QuickActionPresets.UntilNextChange
+        || minutes is >= QuickActionPresets.MinMinutes and <= QuickActionPresets.MaxMinutes;
 
     /// <summary>Restores the last applied quick-boost target and duration; returns true when anything changed.</summary>
     private async Task<bool> TryLoadQuickBoostSettingsAsync()
@@ -1462,9 +1747,24 @@
 
             var minutesRaw = await Js.InvokeAsync<string?>("localStorage.getItem", QuickBoostMinutesStorageKey);
             if (int.TryParse(minutesRaw, NumberStyles.Integer, CultureInfo.InvariantCulture, out var minutes)
-                && QuickBoostDurationOptions.Contains(minutes))
+                && IsValidQuickMinutes(minutes))
             {
                 _quickBoostMinutes = minutes;
+                changed = true;
+            }
+
+            var modeRaw = await Js.InvokeAsync<string?>("localStorage.getItem", QuickAdjustModeStorageKey);
+            if (modeRaw is "1")
+            {
+                _quickAdjustMode = true;
+                changed = true;
+            }
+
+            var deltaRaw = await Js.InvokeAsync<string?>("localStorage.getItem", QuickAdjustDeltaStorageKey);
+            if (double.TryParse(deltaRaw, NumberStyles.Float, CultureInfo.InvariantCulture, out var delta)
+                && Math.Abs(delta) is >= 0.5 and <= QuickAdjustDeltaMax)
+            {
+                _quickAdjustDeltaC = delta;
                 changed = true;
             }
 
@@ -1482,6 +1782,8 @@
         {
             await Js.InvokeVoidAsync("localStorage.setItem", QuickBoostTempStorageKey, tempC.ToString(CultureInfo.InvariantCulture));
             await Js.InvokeVoidAsync("localStorage.setItem", QuickBoostMinutesStorageKey, minutes.ToString(CultureInfo.InvariantCulture));
+            await Js.InvokeVoidAsync("localStorage.setItem", QuickAdjustModeStorageKey, _quickAdjustMode ? "1" : "0");
+            await Js.InvokeVoidAsync("localStorage.setItem", QuickAdjustDeltaStorageKey, _quickAdjustDeltaC.ToString(CultureInfo.InvariantCulture));
         }
         catch
         {
@@ -2080,9 +2382,11 @@
         double? ManualTemperatureC,
         double? TempC,
         double? TargetC,
-        bool CallingHeat);
+        bool CallingHeat,
+        long? NextScheduleChangeUnix);
     private sealed record AwayRoomSnapshot(int RoomId, string Mode, double? ManualTemperatureC);
-    private sealed record ActiveBoost(int RoomId, string Name, DateTimeOffset EndUtc, double? TargetC, bool IsBoost);
+    /// <param name="SetpointC">Raw hub setpoint (off sentinel kept) so an extension re-sends exactly the same override.</param>
+    private sealed record ActiveBoost(int RoomId, string Name, DateTimeOffset EndUtc, double? TargetC, bool IsBoost, double? SetpointC);
 }
 
 <style>
@@ -2270,6 +2574,27 @@
         padding: 0 4px;
         text-transform: none;
         font-variant-numeric: tabular-nums;
+    }
+
+    .home-duration-grid .home-duration-next {
+        grid-column: 1 / -1;
+    }
+
+    .home-target-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+    }
+
+    .home-target-mode {
+        display: flex;
+        gap: 2px;
+    }
+
+    .home-target-mode .mud-button-root {
+        min-height: 32px;
+        text-transform: none;
     }
 
     .home-active-boost-list {

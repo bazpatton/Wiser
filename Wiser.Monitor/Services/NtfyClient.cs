@@ -15,7 +15,8 @@ public sealed class NtfyClient(HttpClient http, TemperatureStore store)
         string? tags,
         string? priority,
         string kind = "alert",
-        string? clickUrl = null)
+        string? clickUrl = null,
+        string? actions = null)
     {
         var sentTs = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
         if (store.NtfyNotificationDuplicateRecent(sentTs, kind, title, message, DuplicateWindowSeconds))
@@ -28,6 +29,9 @@ public sealed class NtfyClient(HttpClient http, TemperatureStore store)
         req.Headers.TryAddWithoutValidation("Tags", tags ?? "thermometer");
         if (!string.IsNullOrWhiteSpace(clickUrl))
             req.Headers.TryAddWithoutValidation("Click", clickUrl.Trim());
+        // ntfy "view" buttons, e.g. "view, Open room, https://…"; header values must be ASCII.
+        if (!string.IsNullOrWhiteSpace(actions) && actions.All(char.IsAscii))
+            req.Headers.TryAddWithoutValidation("Actions", actions.Trim());
         req.Content = new StringContent(message, System.Text.Encoding.UTF8);
 
         using var resp = await http.SendAsync(req, ct).ConfigureAwait(false);
