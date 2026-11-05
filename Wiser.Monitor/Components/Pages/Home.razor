@@ -293,36 +293,49 @@
                     </div>
                 }
 
-                <MudGrid Spacing="2" Class="mt-1">
-                    <MudItem xs="6">
-                        <MudNumericField T="double"
-                                         Label="Target °C"
-                                         @bind-Value="_quickBoostTempC"
-                                         Min="@QuickBoostTempMin"
-                                         Max="@QuickBoostTempMax"
-                                         Step="0.5"
-                                         Format="F1"
-                                         Variant="Variant.Outlined"
-                                         Margin="Margin.Dense"
-                                         Class="touch-control"
-                                         Disabled="_quickActionsBusy" />
-                    </MudItem>
-                    <MudItem xs="6">
-                        <MudSelect T="int"
-                                   Label="Duration"
-                                   @bind-Value="_quickBoostMinutes"
-                                   Variant="Variant.Outlined"
-                                   Dense="true"
-                                   Margin="Margin.Dense"
-                                   Class="touch-control"
-                                   Disabled="_quickActionsBusy">
+                <div class="home-boost-settings">
+                    <div>
+                        <span class="home-quick-label">Target</span>
+                        <div class="home-temp-stepper">
+                            <MudIconButton Icon="@Icons.Material.Filled.Remove"
+                                           Variant="Variant.Outlined"
+                                           Color="Color.Primary"
+                                           Class="touch-target-icon"
+                                           aria-label="Lower target by 0.5 °C"
+                                           Disabled="@(_quickActionsBusy || QuickBoostTempClamped <= QuickBoostTempMin)"
+                                           OnClick="@(() => StepQuickBoostTemp(-0.5))" />
+                            <div class="home-temp-value" aria-live="polite">
+                                @QuickBoostTempClamped.ToString("F1", CultureInfo.CurrentCulture)<span class="home-temp-unit">°C</span>
+                            </div>
+                            <MudIconButton Icon="@Icons.Material.Filled.Add"
+                                           Variant="Variant.Outlined"
+                                           Color="Color.Primary"
+                                           Class="touch-target-icon"
+                                           aria-label="Raise target by 0.5 °C"
+                                           Disabled="@(_quickActionsBusy || QuickBoostTempClamped >= QuickBoostTempMax)"
+                                           OnClick="@(() => StepQuickBoostTemp(0.5))" />
+                        </div>
+                    </div>
+                    <div>
+                        <span class="home-quick-label">Duration</span>
+                        <div class="home-duration-grid" role="radiogroup" aria-label="Boost duration">
                             @foreach (var m in QuickBoostDurationOptions)
                             {
-                                <MudSelectItem Value="@m">@FormatBoostDuration(m)</MudSelectItem>
+                                var selected = _quickBoostMinutes == m;
+                                <MudButton Variant="@(selected ? Variant.Filled : Variant.Outlined)"
+                                           Color="Color.Primary"
+                                           DropShadow="false"
+                                           role="radio"
+                                           aria-checked="@(selected ? "true" : "false")"
+                                           aria-label="@FormatBoostDuration(m)"
+                                           Disabled="_quickActionsBusy"
+                                           OnClick="@(() => _quickBoostMinutes = m)">
+                                    @FormatBoostDurationShort(m)
+                                </MudButton>
                             }
-                        </MudSelect>
-                    </MudItem>
-                </MudGrid>
+                        </div>
+                    </div>
+                </div>
 
                 <MudButton Variant="Variant.Filled"
                            Color="Color.Primary"
@@ -1165,6 +1178,18 @@
     /// <summary>Quick-boost target snapped to 0.5 °C within hub limits.</summary>
     private double QuickBoostTempClamped =>
         Math.Clamp(Math.Round(_quickBoostTempC * 2, MidpointRounding.AwayFromZero) / 2, QuickBoostTempMin, QuickBoostTempMax);
+
+    private void StepQuickBoostTemp(double delta) =>
+        _quickBoostTempC = Math.Clamp(QuickBoostTempClamped + delta, QuickBoostTempMin, QuickBoostTempMax);
+
+    /// <summary>Compact label for the duration buttons, e.g. "45m", "1½h", "2h".</summary>
+    private static string FormatBoostDurationShort(int minutes) => minutes switch
+    {
+        < 60 => $"{minutes}m",
+        _ when minutes % 60 == 0 => $"{minutes / 60}h",
+        _ when minutes % 60 == 30 => $"{minutes / 60}½h",
+        _ => $"{minutes}m",
+    };
 
     private static string FormatBoostDuration(int minutes) =>
         minutes >= 60 && minutes % 60 == 0 ? (minutes == 60 ? "1 hour" : $"{minutes / 60} hours") : $"{minutes} mins";
@@ -2068,6 +2093,63 @@
 
     .home-quick-chips .mud-chip {
         margin: 0;
+    }
+
+    .home-boost-settings {
+        display: grid;
+        grid-template-columns: 1fr;
+        gap: 12px;
+        margin-top: 12px;
+    }
+
+    @@media (min-width: 600px) {
+        .home-boost-settings {
+            grid-template-columns: auto 1fr;
+            gap: 24px;
+        }
+    }
+
+    .home-temp-stepper {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        margin-top: 4px;
+    }
+
+    .home-temp-stepper .mud-icon-button {
+        border-radius: 50%;
+    }
+
+    .home-temp-value {
+        min-width: 5.5ch;
+        text-align: center;
+        font-size: 2rem;
+        font-weight: 700;
+        line-height: 1;
+        font-variant-numeric: tabular-nums;
+    }
+
+    .home-temp-unit {
+        font-size: 1rem;
+        font-weight: 500;
+        margin-left: 2px;
+        color: var(--mud-palette-text-secondary);
+    }
+
+    .home-duration-grid {
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 6px;
+        margin-top: 4px;
+    }
+
+    .home-duration-grid .mud-button-root {
+        min-width: 0;
+        min-height: 44px;
+        padding: 0 4px;
+        text-transform: none;
+        font-variant-numeric: tabular-nums;
     }
 
     .home-active-boost-list {
