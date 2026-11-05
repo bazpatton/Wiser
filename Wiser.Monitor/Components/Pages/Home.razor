@@ -181,17 +181,18 @@
         </MudStack>
     </MudPaper>
 
-    <MudPaper Class="pa-4 status-card">
-        <MudText Typo="Typo.h6">
-            <i class="fa-solid fa-bolt"></i> Quick actions
-        </MudText>
-        <MudText Typo="Typo.caption" Class="mud-text-secondary d-block mt-1">
-            Fast mobile controls for common tasks.
+    <MudPaper Class="pa-4 status-card home-quick-card">
+        <div class="home-quick-header">
+            <MudText Typo="Typo.h6">
+                <i class="fa-solid fa-bolt"></i> Quick actions
+            </MudText>
             @if (_liveDataAt is { } liveAt)
             {
-                @($" Live hub data as of {TimeZoneInfo.ConvertTime(liveAt, DisplayZone).ToString("t", CultureInfo.CurrentCulture)}.")
+                <MudText Typo="Typo.caption" Class="mud-text-secondary">
+                    Live · @TimeZoneInfo.ConvertTime(liveAt, DisplayZone).ToString("t", CultureInfo.CurrentCulture)
+                </MudText>
             }
-        </MudText>
+        </div>
         @if (_quickActionRooms.Count == 0)
         {
             <MudAlert Severity="Severity.Info" Dense="true" Class="mt-2">
@@ -201,140 +202,162 @@
         else
         {
             var activeBoosts = ActiveBoostsNow();
+            var cancelBusy = _quickActionsBusy || _cancelBoostBusyRoomId is not null;
             if (activeBoosts.Count > 0)
             {
-                <MudAlert Severity="Severity.Info" Dense="true" Class="mt-2 home-active-boosts" ShowCloseIcon="false">
-                    <MudStack Spacing="1">
-                        <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center" Wrap="Wrap.Wrap">
-                            <MudText Typo="Typo.subtitle2">Active boosts (@activeBoosts.Count)</MudText>
-                            @if (activeBoosts.Count > 1)
-                            {
-                                <MudButton Variant="Variant.Text"
-                                           Color="Color.Error"
-                                           Size="Size.Small"
-                                           Class="pa-0 ma-0"
-                                           Disabled="@(_quickActionsBusy || _cancelBoostBusyRoomId is not null)"
-                                           OnClick="@(() => CancelBoostsAsync(activeBoosts))">
-                                    Cancel all
-                                </MudButton>
-                            }
-                        </MudStack>
+                <div class="home-quick-section">
+                    <div class="home-quick-section-head">
+                        <span class="home-quick-label">Active now (@activeBoosts.Count)</span>
+                        @if (activeBoosts.Count > 1)
+                        {
+                            <MudButton Variant="Variant.Text"
+                                       Color="Color.Error"
+                                       Size="Size.Small"
+                                       Disabled="@cancelBusy"
+                                       OnClick="@(() => CancelBoostsAsync(activeBoosts))">
+                                Cancel all
+                            </MudButton>
+                        }
+                    </div>
+                    <div class="home-active-boost-list">
                         @foreach (var boost in activeBoosts)
                         {
                             <div class="home-active-boost-row">
-                                <MudText Typo="Typo.body2" Class="flex-grow-1">
-                                    <strong>@boost.Name</strong>
-                                    @FormatActiveBoost(boost)
-                                </MudText>
-                                <MudButton Variant="Variant.Outlined"
-                                           Color="Color.Warning"
-                                           Size="Size.Small"
-                                           StartIcon="@Icons.Material.Filled.CancelScheduleSend"
-                                           Disabled="@(_quickActionsBusy || _cancelBoostBusyRoomId is not null)"
-                                           OnClick="@(() => CancelBoostsAsync([boost]))">
-                                    Cancel
-                                </MudButton>
+                                <MudIcon Icon="@Icons.Material.Filled.Bolt" Color="Color.Warning" Size="Size.Small" />
+                                <div class="home-active-boost-text">
+                                    <MudText Typo="Typo.body2"><strong>@boost.Name</strong></MudText>
+                                    <MudText Typo="Typo.caption" Class="mud-text-secondary">@FormatActiveBoost(boost)</MudText>
+                                </div>
+                                @if (_cancelBoostBusyRoomId == boost.RoomId)
+                                {
+                                    <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="ma-3" />
+                                }
+                                else
+                                {
+                                    <MudTooltip Text="@($"Cancel and return {boost.Name} to schedule")">
+                                        <MudIconButton Icon="@Icons.Material.Filled.Close"
+                                                       Color="Color.Error"
+                                                       Class="touch-target-icon"
+                                                       aria-label="@($"Cancel boost for {boost.Name}")"
+                                                       Disabled="@cancelBusy"
+                                                       OnClick="@(() => CancelBoostsAsync([boost]))" />
+                                    </MudTooltip>
+                                }
                             </div>
                         }
-                    </MudStack>
-                </MudAlert>
+                    </div>
+                </div>
             }
-            <MudSelect T="string"
-                       Label="Rooms for boost"
-                       MultiSelection="true"
-                       SelectedValues="_boostRoomNames"
-                       SelectedValuesChanged="OnBoostRoomNamesChanged"
-                       Variant="Variant.Outlined"
-                       Dense="true"
-                       Margin="Margin.Dense"
-                       Class="mt-2 touch-control"
-                       Disabled="_quickActionsBusy">
-                @foreach (var room in _quickActionRooms)
-                {
-                    <MudSelectItem T="string" Value="@room.Name">
-                        <span class="home-quick-room-option">
-                            @if (room.IsFavorite)
-                            {
-                                <MudIcon Icon="@Icons.Material.Filled.Star" Size="Size.Small" Class="home-quick-room-fav-icon" />
-                            }
-                            @room.Name
-                        </span>
-                    </MudSelectItem>
-                }
-            </MudSelect>
-            <MudGrid Spacing="2" Class="mt-1">
-                <MudItem xs="6">
-                    <MudNumericField T="double"
-                                     Label="Target °C"
-                                     @bind-Value="_quickBoostTempC"
-                                     Min="@QuickBoostTempMin"
-                                     Max="@QuickBoostTempMax"
-                                     Step="0.5"
-                                     Format="F1"
-                                     Variant="Variant.Outlined"
-                                     Margin="Margin.Dense"
-                                     Class="touch-control"
-                                     Disabled="_quickActionsBusy" />
-                </MudItem>
-                <MudItem xs="6">
-                    <MudSelect T="int"
-                               Label="Duration"
-                               @bind-Value="_quickBoostMinutes"
-                               Variant="Variant.Outlined"
-                               Dense="true"
-                               Margin="Margin.Dense"
-                               Class="touch-control"
-                               Disabled="_quickActionsBusy">
-                        @foreach (var m in QuickBoostDurationOptions)
-                        {
-                            <MudSelectItem Value="@m">@(m >= 120 ? $"{m / 60} hours" : $"{m} minutes")</MudSelectItem>
-                        }
-                    </MudSelect>
-                </MudItem>
-            </MudGrid>
-            @if (_boostPresets.Count > 0)
-            {
-                <MudStack Row="true" Wrap="Wrap.Wrap" Spacing="1" AlignItems="AlignItems.Center" Class="mt-1">
-                    <MudText Typo="Typo.caption" Class="mud-text-secondary">Presets:</MudText>
-                    @foreach (var preset in _boostPresets)
+
+            <div class="home-quick-section">
+                <div class="home-quick-section-head">
+                    <span class="home-quick-label">Boost rooms</span>
+                    <MudButton Variant="Variant.Text"
+                               Color="Color.Primary"
+                               Size="Size.Small"
+                               Disabled="_quickActionsBusy"
+                               OnClick="ToggleAllBoostRooms">
+                        @(AllBoostRoomsSelected ? "Clear" : "Select all")
+                    </MudButton>
+                </div>
+                <div class="home-quick-chips">
+                    @foreach (var room in _quickActionRooms)
                     {
+                        var selected = _boostRoomNames.Contains(room.Name);
                         <MudChip T="string"
-                                 Size="Size.Small"
-                                 Variant="@(IsPresetSelected(preset) ? Variant.Filled : Variant.Outlined)"
-                                 Color="Color.Primary"
+                                 Variant="@(selected ? Variant.Filled : Variant.Outlined)"
+                                 Color="@(selected ? Color.Primary : Color.Default)"
+                                 Icon="@(room.IsFavorite ? Icons.Material.Filled.Star : null)"
+                                 IconColor="@(selected ? Color.Inherit : Color.Warning)"
                                  Disabled="_quickActionsBusy"
-                                 OnClick="@(() => SelectBoostPreset(preset))">
-                            @($"{preset.Name} · {preset.TemperatureC:0.#}° · {preset.Minutes} min")
+                                 OnClick="@(() => ToggleBoostRoom(room.Name))">
+                            @room.Name
                         </MudChip>
                     }
-                </MudStack>
-            }
+                </div>
+
+                @if (_boostPresets.Count > 0)
+                {
+                    <div class="home-quick-chips mt-2">
+                        @foreach (var preset in _boostPresets)
+                        {
+                            <MudChip T="string"
+                                     Size="Size.Small"
+                                     Variant="@(IsPresetSelected(preset) ? Variant.Filled : Variant.Outlined)"
+                                     Color="Color.Secondary"
+                                     Disabled="_quickActionsBusy"
+                                     OnClick="@(() => SelectBoostPreset(preset))">
+                                @($"{preset.Name} · {preset.TemperatureC:0.#}° · {FormatBoostDuration(preset.Minutes)}")
+                            </MudChip>
+                        }
+                    </div>
+                }
+
+                <MudGrid Spacing="2" Class="mt-1">
+                    <MudItem xs="6">
+                        <MudNumericField T="double"
+                                         Label="Target °C"
+                                         @bind-Value="_quickBoostTempC"
+                                         Min="@QuickBoostTempMin"
+                                         Max="@QuickBoostTempMax"
+                                         Step="0.5"
+                                         Format="F1"
+                                         Variant="Variant.Outlined"
+                                         Margin="Margin.Dense"
+                                         Class="touch-control"
+                                         Disabled="_quickActionsBusy" />
+                    </MudItem>
+                    <MudItem xs="6">
+                        <MudSelect T="int"
+                                   Label="Duration"
+                                   @bind-Value="_quickBoostMinutes"
+                                   Variant="Variant.Outlined"
+                                   Dense="true"
+                                   Margin="Margin.Dense"
+                                   Class="touch-control"
+                                   Disabled="_quickActionsBusy">
+                            @foreach (var m in QuickBoostDurationOptions)
+                            {
+                                <MudSelectItem Value="@m">@FormatBoostDuration(m)</MudSelectItem>
+                            }
+                        </MudSelect>
+                    </MudItem>
+                </MudGrid>
+
+                <MudButton Variant="Variant.Filled"
+                           Color="Color.Primary"
+                           FullWidth="true"
+                           StartIcon="@(_quickActionsBusy ? null : Icons.Material.Filled.Bolt)"
+                           Class="touch-target mt-3"
+                           Disabled="@(_quickActionsBusy || SelectedBoostRoomCount == 0)"
+                           OnClick="ApplyQuickBoostAsync">
+                    @if (_quickActionsBusy)
+                    {
+                        <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="mr-2" />
+                    }
+                    @QuickBoostButtonText
+                </MudButton>
+            </div>
         }
-        <MudStack Row="true" Wrap="Wrap.Wrap" Spacing="1" Class="mt-2">
-            <MudButton Variant="Variant.Filled"
-                       Color="Color.Primary"
-                       StartIcon="@Icons.Material.Filled.Bolt"
-                       Class="touch-target"
-                       Disabled="@(_quickActionsBusy || _quickActionRooms.Count == 0)"
-                       OnClick="ApplyQuickBoostAsync">
-                @($"Boost to {QuickBoostTempClamped:F1} °C · {FormatBoostDuration(_quickBoostMinutes)}")
-            </MudButton>
+
+        <MudDivider Class="mt-4" />
+        <div class="home-quick-secondary">
             <MudButton Variant="Variant.Outlined"
-                       Color="Color.Primary"
-                       StartIcon="@Icons.Material.Filled.CalendarMonth"
+                       Color="@(AwayQuickActionShowsActive ? Color.Warning : Color.Primary)"
+                       StartIcon="@(AwayQuickActionShowsActive ? Icons.Material.Filled.Home : Icons.Material.Filled.FlightTakeoff)"
                        Class="touch-target"
                        Disabled="@(_quickActionsBusy || _quickActionRooms.Count == 0)"
                        OnClick="@ToggleAwayModeAsync">
-                @(AwayQuickActionShowsActive ? "Unset away mode" : "Set away mode")
+                @(AwayQuickActionShowsActive ? "Return home" : "Set away")
             </MudButton>
             <MudButton Href="/gas-meter"
                        Variant="Variant.Outlined"
                        Color="Color.Primary"
                        StartIcon="@Icons.Material.Filled.LocalGasStation"
                        Class="touch-target">
-                Log gas reading
+                Gas reading
             </MudButton>
-        </MudStack>
+        </div>
     </MudPaper>
 
     <MudPaper Class="pa-4 status-card">
@@ -583,17 +606,17 @@
                Color="Color.Primary"
                StartIcon="@Icons.Material.Filled.Bolt"
                Class="touch-target"
-               Disabled="@(_quickActionsBusy || _quickActionRooms.Count == 0)"
+               Disabled="@(_quickActionsBusy || SelectedBoostRoomCount == 0)"
                OnClick="ApplyQuickBoostAsync">
-        Boost
+        @($"Boost {FormatRoomCount(SelectedBoostRoomCount)}")
     </MudButton>
     <MudButton Variant="Variant.Outlined"
-               Color="Color.Primary"
-               StartIcon="@Icons.Material.Filled.CalendarMonth"
+               Color="@(AwayQuickActionShowsActive ? Color.Warning : Color.Primary)"
+               StartIcon="@(AwayQuickActionShowsActive ? Icons.Material.Filled.Home : Icons.Material.Filled.FlightTakeoff)"
                Class="touch-target"
                Disabled="@(_quickActionsBusy || _quickActionRooms.Count == 0)"
                OnClick="@ToggleAwayModeAsync">
-        @(AwayQuickActionShowsActive ? "Unset away" : "Away mode")
+        @(AwayQuickActionShowsActive ? "Return home" : "Set away")
     </MudButton>
 </div>
 
@@ -1115,20 +1138,36 @@
         _savingsSuggestions.AddRange(tips);
     }
 
-    private Task OnBoostRoomNamesChanged(IEnumerable<string> names)
+    private int SelectedBoostRoomCount => _quickActionRooms.Count(r => _boostRoomNames.Contains(r.Name));
+
+    private bool AllBoostRoomsSelected =>
+        _quickActionRooms.Count > 0 && SelectedBoostRoomCount == _quickActionRooms.Count;
+
+    private void ToggleBoostRoom(string name)
     {
-        _boostRoomNames = names
-            .Where(static n => !string.IsNullOrWhiteSpace(n))
-            .ToHashSet(StringComparer.OrdinalIgnoreCase);
-        return Task.CompletedTask;
+        if (!_boostRoomNames.Remove(name))
+            _boostRoomNames.Add(name);
     }
+
+    private void ToggleAllBoostRooms()
+    {
+        _boostRoomNames = AllBoostRoomsSelected
+            ? new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+            : _quickActionRooms.Select(static r => r.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
+    }
+
+    private static string FormatRoomCount(int count) => count == 1 ? "1 room" : $"{count} rooms";
+
+    private string QuickBoostButtonText => SelectedBoostRoomCount == 0
+        ? "Select rooms to boost"
+        : $"Boost {FormatRoomCount(SelectedBoostRoomCount)} to {QuickBoostTempClamped:F1} °C · {FormatBoostDuration(_quickBoostMinutes)}";
 
     /// <summary>Quick-boost target snapped to 0.5 °C within hub limits.</summary>
     private double QuickBoostTempClamped =>
         Math.Clamp(Math.Round(_quickBoostTempC * 2, MidpointRounding.AwayFromZero) / 2, QuickBoostTempMin, QuickBoostTempMax);
 
     private static string FormatBoostDuration(int minutes) =>
-        minutes >= 120 && minutes % 60 == 0 ? $"{minutes / 60} hours" : $"{minutes} mins";
+        minutes >= 60 && minutes % 60 == 0 ? (minutes == 60 ? "1 hour" : $"{minutes / 60} hours") : $"{minutes} mins";
 
     private async Task ApplyQuickBoostAsync()
     {
@@ -1212,9 +1251,9 @@
     {
         var endLocal = TimeZoneInfo.ConvertTime(boost.EndUtc, DisplayZone).ToString("t", CultureInfo.CurrentCulture);
         var left = FormatTimedAwayRelative(boost.EndUtc - DateTimeOffset.UtcNow);
-        var target = boost.TargetC is { } t ? $" to {t:F1} °C" : string.Empty;
-        var kind = boost.IsBoost ? "boost" : "override";
-        return $"— {kind}{target} until {endLocal} ({left} left)";
+        var kind = boost.IsBoost ? "Boost" : "Override";
+        var target = boost.TargetC is { } t ? $" {t:F1} °C" : string.Empty;
+        return $"{kind}{target} · until {endLocal} · {left} left";
     }
 
     /// <summary>Re-reads the hub so the active-boost list reflects a boost or cancel just made.</summary>
@@ -1992,25 +2031,78 @@
         line-height: 1.2;
     }
 
-    .home-quick-room-option {
-        display: inline-flex;
+    .home-quick-header {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: baseline;
+        justify-content: space-between;
+        gap: 4px 12px;
+    }
+
+    .home-quick-section {
+        margin-top: 14px;
+    }
+
+    .home-quick-section-head {
+        display: flex;
         align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+        min-height: 32px;
+    }
+
+    .home-quick-label {
+        font-size: 0.72rem;
+        font-weight: 600;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+        color: var(--mud-palette-text-secondary);
+    }
+
+    .home-quick-chips {
+        display: flex;
+        flex-wrap: wrap;
         gap: 6px;
+        margin-top: 4px;
+    }
+
+    .home-quick-chips .mud-chip {
+        margin: 0;
+    }
+
+    .home-active-boost-list {
+        margin-top: 4px;
+        border: 1px solid color-mix(in srgb, var(--mud-palette-warning) 40%, var(--mud-palette-lines-default));
+        border-radius: 10px;
+        overflow: hidden;
+        background: color-mix(in srgb, var(--mud-palette-warning) 7%, transparent);
     }
 
     .home-active-boost-row {
         display: flex;
-        flex-wrap: wrap;
         align-items: center;
+        gap: 10px;
+        padding: 2px 4px 2px 12px;
+    }
+
+    .home-active-boost-row + .home-active-boost-row {
+        border-top: 1px solid color-mix(in srgb, var(--mud-palette-warning) 25%, var(--mud-palette-lines-default));
+    }
+
+    .home-active-boost-text {
+        flex: 1 1 auto;
+        min-width: 0;
+        display: flex;
+        flex-direction: column;
+        line-height: 1.25;
+        padding: 6px 0;
+    }
+
+    .home-quick-secondary {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
         gap: 8px;
-    }
-
-    .home-active-boosts .mud-alert-message {
-        width: 100%;
-    }
-
-    .home-quick-room-fav-icon {
-        color: var(--mud-palette-warning);
+        margin-top: 12px;
     }
 
     .home-sticky-actionbar {
