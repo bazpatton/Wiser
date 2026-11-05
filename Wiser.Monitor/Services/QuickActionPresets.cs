@@ -117,11 +117,31 @@ public static class TimedOverrideMath
     }
 
     /// <summary>Minutes until the room's schedule next changes, when that fits in one timed override.</summary>
-    public static int? MinutesUntilNextChange(HubLiveRoom room, DateTimeOffset now)
+    public static int? MinutesUntilNextChange(HubLiveRoom room, DateTimeOffset now) =>
+        MinutesUntilNextChange(room.NextScheduleChangeUnix, now);
+
+    public static int? MinutesUntilNextChange(long? nextChangeUnix, DateTimeOffset now)
     {
-        if (room.NextScheduleChangeUnix is not { } at)
+        if (nextChangeUnix is not { } at)
             return null;
         var minutes = (int)Math.Ceiling((at - now.ToUnixTimeSeconds()) / 60.0);
         return minutes is >= QuickActionPresets.MinMinutes and <= QuickActionPresets.MaxMinutes ? minutes : null;
     }
+
+    /// <summary>
+    /// Setpoint an ease-off sends: the off sentinel, or the current target lowered by the preset (not below the hub minimum).
+    /// Null when lowering is asked for but the current target is unknown.
+    /// </summary>
+    public static double? EaseOffTargetC(double? currentTargetC, EaseOffPreset preset)
+    {
+        if (preset.TurnOff)
+            return WiserSetpointDisplay.HubOffSentinelC;
+        return currentTargetC is { } target
+            ? Math.Max(QuickActionPresets.MinTempC, target - preset.DropC)
+            : null;
+    }
+
+    /// <summary>Override length for an ease-off; null for "until next change" when that is unknown or too far off.</summary>
+    public static int? EaseOffMinutes(long? nextChangeUnix, EaseOffPreset preset, DateTimeOffset now) =>
+        preset.UntilNextChange ? MinutesUntilNextChange(nextChangeUnix, now) : preset.Minutes;
 }

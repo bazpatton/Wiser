@@ -1080,15 +1080,11 @@
         room.Id > 0 && room.HeatDemand != 0 && CurrentTargetC(room) is not null;
 
     private static double EaseOffTargetC(HubLiveRoom room, EaseOffPreset option) =>
-        option.TurnOff
-            ? WiserSetpointDisplay.HubOffSentinelC
-            : Math.Max(RoomTargetSliderMin, (CurrentTargetC(room) ?? RoomTargetSliderMin) - option.DropC);
+        TimedOverrideMath.EaseOffTargetC(CurrentTargetC(room), option) ?? RoomTargetSliderMin;
 
     /// <summary>Override length for this room; null for "until next change" when the schedule change is unknown or too far off.</summary>
     private static int? EaseOffMinutes(HubLiveRoom room, EaseOffPreset option) =>
-        option.UntilNextChange
-            ? TimedOverrideMath.MinutesUntilNextChange(room, DateTimeOffset.UtcNow)
-            : option.Minutes;
+        TimedOverrideMath.EaseOffMinutes(room.NextScheduleChangeUnix, option, DateTimeOffset.UtcNow);
 
     private string FormatLocalTime(long unix) =>
         TimeZoneInfo.ConvertTime(DateTimeOffset.FromUnixTimeSeconds(unix), DisplayZone).ToString("t", CultureInfo.CurrentCulture);

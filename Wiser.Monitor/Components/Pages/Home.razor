@@ -157,6 +157,83 @@
         </MudAlert>
     }
 
+    @if (HeatingNowRooms is { Count: > 0 } heatingRooms && PrimaryEaseOff is { } primaryEaseOff)
+    {
+        var heatingBusy = _quickActionsBusy || _heatingNowBusyRoomId is not null;
+        <MudPaper Class="pa-3 home-heating-now">
+            <div class="home-heating-now-head">
+                <MudText Typo="Typo.subtitle1" Class="home-heating-now-title">
+                    <MudIcon Icon="@Icons.Material.Filled.LocalFireDepartment" Color="Color.Warning" Size="Size.Small" />
+                    Heating now (@heatingRooms.Count)
+                </MudText>
+                @if (heatingRooms.Count > 1)
+                {
+                    <MudButton Variant="Variant.Text"
+                               Color="Color.Primary"
+                               Size="Size.Small"
+                               StartIcon="@EaseOffIcon(primaryEaseOff)"
+                               Disabled="@heatingBusy"
+                               OnClick="@(() => EaseOffRoomsAsync(heatingRooms, primaryEaseOff))">
+                        All @EaseOffShortLabel(null, primaryEaseOff)
+                    </MudButton>
+                }
+            </div>
+            @foreach (var room in heatingRooms)
+            {
+                var active = _activeBoosts.FirstOrDefault(b => b.RoomId == room.Id && b.EndUtc > DateTimeOffset.UtcNow);
+                <div class="home-heating-now-row">
+                    <div class="home-heating-now-text">
+                        <MudText Typo="Typo.body2"><strong>@room.Name</strong></MudText>
+                        <MudText Typo="Typo.caption" Class="mud-text-secondary">
+                            @(QuickRoomChipTemps(room) is { } temps ? $"{temps} °C" : "—")
+                            @if (active is not null)
+                            {
+                                <span> · @FormatActiveBoost(active)</span>
+                            }
+                        </MudText>
+                    </div>
+                    @if (_heatingNowBusyRoomId == room.Id)
+                    {
+                        <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="ma-2" />
+                    }
+                    else
+                    {
+                        <MudButton Variant="Variant.Outlined"
+                                   Color="Color.Primary"
+                                   Size="Size.Small"
+                                   Class="touch-target home-heating-now-btn"
+                                   StartIcon="@EaseOffIcon(primaryEaseOff)"
+                                   Disabled="@(heatingBusy || !CanEaseOff(room, primaryEaseOff))"
+                                   OnClick="@(() => EaseOffRoomsAsync([room], primaryEaseOff))">
+                            @EaseOffShortLabel(room, primaryEaseOff)
+                        </MudButton>
+                        @if (_easeOffPresets.Count > 1)
+                        {
+                            <MudMenu Icon="@Icons.Material.Filled.MoreVert"
+                                     AriaLabel="@($"More ease-off options for {room.Name}")"
+                                     AnchorOrigin="Origin.BottomRight"
+                                     TransformOrigin="Origin.TopRight"
+                                     Dense="true"
+                                     Disabled="@heatingBusy">
+                                @foreach (var preset in _easeOffPresets.Skip(1))
+                                {
+                                    <MudMenuItem Icon="@EaseOffIcon(preset)"
+                                                 Disabled="@(!CanEaseOff(room, preset))"
+                                                 OnClick="@(() => EaseOffRoomsAsync([room], preset))">
+                                        @EaseOffShortLabel(room, preset)
+                                    </MudMenuItem>
+                                }
+                            </MudMenu>
+                        }
+                    }
+                </div>
+            }
+            <MudText Typo="Typo.caption" Class="mud-text-secondary d-block mt-1">
+                Timed, then back to schedule. Change these buttons in Settings → Quick action presets.
+            </MudText>
+        </MudPaper>
+    }
+
     <MudPaper Class="pa-5 hero-card">
         <MudTooltip Text="Polls your Wiser hub on the configured interval and records room data locally.">
             <MudChip T="string" Variant="Variant.Outlined" Color="Color.Primary" Size="Size.Small">Live monitoring</MudChip>
@@ -1008,7 +1085,8 @@
                     _liveDataAt = DateTimeOffset.Now;
                     _hubSystemAway = overview.SystemAway;
                     _liveHubByRoom = LiveHubRoomTemps.ToAvailableTempByRoomName(overview);
-                    PopulateActiveBoosts(overview);
+                    // Keeps "Heating now" and the room chips current without losing the chosen rooms.
+                    PopulateQuickActionRooms(overview, resetSelection: false);
                 }
             }
             catch
@@ -1345,13 +1423,8 @@
         return delta > 0 ? $"+{magnitude}" : $"−{magnitude}";
     }
 
-    private static int? MinutesUntilNextChange(QuickActionRoom room)
-    {
-        if (room.NextScheduleChangeUnix is not { } at)
-            return null;
-        var minutes = (int)Math.Ceiling((at - DateTimeOffset.UtcNow.ToUnixTimeSeconds()) / 60.0);
-        return minutes is >= QuickActionPresets.MinMinutes and <= QuickActionPresets.MaxMinutes ? minutes : null;
-    }
+    private static int? MinutesUntilNextChange(QuickActionRoom room) =>
+        TimedOverrideMath.MinutesUntilNextChange(room.NextScheduleChangeUnix, DateTimeOffset.UtcNow);
 
     /// <summary>One room's part of a quick action: the °C and minutes it gets, or why it was skipped.</summary>
     private sealed record QuickPlanItem(QuickActionRoom Room, double TempC, int Minutes, string? SkipReason);
@@ -1412,6 +1485,95 @@
 
     private string FormatLocalTime(DateTimeOffset utc) =>
         TimeZoneInfo.ConvertTime(utc, DisplayZone).ToString("t", CultureInfo.CurrentCulture);
+
+    private int? _heatingNowBusyRoomId;
+
+    private List<QuickActionRoom> HeatingNowRooms => _quickActionRooms.Where(static r => r.CallingHeat).ToList();
+
+    /// <summary>The first ease-off preset in Settings is the one-tap button; the rest sit in each row's menu.</summary>
+    private EaseOffPreset? PrimaryEaseOff => _easeOffPresets.Count > 0 ? _easeOffPresets[0] : null;
+
+    private static bool CanEaseOff(QuickActionRoom room, EaseOffPreset preset) =>
+        TimedOverrideMath.EaseOffTargetC(room.TargetC, preset) is not null
+        && TimedOverrideMath.EaseOffMinutes(room.NextScheduleChangeUnix, preset, DateTimeOffset.UtcNow) is not null;
+
+    /// <summary>"−1° · 1 h", "Off · until 22:30"; without a room, "until next change" stays generic.</summary>
+    private string EaseOffShortLabel(QuickActionRoom? room, EaseOffPreset preset)
+    {
+        var amount = preset.TurnOff ? "Off" : $"−{preset.DropC:0.#}°";
+        string duration;
+        if (!preset.UntilNextChange)
+            duration = QuickActionPresets.FormatMinutes(preset.Minutes);
+        else if (room is not null && MinutesUntilNextChange(room) is { } minutes)
+            duration = $"until {FormatLocalTime(DateTimeOffset.UtcNow.AddMinutes(minutes))}";
+        else
+            duration = "until next change";
+        return $"{amount} · {duration}";
+    }
+
+    private static string EaseOffIcon(EaseOffPreset preset) =>
+        preset.UntilNextChange
+            ? Icons.Material.Filled.Schedule
+            : preset.TurnOff ? Icons.Material.Filled.PowerSettingsNew : Icons.Material.Filled.TrendingDown;
+
+    /// <summary>Applies one ease-off preset to each room it fits; rooms without a target or schedule change are skipped.</summary>
+    private async Task EaseOffRoomsAsync(IReadOnlyList<QuickActionRoom> rooms, EaseOffPreset preset)
+    {
+        var now = DateTimeOffset.UtcNow;
+        var succeeded = new List<string>();
+        var failed = new List<string>();
+        var skipped = new List<string>();
+        try
+        {
+            foreach (var room in rooms)
+            {
+                if (TimedOverrideMath.EaseOffTargetC(room.TargetC, preset) is not { } tempC
+                    || TimedOverrideMath.EaseOffMinutes(room.NextScheduleChangeUnix, preset, now) is not { } minutes)
+                {
+                    skipped.Add(room.Name);
+                    continue;
+                }
+
+                _heatingNowBusyRoomId = room.Id;
+                StateHasChanged();
+                try
+                {
+                    using var resp = await Http.PostAsJsonAsync("/api/room/boost", new
+                    {
+                        room_id = room.Id,
+                        temperature_c = tempC,
+                        minutes,
+                    });
+                    (resp.IsSuccessStatusCode ? succeeded : failed).Add(room.Name);
+                }
+                catch
+                {
+                    failed.Add(room.Name);
+                }
+            }
+
+            var label = EaseOffShortLabel(rooms.Count == 1 ? rooms[0] : null, preset);
+            var skippedNote = skipped.Count == 0 ? string.Empty : $" Skipped {string.Join(", ", skipped)} (target or next schedule change unknown).";
+            if (failed.Count > 0)
+                Snackbar.Add($"Ease off ({label}) failed for {string.Join(", ", failed)}.{skippedNote}", Severity.Warning);
+            else if (succeeded.Count > 0)
+                Snackbar.Add($"Eased off {string.Join(", ", succeeded)}: {label}, then back to schedule.{skippedNote}",
+                    skipped.Count == 0 ? Severity.Success : Severity.Info);
+            else
+                Snackbar.Add($"Nothing eased off.{skippedNote}", Severity.Warning);
+
+            if (succeeded.Count > 0)
+            {
+                await RefreshActiveBoostsAsync();
+                BuildHomeRoomHeatMap();
+                BuildHomeFloorplanOverlay();
+            }
+        }
+        finally
+        {
+            _heatingNowBusyRoomId = null;
+        }
+    }
 
     private int CallingHeatRoomCount => _quickActionRooms.Count(static r => r.CallingHeat);
 
@@ -2578,6 +2740,46 @@
 
     .home-duration-grid .home-duration-next {
         grid-column: 1 / -1;
+    }
+
+    .home-heating-now {
+        border-left: 4px solid var(--mud-palette-warning);
+    }
+
+    .home-heating-now-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+        flex-wrap: wrap;
+    }
+
+    .home-heating-now-title {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+    }
+
+    .home-heating-now-row {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 6px 0;
+        border-top: 1px solid var(--mud-palette-lines-default);
+    }
+
+    .home-heating-now-head + .home-heating-now-row {
+        border-top: none;
+    }
+
+    .home-heating-now-text {
+        flex: 1 1 auto;
+        min-width: 0;
+    }
+
+    .home-heating-now-btn.mud-button-root {
+        text-transform: none;
+        white-space: nowrap;
     }
 
     .home-target-head {
