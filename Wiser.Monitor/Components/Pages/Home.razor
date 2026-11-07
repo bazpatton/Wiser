@@ -1011,16 +1011,8 @@
         PopulateActiveBoosts(overview);
         if (!resetSelection)
             return;
-        _boostRoomNames = _quickActionRooms
-            .Where(static r => r.IsFavorite)
-            .Select(static r => r.Name)
-            .ToHashSet(StringComparer.OrdinalIgnoreCase);
-        if (_boostRoomNames.Count == 0)
-        {
-            _boostRoomNames = _quickActionRooms
-                .Select(static r => r.Name)
-                .ToHashSet(StringComparer.OrdinalIgnoreCase);
-        }
+        // Nothing is pre-selected; favourites are only sorted to the front of the list.
+        _boostRoomNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
     }
 
     private void LoadHomeBoilerSummary()
