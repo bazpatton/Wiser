@@ -1731,6 +1731,7 @@
             {
                 Name = "Deviation °C (+ warm / - cold)",
                 Data = values,
+                TooltipYValueFormat = "F1",
             },
         ];
     }
@@ -1919,6 +1920,9 @@
                 Name = room,
                 Data = tempSeries.Data,
                 Visible = true,
+                TooltipYValueFormat = "F1",
+                TooltipTitleFormat = "{{SERIES_NAME}}",
+                TooltipSubtitleFormat = "{{Y_VALUE}} °C",
             });
         }
 

@@ -11,6 +11,11 @@ public static class RoomTrendChartBuilder
     public const string SeriesOutdoor = "Outdoor °C";
     public const string SeriesValve = "Valve demand %";
 
+    /// <summary>Hover tooltips show temperatures to one decimal place (smoothed series otherwise print ~15 digits).</summary>
+    public const string TempTooltipFormat = "F1";
+    private const string TooltipTitle = "{{SERIES_NAME}}";
+    private const string TempTooltipSubtitle = "{{Y_VALUE}} °C";
+
     public sealed record Result(
         long[] PointTs,
         string[] ChartLabels,
@@ -46,7 +51,7 @@ public static class RoomTrendChartBuilder
 
         var tempSeries = new List<ChartSeries<double>>
         {
-            new() { Name = SeriesRoom, Data = roomTempsSmooth, Visible = true },
+            new() { Name = SeriesRoom, Data = roomTempsSmooth, Visible = true, TooltipYValueFormat = TempTooltipFormat, TooltipTitleFormat = TooltipTitle, TooltipSubtitleFormat = TempTooltipSubtitle },
         };
         if (targetChartValues.Any(static v => !double.IsNaN(v)))
         {
@@ -55,6 +60,9 @@ public static class RoomTrendChartBuilder
                 Name = SeriesTarget,
                 Data = targetChartValues,
                 Visible = true,
+                TooltipYValueFormat = TempTooltipFormat,
+                TooltipTitleFormat = TooltipTitle,
+                TooltipSubtitleFormat = TempTooltipSubtitle,
             });
         }
 
@@ -70,6 +78,9 @@ public static class RoomTrendChartBuilder
                     Name = SeriesOutdoor,
                     Data = alignedOutdoor.Select(static x => x ?? double.NaN).ToArray(),
                     Visible = true,
+                    TooltipYValueFormat = TempTooltipFormat,
+                    TooltipTitleFormat = TooltipTitle,
+                    TooltipSubtitleFormat = TempTooltipSubtitle,
                 });
             }
         }
@@ -85,6 +96,9 @@ public static class RoomTrendChartBuilder
                     Name = SeriesValve,
                     Data = roomRows.Select(x => x.PercentageDemand is null ? double.NaN : x.PercentageDemand.Value).ToArray(),
                     Visible = true,
+                    TooltipYValueFormat = "F0",
+                    TooltipTitleFormat = TooltipTitle,
+                    TooltipSubtitleFormat = "{{Y_VALUE}} %",
                 },
             ];
         }

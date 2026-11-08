@@ -629,3 +629,57 @@
         padding: 1px 5px;
     }
 }
+
+/* ApexCharts (room history): follow the MudBlazor light/dark palette. */
+.room-apex-chart {
+    width: 100%;
+    min-width: 0;
+}
+.room-apex-chart .apexcharts-text,
+.room-apex-chart .apexcharts-xaxis-label,
+.room-apex-chart .apexcharts-yaxis-label {
+    fill: var(--mud-palette-text-secondary) !important;
+}
+.room-apex-chart .apexcharts-legend-text {
+    color: var(--mud-palette-text-primary) !important;
+}
+.room-apex-chart .apexcharts-gridline,
+.room-apex-chart .apexcharts-xaxis line,
+.room-apex-chart .apexcharts-xaxis-tick {
+    stroke: var(--mud-palette-lines-default) !important;
+    stroke-opacity: 0.5;
+}
+.room-apex-chart .apexcharts-xcrosshairs {
+    stroke: var(--mud-palette-text-secondary);
+}
+.room-apex-chart .apexcharts-tooltip.apexcharts-theme-light,
+.room-apex-chart .apexcharts-tooltip.apexcharts-theme-dark {
+    background: var(--mud-palette-surface) !important;
+    color: var(--mud-palette-text-primary) !important;
+    border: 1px solid var(--mud-palette-lines-default) !important;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25) !important;
+}
+.room-apex-chart .apexcharts-tooltip .apexcharts-tooltip-title {
+    background: transparent !important;
+    color: var(--mud-palette-text-secondary) !important;
+    border-bottom: 1px solid var(--mud-palette-lines-default) !important;
+    font-weight: 600;
+}
+.room-apex-chart .apexcharts-tooltip-text-y-value {
+    font-variant-numeric: tabular-nums;
+}
+.room-apex-chart .apexcharts-toolbar,
+.room-apex-chart .apexcharts-toolbar > div {
+    background: transparent !important;
+    box-shadow: none !important;
+    border-radius: 4px;
+}
+.room-apex-chart .apexcharts-toolbar > div:hover {
+    background: var(--mud-palette-action-default-hover) !important;
+}
+.room-apex-chart .apexcharts-toolbar svg {
+    fill: var(--mud-palette-text-secondary);
+}
+.room-apex-chart .apexcharts-toolbar .apexcharts-selected svg {
+    fill: var(--mud-palette-primary);
+}

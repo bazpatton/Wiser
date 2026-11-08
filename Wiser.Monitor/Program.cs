@@ -1,3 +1,4 @@
+using ApexCharts;
 using System.Text.Json;
 using System.Globalization;
 using System.Text;
@@ -32,6 +33,7 @@ builder.Services.AddRazorComponents()
         options.HandshakeTimeout = TimeSpan.FromSeconds(15);
     });
 builder.Services.AddMudServices();
+builder.Services.AddApexCharts();
 
 MonitorOptions monitorOptions;
 try

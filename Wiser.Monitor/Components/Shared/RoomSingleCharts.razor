@@ -1,11 +1,7 @@
-@using System.Globalization
+@using ApexCharts
 @using MudBlazor
-@using MudBlazor.Charts
-@using MudBlazor.Services
-@implements IAsyncDisposable
 @inject TemperatureStore Store
 @inject MonitorOptions Options
-@inject IBrowserViewportService Viewport
 
 <MudPaper Class="pa-3 chart-card room-single-charts">
     <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center" Wrap="Wrap.Wrap" Class="mb-2">
@@ -13,15 +9,15 @@
             <i class="fa-solid fa-chart-area" aria-hidden="true"></i> @RoomName — history
         </MudText>
         <MudButton Variant="Variant.Text"
-                   Color="Color.Primary"
-                   Size="Size.Small"
+                   Color="MudBlazor.Color.Primary"
+                   Size="MudBlazor.Size.Small"
                    StartIcon="@Icons.Material.Filled.OpenInNew"
                    Href="/charts">
             All charts
         </MudButton>
     </MudStack>
     <MudText Typo="Typo.caption" Class="mud-text-secondary mb-3 d-block">
-        Only this room appears below (temperature, target, optional outdoor, valve %). Same data pipeline as Charts → Room trends → Selected room trend.
+        Hover to compare all lines at one time; drag across a chart to zoom. Shaded spans are when heating was off.
     </MudText>
 
     <MudGrid Spacing="2" Class="mb-3">
@@ -46,7 +42,7 @@
                        Label="Outdoor series"
                        Value="_includeOutdoor"
                        ValueChanged="OnOutdoorChanged"
-                       Color="Color.Primary"
+                       Color="MudBlazor.Color.Primary"
                        Class="mt-sm-4"
                        Disabled="@(Options.OpenMeteoLat is null)" />
         </MudItem>
@@ -56,26 +52,50 @@
     {
         <MudAlert Severity="Severity.Info" Dense="true">No room selected.</MudAlert>
     }
-    else if (_tempSeries.Count == 0)
+    else if (_data is null)
     {
         <MudAlert Severity="Severity.Info" Dense="true">No stored samples for this room in the selected window.</MudAlert>
     }
     else
     {
         <MudText Typo="Typo.subtitle2" Class="mb-1">Room temperature &amp; target (°C)</MudText>
-        <MudChart T="double"
-                  ChartType="ChartType.Line"
-                  ChartSeries="_tempSeries"
-                  ChartLabels="_labels"
-                  ChartOptions="_tempLineOptions"
-                  Width="100%"
-                  Height="@ChartHeight"
-                  MatchBoundsToSize="false"
-                  Class="@($"{ChartHostClass} room-single-chart-temp")"
-                  @key="@($"t-{_renderKey}")" />
+        <div class="room-apex-chart" @key="@($"t-{_renderKey}")">
+            <ApexChart TItem="ChartPoint"
+                       Options="_tempOptions"
+                       XAxisType="XAxisType.Datetime"
+                       Height="@("300")">
+                <ApexPointSeries TItem="ChartPoint"
+                                 Items="_data.Room"
+                                 Name="@SeriesRoom"
+                                 SeriesType="SeriesType.Line"
+                                 XValue="p => p.X"
+                                 YValue="p => p.Y"
+                                 Color="@ColorRoom" />
+                @if (_data.HasTarget)
+                {
+                    <ApexPointSeries TItem="ChartPoint"
+                                     Items="_data.Target"
+                                     Name="@SeriesTarget"
+                                     SeriesType="SeriesType.Line"
+                                     XValue="p => p.X"
+                                     YValue="p => p.Y"
+                                     Color="@ColorTarget" />
+                }
+                @if (_showOutdoor)
+                {
+                    <ApexPointSeries TItem="ChartPoint"
+                                     Items="_data.Outdoor"
+                                     Name="@SeriesOutdoor"
+                                     SeriesType="SeriesType.Line"
+                                     XValue="p => p.X"
+                                     YValue="p => p.Y"
+                                     Color="@ColorOutdoor" />
+                }
+            </ApexChart>
+        </div>
 
         <MudText Typo="Typo.subtitle2" Class="mb-1 mt-3">Valve demand (%)</MudText>
-        @if (!_hasValve)
+        @if (!_data.HasValve)
         {
             <MudAlert Severity="Severity.Info" Dense="true" Class="mb-0">
                 No valve percentage samples in this window.
@@ -83,16 +103,20 @@
         }
         else
         {
-            <MudChart T="double"
-                      ChartType="ChartType.Line"
-                      ChartSeries="_valveSeries"
-                      ChartLabels="_labels"
-                      ChartOptions="_valveLineOptions"
-                      Width="100%"
-                      Height="@ChartHeight"
-                      MatchBoundsToSize="false"
-                      Class="@($"{ChartHostClass} room-single-chart-valve")"
-                      @key="@($"v-{_renderKey}")" />
+            <div class="room-apex-chart" @key="@($"v-{_renderKey}")">
+                <ApexChart TItem="ChartPoint"
+                           Options="_valveOptions"
+                           XAxisType="XAxisType.Datetime"
+                           Height="@("170")">
+                    <ApexPointSeries TItem="ChartPoint"
+                                     Items="_data.Valve"
+                                     Name="@SeriesValve"
+                                     SeriesType="SeriesType.Area"
+                                     XValue="p => p.X"
+                                     YValue="p => p.Y"
+                                     Color="@ColorValve" />
+                </ApexChart>
+            </div>
         }
     }
 </MudPaper>
@@ -100,89 +124,49 @@
 @code {
     [Parameter] public string RoomName { get; set; } = "";
 
+    private const string SeriesRoom = "Room";
+    private const string SeriesTarget = "Target";
+    private const string SeriesOutdoor = "Outdoor";
+    private const string SeriesValve = "Valve demand";
+
+    private const string ColorRoom = "#3b82f6";
+    private const string ColorTarget = "#f59e0b";
+    private const string ColorOutdoor = "#14b8a6";
+    private const string ColorValve = "#ef4444";
+
+    // Shared tooltip: temperatures to 1 dp; a gap in the target line means heating was off.
+    private const string TempTooltipFormatter =
+        "function(value, opts) {" +
+        " if (value === null || value === undefined || isNaN(value)) {" +
+        "  var name = opts && opts.w ? opts.w.globals.seriesNames[opts.seriesIndex] : '';" +
+        "  return name === 'Target' ? 'Off' : '—'; }" +
+        " return Number(value).toFixed(1) + ' °C'; }";
+
+    private const string TempAxisFormatter = "function(value) { return Number(value).toFixed(0) + '°'; }";
+    private const string ValveTooltipFormatter = "function(value) { return value === null || value === undefined ? '—' : Math.round(value) + ' %'; }";
+    private const string ValveAxisFormatter = "function(value) { return Math.round(value) + '%'; }";
+
     private int _hours = 24;
     private bool _includeOutdoor = true;
-    private string[] _labels = [];
-    private List<ChartSeries<double>> _tempSeries = [];
-    private List<ChartSeries<double>> _valveSeries = [];
-    private bool _hasValve;
     private int _renderKey;
-    private int _pointCount;
     private string _lastLoadedRoom = string.Empty;
+    private RoomHistoryChartBuilder.Result? _data;
+    private ApexChartOptions<ChartPoint> _tempOptions = new();
+    private ApexChartOptions<ChartPoint> _valveOptions = new();
 
-    private readonly Guid _viewportObserverId = Guid.NewGuid();
-    private bool _compactChartAxes;
-
-    private readonly LineChartOptions _tempLineOptions = new()
-    {
-        InterpolationOption = InterpolationOption.Straight,
-        ShowToolTips = true,
-        YAxisTitle = "°C",
-        YAxisTicks = 1,
-        MaxNumYAxisTicks = 12,
-        YAxisFormat = "F0",
-    };
-
-    private readonly LineChartOptions _valveLineOptions = new()
-    {
-        InterpolationOption = InterpolationOption.Straight,
-        ShowToolTips = true,
-        YAxisTitle = "Valve %",
-        YAxisSuggestedMax = 100,
-        YAxisRequireZeroPoint = true,
-        YAxisTicks = 20,
-        MaxNumYAxisTicks = 16,
-    };
+    private bool _showOutdoor => _includeOutdoor && _data is { HasOutdoor: true };
+    private string ChartGroup => $"room-{_lastLoadedRoom}";
 
     private TimeZoneInfo DisplayZone => TimeZoneResolver.Resolve(Options.TimeZoneId);
 
-    private string ChartHostClass => _hours >= 168
-        ? "mud-chart-responsive chart-range-long"
-        : _hours > 24
-            ? "mud-chart-responsive chart-range-medium"
-            : "mud-chart-responsive";
-
-    private string ChartHeight => $"{(_hours >= 168 ? 260 : 220)}px";
-
-    protected override async Task OnParametersSetAsync()
+    protected override void OnParametersSet()
     {
-        await base.OnParametersSetAsync();
         var key = RoomName.Trim();
         if (!string.Equals(_lastLoadedRoom, key, StringComparison.OrdinalIgnoreCase))
         {
             _lastLoadedRoom = key;
             LoadData();
         }
-    }
-
-    protected override async Task OnAfterRenderAsync(bool firstRender)
-    {
-        if (!firstRender)
-            return;
-        await Viewport.SubscribeAsync(
-            _viewportObserverId,
-            OnViewportChangedAsync,
-            new ResizeOptions
-            {
-                ReportRate = 200,
-                NotifyOnBreakpointOnly = true,
-            },
-            fireImmediately: true);
-    }
-
-    public async ValueTask DisposeAsync() =>
-        await Viewport.UnsubscribeAsync(_viewportObserverId);
-
-    private async Task OnViewportChangedAsync(BrowserViewportEventArgs _)
-    {
-        var compact = await Viewport.IsBreakpointWithinWindowSizeAsync(Breakpoint.MdAndDown);
-        if (_compactChartAxes == compact)
-            return;
-        _compactChartAxes = compact;
-        if (_pointCount > 0)
-            ApplyLineOptions(_pointCount);
-        _renderKey++;
-        await InvokeAsync(StateHasChanged);
     }
 
     private Task OnHoursChanged(int hours)
@@ -201,69 +185,135 @@
 
     private void LoadData()
     {
-        _tempSeries = [];
-        _valveSeries = [];
-        _hasValve = false;
-        _labels = [];
-        _pointCount = 0;
+        _data = null;
         if (string.IsNullOrWhiteSpace(RoomName))
             return;
 
-        var built = RoomTrendChartBuilder.Build(
-            Store,
-            Options,
-            RoomName,
-            _hours,
-            DisplayZone,
-            _includeOutdoor,
-            _compactChartAxes);
-        if (built is null)
+        var since = DateTimeOffset.UtcNow.ToUnixTimeSeconds() - (_hours * 3600L);
+        var rows = Store.SeriesRoom(RoomName.Trim(), since);
+        var outdoor = _includeOutdoor && Options.OpenMeteoLat is not null
+            ? Store.SeriesOutdoor(since)
+            : null;
+
+        _data = RoomHistoryChartBuilder.Build(rows, outdoor, DisplayZone);
+        if (_data is null)
             return;
 
-        _pointCount = built.PointTs.Length;
-        _labels = built.ChartLabels;
-        _tempSeries = built.TempSeries;
-        _valveSeries = built.ValveSeries;
-        _hasValve = built.HasValveSeries;
-        ApplyLineOptions(built.PointTs.Length);
+        _tempOptions = BuildTempOptions(_data);
+        _valveOptions = BuildValveOptions();
         _renderKey++;
     }
 
-    private void ApplyLineOptions(int pointCount)
+    private ApexChartOptions<ChartPoint> BuildTempOptions(RoomHistoryChartBuilder.Result data)
     {
-        var rotation = _compactChartAxes
-            ? (_hours <= 24 ? 0 : 40)
-            : _hours switch
-            {
-                <= 12 => 0,
-                <= 24 => 32,
-                <= 48 => 48,
-                _ => 58,
-            };
-        var xTitle = _compactChartAxes
-            ? null
-            : _hours >= 168
-                ? "Time (local, ~7 days)"
-                : _hours > 24
-                    ? "Time (local)"
-                    : null;
+        var o = BaseOptions($"{ChartGroup}-temp");
 
-        var manyPoints = pointCount > 48;
-        var markers = _hours <= 24 && !manyPoints && !_compactChartAxes;
-
-        foreach (var opt in new[] { _tempLineOptions, _valveLineOptions })
+        var curves = new List<Curve> { Curve.Smooth };
+        var widths = new List<double> { 2.5 };
+        var dashes = new List<double> { 0 };
+        if (data.HasTarget)
         {
-            opt.XAxisLabelRotation = rotation;
-            opt.XAxisTitle = xTitle;
+            curves.Add(Curve.Stepline);
+            widths.Add(2);
+            dashes.Add(0);
         }
-        _tempLineOptions.ShowDataMarkers = markers;
-        _valveLineOptions.ShowDataMarkers = false;
+        if (_showOutdoor)
+        {
+            curves.Add(Curve.Smooth);
+            widths.Add(1.5);
+            dashes.Add(5);
+        }
+        o.Stroke = new Stroke { Curve = curves, Width = widths, DashArray = dashes };
 
-        _tempLineOptions.YAxisTicks = _compactChartAxes ? 2 : 1;
-        _tempLineOptions.MaxNumYAxisTicks = _compactChartAxes ? 6 : 12;
-        _valveLineOptions.YAxisTicks = _compactChartAxes ? 25 : 20;
-        _valveLineOptions.MaxNumYAxisTicks = _compactChartAxes ? 8 : 16;
-        _tempLineOptions.YAxisTitle = _compactChartAxes ? null : "°C";
-        _valveLineOptions.YAxisTitle = _compactChartAxes ? null : "Valve %";
+        o.Yaxis =
+        [
+            new YAxis
+            {
+                Min = data.YMin,
+                Max = data.YMax,
+                ForceNiceScale = false,
+                TickAmount = data.YTickAmount,
+                Labels = new YAxisLabels { Formatter = TempAxisFormatter, MinWidth = 36, MaxWidth = 36 },
+            },
+        ];
+        o.Tooltip.Y = new TooltipY { Formatter = TempTooltipFormatter };
+
+        o.Annotations = new Annotations
+        {
+            Xaxis = data.OffRanges
+                .Select(r => new AnnotationsXAxis
+                {
+                    X = r.Start,
+                    X2 = r.End,
+                    FillColor = "#94a3b8",
+                    Opacity = 0.12,
+                    BorderColor = "transparent",
+                })
+                .ToList(),
+        };
+        return o;
     }
+
+    private ApexChartOptions<ChartPoint> BuildValveOptions()
+    {
+        var o = BaseOptions($"{ChartGroup}-valve");
+        o.Stroke = new Stroke { Curve = Curve.Straight, Width = 1.5 };
+        o.Fill = new Fill
+        {
+            Type = FillType.Gradient,
+            Gradient = new FillGradient { OpacityFrom = 0.45, OpacityTo = 0.05 },
+        };
+        o.Yaxis =
+        [
+            new YAxis
+            {
+                Min = 0,
+                Max = 100,
+                TickAmount = 2,
+                Labels = new YAxisLabels { Formatter = ValveAxisFormatter, MinWidth = 36, MaxWidth = 36 },
+            },
+        ];
+        o.Tooltip.Y = new TooltipY { Formatter = ValveTooltipFormatter };
+        o.Legend = new Legend { Show = false };
+        return o;
+    }
+
+    private ApexChartOptions<ChartPoint> BaseOptions(string id) => new()
+    {
+        Chart = new Chart
+        {
+            Id = id,
+            Group = ChartGroup,
+            Background = "transparent",
+            FontFamily = "inherit",
+            Animations = new Animations { Enabled = false },
+            Toolbar = new Toolbar
+            {
+                Show = true,
+                Tools = new Tools { Download = false, Pan = false, Zoomin = false, Zoomout = false, Selection = false },
+            },
+            Zoom = new Zoom { Enabled = true, AutoScaleYaxis = false },
+        },
+        Xaxis = new XAxis
+        {
+            Type = XAxisType.Datetime,
+            Labels = new XAxisLabels
+            {
+                DatetimeUTC = true,
+                HideOverlappingLabels = true,
+                DatetimeFormatter = new DatetimeFormatter { Hour = "HH:mm", Day = "ddd d MMM" },
+            },
+            Tooltip = new XAxisTooltip { Enabled = false },
+        },
+        Tooltip = new Tooltip
+        {
+            Shared = true,
+            Intersect = false,
+            X = new TooltipX { Format = "ddd d MMM, HH:mm" },
+        },
+        Grid = new Grid { StrokeDashArray = 3, Padding = new Padding { Left = 8, Right = 8 } },
+        Markers = new Markers { Size = 0, Hover = new MarkersHover { Size = 4 } },
+        Legend = new Legend { Position = LegendPosition.Top, HorizontalAlign = ApexCharts.Align.Left },
+        DataLabels = new DataLabels { Enabled = false },
+    };
 }
