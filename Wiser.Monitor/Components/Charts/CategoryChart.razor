@@ -1,0 +1,134 @@
+@using ApexCharts
+@namespace Wiser.Monitor.Components.Charts
+
+@* Bar or line chart over named categories (days, rooms, hours) on ApexCharts. Redraws only when data changes. *@
+<div class="wiser-apex" @key="_renderKey">
+    <ApexChart TItem="CategoryPoint"
+               Options="_options"
+               Height="@ChartHeight.ToString(System.Globalization.CultureInfo.InvariantCulture)">
+        <ApexPointSeries TItem="CategoryPoint"
+                         Items="_points"
+                         Name="@Name"
+                         SeriesType="@(Bar ? SeriesType.Bar : SeriesType.Line)"
+                         XValue="p => p.Label"
+                         YValue="p => p.Value"
+                         Color="@Color"
+                         PointColor="PointColor" />
+    </ApexChart>
+</div>
+
+@code {
+    [Parameter, EditorRequired] public string Id { get; set; } = "";
+    [Parameter, EditorRequired] public IReadOnlyList<CategoryPoint> Points { get; set; } = [];
+    [Parameter, EditorRequired] public string Name { get; set; } = "";
+    [Parameter] public string Unit { get; set; } = "";
+    [Parameter] public int Decimals { get; set; } = 1;
+    [Parameter] public int AxisDecimals { get; set; }
+    [Parameter] public bool Bar { get; set; } = true;
+    /// <summary>Horizontal bars: one row per category; good for long labels such as room names.</summary>
+    [Parameter] public bool Horizontal { get; set; }
+    [Parameter] public string Color { get; set; } = ApexTheme.Blue;
+    /// <summary>When set, negative values use this colour (diverging: warm above zero, cool below).</summary>
+    [Parameter] public string? NegativeColor { get; set; }
+    [Parameter] public decimal? YMin { get; set; }
+    [Parameter] public decimal? YMax { get; set; }
+    [Parameter] public int? Height { get; set; }
+
+    private IReadOnlyList<CategoryPoint> _points = [];
+    private ApexChartOptions<CategoryPoint> _options = new();
+    private int _renderKey;
+    private string? _signature;
+    private bool _pendingRender = true;
+
+    private int ChartHeight => Height ?? (Horizontal ? Math.Max(160, 40 + (_points.Count * 30)) : 260);
+
+    private Func<CategoryPoint, string>? PointColor =>
+        NegativeColor is { } neg ? p => p.Value < 0 ? neg : Color : null;
+
+    protected override void OnParametersSet()
+    {
+        var hash = new HashCode();
+        hash.Add(Name);
+        hash.Add(Horizontal);
+        foreach (var p in Points)
+        {
+            hash.Add(p.Label);
+            hash.Add(p.Value);
+        }
+        var signature = $"{Points.Count}:{hash.ToHashCode()}";
+        if (signature == _signature)
+            return;
+
+        _signature = signature;
+        _points = Points;
+        _options = BuildOptions();
+        _renderKey++;
+        _pendingRender = true;
+    }
+
+    protected override bool ShouldRender() => _pendingRender;
+
+    protected override void OnAfterRender(bool firstRender) => _pendingRender = false;
+
+    private ApexChartOptions<CategoryPoint> BuildOptions()
+    {
+        var o = ApexTheme.Base<CategoryPoint>(Id, group: null, timeAxis: false, zoom: false);
+        o.Legend.Show = false;
+        o.Tooltip.Y = new TooltipY { Formatter = ApexTheme.TooltipFormatter(Unit, Decimals) };
+        var axis = ApexTheme.AxisFormatter(ApexTheme.AxisUnit(Unit), AxisDecimals);
+
+        if (Bar)
+        {
+            o.PlotOptions = new PlotOptions
+            {
+                Bar = new PlotOptionsBar
+                {
+                    Horizontal = Horizontal,
+                    BorderRadius = 4,
+                    BorderRadiusApplication = BorderRadiusApplication.End,
+                    ColumnWidth = "70%",
+                    BarHeight = "70%",
+                },
+            };
+            o.Stroke = new Stroke { Show = false };
+        }
+        else
+        {
+            o.Stroke = new Stroke { Curve = Curve.Straight, Width = 2 };
+            o.Markers = new Markers { Size = 4, StrokeWidth = 2, StrokeColors = "transparent", Hover = new MarkersHover { Size = 6 } };
+        }
+
+        if (Horizontal)
+        {
+            // Horizontal bars swap axes: the value scale is the x-axis.
+            o.Xaxis = new XAxis
+            {
+                Min = YMin,
+                Max = YMax,
+                Labels = new XAxisLabels { Formatter = axis },
+                Tooltip = new XAxisTooltip { Enabled = false },
+            };
+            o.Yaxis = [new YAxis { Labels = new YAxisLabels { MaxWidth = 140 } }];
+            o.Grid = new Grid
+            {
+                StrokeDashArray = 3,
+                Xaxis = new GridXAxis { Lines = new Lines { Show = true } },
+                Yaxis = new GridYAxis { Lines = new Lines { Show = false } },
+            };
+        }
+        else
+        {
+            o.Yaxis =
+            [
+                new YAxis
+                {
+                    Min = YMin,
+                    Max = YMax,
+                    ForceNiceScale = true,
+                    Labels = new YAxisLabels { Formatter = axis, MinWidth = 36 },
+                },
+            ];
+        }
+        return o;
+    }
+}

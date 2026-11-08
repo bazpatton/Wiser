@@ -1,0 +1,181 @@
+@using ApexCharts
+@using System.Text.Json
+@namespace Wiser.Monitor.Components.Charts
+
+@* Time-axis line/area chart on ApexCharts. Redraws only when its data changes, and holds periodic
+   refreshes back while the user is zoomed in (see ChartZoomState / ResetKey). *@
+<div class="wiser-apex" @key="_renderKey">
+    <ApexChart TItem="ChartPoint"
+               Options="_options"
+               XAxisType="XAxisType.Datetime"
+               Height="@Height.ToString(System.Globalization.CultureInfo.InvariantCulture)"
+               OnZoomed="OnZoomed">
+        @foreach (var line in _lines)
+        {
+            <ApexPointSeries TItem="ChartPoint"
+                             Items="line.Points"
+                             Name="@line.Name"
+                             SeriesType="@(line.Area ? SeriesType.Area : SeriesType.Line)"
+                             XValue="p => p.X"
+                             YValue="p => p.Y"
+                             Color="@line.Color"
+                             Stroke="@(new SeriesStroke { Width = (int)Math.Ceiling(line.Width), DashSpace = line.Dash, Color = line.Color })" />
+        }
+    </ApexChart>
+</div>
+
+@code {
+    [Parameter, EditorRequired] public string Id { get; set; } = "";
+    [Parameter] public string? Group { get; set; }
+    [Parameter, EditorRequired] public IReadOnlyList<TimeLine> Lines { get; set; } = [];
+    [Parameter] public string Unit { get; set; } = "";
+    [Parameter] public int Decimals { get; set; } = 1;
+    [Parameter] public int AxisDecimals { get; set; }
+    [Parameter] public decimal? YMin { get; set; }
+    [Parameter] public decimal? YMax { get; set; }
+    [Parameter] public int? YTickAmount { get; set; }
+    [Parameter] public int Height { get; set; } = 280;
+    [Parameter] public bool ShowLegend { get; set; } = true;
+    /// <summary>Shaded x-ranges (e.g. heating off).</summary>
+    [Parameter] public IReadOnlyList<ChartRange>? ShadedRanges { get; set; }
+    /// <summary>Tooltip text for a series with no value at the hovered time, e.g. Target → "Off".</summary>
+    [Parameter] public IReadOnlyDictionary<string, string>? NullLabels { get; set; }
+    [Parameter] public ChartZoomState? ZoomState { get; set; }
+    /// <summary>Changes on user-driven input (room, window, hidden series): always redraws, even when zoomed.</summary>
+    [Parameter] public string ResetKey { get; set; } = "";
+
+    private IReadOnlyList<TimeLine> _lines = [];
+    private ApexChartOptions<ChartPoint> _options = new();
+    private int _renderKey;
+    private string? _signature;
+    private string? _resetKey;
+    private bool _pendingRender = true;
+
+    protected override void OnParametersSet()
+    {
+        var signature = Signature(Lines, ShadedRanges, YMin, YMax);
+        if (_signature is not null)
+        {
+            if (signature == _signature)
+                return;
+            var userChange = !string.Equals(ResetKey, _resetKey, StringComparison.Ordinal);
+            if (!userChange && ZoomState is { Zoomed: true })
+                return; // hold the zoomed view; picks up new data after reset
+            if (userChange && ZoomState is not null)
+                ZoomState.Zoomed = false;
+        }
+
+        _signature = signature;
+        _resetKey = ResetKey;
+        _lines = Lines;
+        _options = BuildOptions();
+        _renderKey++;
+        _pendingRender = true;
+    }
+
+    protected override bool ShouldRender() => _pendingRender;
+
+    protected override void OnAfterRender(bool firstRender) => _pendingRender = false;
+
+    // Also fires on reset (with an empty range), which clears the hold.
+    private void OnZoomed(ZoomedData<ChartPoint> e)
+    {
+        if (ZoomState is not null)
+            ZoomState.Zoomed = e.XAxis?.Min is not null;
+    }
+
+    private ApexChartOptions<ChartPoint> BuildOptions()
+    {
+        var o = ApexTheme.Base<ChartPoint>(Id, Group, timeAxis: true, zoom: true);
+        o.Stroke = new Stroke
+        {
+            Curve = _lines.Select(static l => l.Curve).ToList(),
+            Width = _lines.Select(static l => l.Width).ToList(),
+            DashArray = _lines.Select(static l => (double)l.Dash).ToList(),
+        };
+        if (_lines.Count > 0 && _lines.All(static l => l.Area))
+        {
+            o.Fill = new Fill
+            {
+                Type = FillType.Gradient,
+                Gradient = new FillGradient { OpacityFrom = 0.45, OpacityTo = 0.05 },
+            };
+        }
+
+        o.Yaxis =
+        [
+            new YAxis
+            {
+                Min = YMin,
+                Max = YMax,
+                TickAmount = YTickAmount,
+                ForceNiceScale = YMin is null && YMax is null,
+                Labels = new YAxisLabels
+                {
+                    Formatter = ApexTheme.AxisFormatter(ApexTheme.AxisUnit(Unit), AxisDecimals),
+                    MinWidth = 36,
+                    MaxWidth = 36,
+                },
+            },
+        ];
+        o.Tooltip.Y = new TooltipY { Formatter = TooltipFormatter() };
+        o.Legend.Show = ShowLegend;
+        o.Legend.ShowForSingleSeries = false;
+
+        if (ShadedRanges is { Count: > 0 })
+        {
+            o.Annotations = new Annotations
+            {
+                Xaxis = ShadedRanges
+                    .Select(r => new AnnotationsXAxis
+                    {
+                        X = r.Start,
+                        X2 = r.End,
+                        FillColor = ApexTheme.Neutral,
+                        Opacity = 0.12,
+                        BorderColor = "transparent",
+                    })
+                    .ToList(),
+            };
+        }
+        return o;
+    }
+
+    private string TooltipFormatter()
+    {
+        if (NullLabels is not { Count: > 0 })
+            return ApexTheme.TooltipFormatter(Unit, Decimals);
+        var map = JsonSerializer.Serialize(NullLabels);
+        return "function(value, opts) { if (value === null || value === undefined || isNaN(value)) {" +
+               $" var m = {map}; var n = opts && opts.w ? opts.w.globals.seriesNames[opts.seriesIndex] : '';" +
+               " return m[n] || '—'; }" +
+               $" return Number(value).toFixed({Decimals}) + '{Unit}'; }}";
+    }
+
+    private static string Signature(IReadOnlyList<TimeLine> lines, IReadOnlyList<ChartRange>? ranges, decimal? yMin, decimal? yMax)
+    {
+        var hash = new HashCode();
+        hash.Add(yMin);
+        hash.Add(yMax);
+        foreach (var l in lines)
+        {
+            hash.Add(l.Name);
+            hash.Add(l.Color);
+            hash.Add(l.Points.Count);
+            foreach (var p in l.Points)
+            {
+                hash.Add(p.X);
+                hash.Add(p.Y);
+            }
+        }
+        if (ranges is not null)
+        {
+            foreach (var r in ranges)
+            {
+                hash.Add(r.Start);
+                hash.Add(r.End);
+            }
+        }
+        return $"{lines.Count}:{hash.ToHashCode()}";
+    }
+}

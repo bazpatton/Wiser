@@ -8,7 +8,7 @@ public sealed record ChartRange(long Start, long End);
 
 /// <summary>
 /// Builds time-axis series for the single-room history charts (ApexCharts on Rooms → room).
-/// Unlike <see cref="RoomTrendChartBuilder"/>, "off" is not drawn as 0 °C: the target line has a gap
+/// "Off" is not drawn as 0 °C: the target line has a gap
 /// and the span is returned in <see cref="Result.OffRanges"/> so the chart can shade it.
 /// </summary>
 public static class RoomHistoryChartBuilder
@@ -49,7 +49,7 @@ public static class RoomHistoryChartBuilder
             xs[i] = ToWallClockMs(rows[i].Ts, zone);
 
         var room = rows.Select(static r => r.TempC).ToArray();
-        RoomTrendChartBuilder.SmoothRoomTemperatureSeriesInPlace(room);
+        SmoothInPlace(room);
 
         // Target: forward-fill missing samples; hub "off" sentinel becomes a gap, not 0 °C.
         var target = new double?[n];
@@ -145,6 +145,32 @@ public static class RoomHistoryChartBuilder
     }
 
     /// <summary>Outdoor readings are sparse (every ~15 min); interpolate so the line doesn't stair-step.</summary>
+    /// <summary>Centred moving average that softens poll-to-poll sensor jitter (0.1 °C steps).</summary>
+    public static void SmoothInPlace(double[] values, int window = 5)
+    {
+        if (values.Length < 3)
+            return;
+        var src = (double[])values.Clone();
+        var half = window / 2;
+        for (var i = 0; i < values.Length; i++)
+        {
+            var lo = Math.Max(0, i - half);
+            var hi = Math.Min(values.Length - 1, i + half);
+            double sum = 0;
+            var c = 0;
+            for (var j = lo; j <= hi; j++)
+            {
+                if (double.IsFinite(src[j]))
+                {
+                    sum += src[j];
+                    c++;
+                }
+            }
+            if (c > 0)
+                values[i] = sum / c;
+        }
+    }
+
     private static double?[] AlignOutdoor(IReadOnlyList<RoomSeriesRow> rows, IReadOnlyList<OutdoorSeriesRow> outdoor)
     {
         var sorted = outdoor.OrderBy(static x => x.Ts).ToList();

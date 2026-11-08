@@ -265,127 +265,6 @@
     width: 100%;
 }
 
-/* Two line charts in one row: half width each; tuned heights so both cards align */
-.charts-line-pair-row .chart-in-split-row.mud-chart-responsive {
-    height: clamp(135px, 14vh, 180px);
-    max-height: 180px;
-}
-
-@media (min-width: 600px) {
-    .charts-line-pair-row .chart-in-split-row.mud-chart-responsive {
-        height: clamp(145px, 15vh, 195px);
-        max-height: 195px;
-    }
-}
-
-.charts-line-pair-row .chart-in-split-row.mud-chart-responsive.chart-range-medium {
-    height: clamp(145px, 15vh, 200px);
-    max-height: 200px;
-}
-
-.charts-line-pair-row .chart-in-split-row.mud-chart-responsive.chart-range-long {
-    height: clamp(155px, 16vh, 215px);
-    max-height: 215px;
-}
-
-@media (min-width: 600px) {
-    .charts-line-pair-row .chart-in-split-row.mud-chart-responsive.chart-range-medium {
-        height: clamp(150px, 16vh, 205px);
-        max-height: 205px;
-    }
-
-    .charts-line-pair-row .chart-in-split-row.mud-chart-responsive.chart-range-long {
-        height: clamp(160px, 17vh, 220px);
-        max-height: 220px;
-    }
-}
-
-/*
- * Heat-calling timeseries: MatchBoundsToSize=true uses parent width; keep a slightly taller band
- * so °C / valve traces are easier to read on wide screens.
- */
-#rooms-calling-heat-trend .charts-heat-calling-ts {
-    display: block;
-    width: 100%;
-    min-width: 0;
-}
-
-#rooms-calling-heat-trend .charts-heat-calling-ts.mud-chart {
-    height: clamp(200px, 26vh, 280px) !important;
-    max-height: 280px;
-}
-
-@media (min-width: 600px) {
-    #rooms-calling-heat-trend .charts-heat-calling-ts.mud-chart {
-        height: clamp(220px, 24vh, 280px) !important;
-    }
-}
-
-/* Selected room trend: stacked temp + valve line charts; cap each so the column stays near the paired compliance card. */
-#selected-room-trend .selected-room-trend-chart.mud-chart {
-    height: clamp(148px, 16vh, 198px) !important;
-    max-height: 198px;
-}
-
-@media (min-width: 600px) {
-    #selected-room-trend .selected-room-trend-chart.mud-chart {
-        height: clamp(152px, 15vh, 200px) !important;
-        max-height: 200px;
-    }
-}
-
-/*
- * MudChart heights: 125% display scaling (e.g. 1920×1200) yields ~960px CSS height — vh is large,
- * so prefer low vh + strict max px. Do not grow charts at wide breakpoints; that only makes stacks taller.
- */
-.mud-chart-responsive {
-    height: clamp(130px, 14vh, 175px);
-    max-height: 175px;
-}
-
-@media (min-width: 600px) {
-    .mud-chart-responsive {
-        height: clamp(140px, 15vh, 190px);
-        max-height: 190px;
-    }
-}
-
-/* Extra vertical space when x-axis labels are rotated (48h / 7d windows). */
-.mud-chart-responsive.chart-range-medium {
-    height: clamp(145px, 16vh, 200px);
-    max-height: 200px;
-}
-
-.mud-chart-responsive.chart-range-long {
-    height: clamp(155px, 18vh, 220px);
-    max-height: 220px;
-}
-
-@media (min-width: 600px) {
-    .mud-chart-responsive.chart-range-medium {
-        height: clamp(150px, 16vh, 205px);
-        max-height: 205px;
-    }
-
-    .mud-chart-responsive.chart-range-long {
-        height: clamp(165px, 18vh, 225px);
-        max-height: 225px;
-    }
-}
-
-/* Side-by-side bar charts (half width each from md up) */
-.mud-chart-responsive.mud-chart-responsive--pair {
-    height: clamp(120px, 12vh, 155px);
-    max-height: 155px;
-}
-
-@media (min-width: 600px) {
-    .mud-chart-responsive.mud-chart-responsive--pair {
-        height: clamp(125px, 13vh, 165px);
-        max-height: 165px;
-    }
-}
-
 .mobile-nav-button {
     margin-right: 0.25rem;
 }
@@ -630,56 +509,56 @@
     }
 }
 
-/* ApexCharts (room history): follow the MudBlazor light/dark palette. */
-.room-apex-chart {
+/* ApexCharts: follow the MudBlazor light/dark palette. */
+.wiser-apex {
     width: 100%;
     min-width: 0;
 }
-.room-apex-chart .apexcharts-text,
-.room-apex-chart .apexcharts-xaxis-label,
-.room-apex-chart .apexcharts-yaxis-label {
+.wiser-apex .apexcharts-text,
+.wiser-apex .apexcharts-xaxis-label,
+.wiser-apex .apexcharts-yaxis-label {
     fill: var(--mud-palette-text-secondary) !important;
 }
-.room-apex-chart .apexcharts-legend-text {
+.wiser-apex .apexcharts-legend-text {
     color: var(--mud-palette-text-primary) !important;
 }
-.room-apex-chart .apexcharts-gridline,
-.room-apex-chart .apexcharts-xaxis line,
-.room-apex-chart .apexcharts-xaxis-tick {
+.wiser-apex .apexcharts-gridline,
+.wiser-apex .apexcharts-xaxis line,
+.wiser-apex .apexcharts-xaxis-tick {
     stroke: var(--mud-palette-lines-default) !important;
     stroke-opacity: 0.5;
 }
-.room-apex-chart .apexcharts-xcrosshairs {
+.wiser-apex .apexcharts-xcrosshairs {
     stroke: var(--mud-palette-text-secondary);
 }
-.room-apex-chart .apexcharts-tooltip.apexcharts-theme-light,
-.room-apex-chart .apexcharts-tooltip.apexcharts-theme-dark {
+.wiser-apex .apexcharts-tooltip.apexcharts-theme-light,
+.wiser-apex .apexcharts-tooltip.apexcharts-theme-dark {
     background: var(--mud-palette-surface) !important;
     color: var(--mud-palette-text-primary) !important;
     border: 1px solid var(--mud-palette-lines-default) !important;
     box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25) !important;
 }
-.room-apex-chart .apexcharts-tooltip .apexcharts-tooltip-title {
+.wiser-apex .apexcharts-tooltip .apexcharts-tooltip-title {
     background: transparent !important;
     color: var(--mud-palette-text-secondary) !important;
     border-bottom: 1px solid var(--mud-palette-lines-default) !important;
     font-weight: 600;
 }
-.room-apex-chart .apexcharts-tooltip-text-y-value {
+.wiser-apex .apexcharts-tooltip-text-y-value {
     font-variant-numeric: tabular-nums;
 }
-.room-apex-chart .apexcharts-toolbar,
-.room-apex-chart .apexcharts-toolbar > div {
+.wiser-apex .apexcharts-toolbar,
+.wiser-apex .apexcharts-toolbar > div {
     background: transparent !important;
     box-shadow: none !important;
     border-radius: 4px;
 }
-.room-apex-chart .apexcharts-toolbar > div:hover {
+.wiser-apex .apexcharts-toolbar > div:hover {
     background: var(--mud-palette-action-default-hover) !important;
 }
-.room-apex-chart .apexcharts-toolbar svg {
+.wiser-apex .apexcharts-toolbar svg {
     fill: var(--mud-palette-text-secondary);
 }
-.room-apex-chart .apexcharts-toolbar .apexcharts-selected svg {
+.wiser-apex .apexcharts-toolbar .apexcharts-selected svg {
     fill: var(--mud-palette-primary);
 }

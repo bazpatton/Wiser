@@ -2,12 +2,9 @@
 @rendermode InteractiveServer
 @implements IAsyncDisposable
 @using System.Globalization
-@using MudBlazor.Charts
-@using MudBlazor.Services
 
 @inject TemperatureStore Store
 @inject MonitorOptions Options
-@inject IBrowserViewportService Viewport
 @inject RoomsLiveDataCache RoomsCache
 @inject IJSRuntime Js
 
@@ -121,7 +118,7 @@
         }
         else
         {
-            @if (_heatCallingTempTsSeries.Count == 0)
+            @if (HeatCallingTempLines.Count == 0)
             {
                 <MudAlert Severity="Severity.Info" Dense="true" Class="mb-3">
                     No plottable room temperature in this window (check sensor data quality).
@@ -129,36 +126,43 @@
             }
             else
             {
-            <MudText Typo="Typo.subtitle2" Class="mb-1">Room temperature (°C)</MudText>
-            <MudChart T="double"
-                      ChartType="ChartType.Timeseries"
-                      ChartSeries="_heatCallingTempTsSeries"
-                      ChartOptions="_heatCallingTempTsOptions"
-                      Width="100%"
-                      Height="260px"
-                      MatchBoundsToSize="true"
-                      Class="charts-heat-calling-ts mb-4" />
+                var range = RoomHistoryChartBuilder.TemperatureRange(HeatCallingTempLines.Select(static l => l.Points).ToArray());
+                <MudText Typo="Typo.subtitle2" Class="mb-1">Room temperature (°C)</MudText>
+                <TimeLinesChart Id="heat-calling-temp"
+                                Group="heat-calling"
+                                Lines="HeatCallingTempLines"
+                                Unit="°C"
+                                Decimals="1"
+                                YMin="range.Min"
+                                YMax="range.Max"
+                                YTickAmount="@((int)((range.Max - range.Min) / range.Step))"
+                                Height="300"
+                                ZoomState="_heatCallingZoom"
+                                ResetKey="@HeatCallingResetKey" />
             }
-            <MudText Typo="Typo.subtitle2" Class="mb-1">Valve demand (%)</MudText>
+            <MudText Typo="Typo.subtitle2" Class="mb-1 mt-3">Valve demand (%)</MudText>
             <MudText Typo="Typo.caption" Class="mud-text-secondary mb-1 d-block">
-                Legend matches the room chips. A flat line at 0% usually means no percentage-demand samples for that TRV in this window.
+                Colours match the temperature chart. Rooms without valve % samples are left out.
             </MudText>
-            @if (_heatCallingValveTsSeries.Count == 0)
+            @if (HeatCallingValveLines.Count == 0)
             {
                 <MudAlert Severity="Severity.Info" Dense="true" Class="mb-0">
-                    No valve series to plot.
+                    No valve percentage samples for the visible rooms in this window.
                 </MudAlert>
             }
             else
             {
-                <MudChart T="double"
-                          ChartType="ChartType.Timeseries"
-                          ChartSeries="_heatCallingValveTsSeries"
-                          ChartOptions="_heatCallingValveTsOptions"
-                          Width="100%"
-                          Height="260px"
-                          MatchBoundsToSize="true"
-                          Class="charts-heat-calling-ts" />
+                <TimeLinesChart Id="heat-calling-valve"
+                                Group="heat-calling"
+                                Lines="HeatCallingValveLines"
+                                Unit=" %"
+                                Decimals="0"
+                                YMin="0"
+                                YMax="100"
+                                YTickAmount="4"
+                                Height="220"
+                                ZoomState="_heatCallingZoom"
+                                ResetKey="@HeatCallingResetKey" />
             }
         }
     </MudPaper>
@@ -373,74 +377,21 @@
                 {
                     <MudAlert Severity="Severity.Error" Dense="true">@_error</MudAlert>
                 }
-                else if (_roomTrendTempSeries.Count == 0)
+                else if (_roomTrend is null)
                 {
                     <MudAlert Severity="Severity.Info" Dense="true">No chart data yet.</MudAlert>
                 }
                 else
                 {
-                    <MudStack Spacing="2" Class="selected-room-trend-stack">
-                        @if (RoomTrendToggleChipsVisible)
-                        {
-                            <MudStack Row="true" Spacing="1" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center">
-                                @foreach (var name in RoomTrendToggleableNamesPresent)
-                                {
-                                    var hidden = _roomTrendHiddenSeries.Contains(name);
-                                    <MudChip T="string"
-                                             Text="@name"
-                                             Color="@(hidden ? Color.Default : Color.Primary)"
-                                             Variant="@(hidden ? Variant.Text : Variant.Filled)"
-                                             OnClick="@(() => ToggleRoomTrendSeriesVisibility(name))" />
-                                }
-                                @if (_roomTrendHiddenSeries.Count > 0)
-                                {
-                                    <MudButton Variant="Variant.Text" Color="Color.Primary" Size="Size.Small" OnClick="ClearRoomTrendHiddenSeries">
-                                        Show all
-                                    </MudButton>
-                                }
-                            </MudStack>
-                        }
-                        @if (!RoomTrendAnyTempSeriesVisible)
-                        {
-                            <MudAlert Severity="Severity.Info" Dense="true" Class="mb-0">
-                                All temperature lines are hidden. Tap a grey chip to show one again, or <strong>Show all</strong>.
-                            </MudAlert>
-                        }
-                        else
-                        {
-                        <MudText Typo="Typo.subtitle2" Class="mb-0">Room temperature &amp; target (°C)</MudText>
-                        <MudChart T="double"
-                                  ChartType="ChartType.Line"
-                                  ChartSeries="_roomTrendTempSeries"
-                                  ChartLabels="_labels"
-                                  ChartOptions="_roomTrendTempLineOptions"
-                                  Width="100%"
-                                  Height="200px"
-                                  MatchBoundsToSize="false"
-                                  Class="@($"{ChartHostClass} chart-in-split-row selected-room-trend-chart")"
-                                  @key="@($"temp-{_roomTrendChartRenderKey}")" />
-                        }
-                        <MudText Typo="Typo.subtitle2" Class="mb-0 mt-1">Valve demand (%)</MudText>
-                        @if (!_roomTrendHasValveSeries)
-                        {
-                            <MudAlert Severity="Severity.Info" Dense="true" Class="mb-0">
-                                No valve percentage samples in this window (older data or TRV without PercentageDemand).
-                            </MudAlert>
-                        }
-                        else
-                        {
-                            <MudChart T="double"
-                                      ChartType="ChartType.Line"
-                                      ChartSeries="_roomTrendValveSeries"
-                                      ChartLabels="_labels"
-                                      ChartOptions="_roomTrendValveLineOptions"
-                                      Width="100%"
-                                      Height="200px"
-                                      MatchBoundsToSize="false"
-                                      Class="@($"{ChartHostClass} chart-in-split-row selected-room-trend-chart")"
-                                      @key="@($"valve-{_roomTrendChartRenderKey}")" />
-                        }
-                    </MudStack>
+                    <MudText Typo="Typo.caption" Class="mud-text-secondary d-block mb-2">
+                        Click a legend item to hide a line. Shaded spans are when heating was off.
+                    </MudText>
+                    <RoomHistoryChart Data="_roomTrend"
+                                      ShowOutdoor="_includeOutdoor"
+                                      GroupId="charts-room-trend"
+                                      ResetKey="@($"{_selectedRoom}|{_hours}|{_includeOutdoor}")"
+                                      TempHeight="260"
+                                      ValveHeight="150" />
                 }
             </MudPaper>
         </MudItem>
@@ -449,20 +400,24 @@
                 <MudText Typo="Typo.h6" Class="mb-2">
                     <i class="fa-solid fa-calendar-check"></i> Comfort Compliance Timeline (7 days)
                 </MudText>
-                @if (_comfortComplianceLabels.Length == 0 || _comfortComplianceSeries.Count == 0)
+                <MudText Typo="Typo.caption" Class="mud-text-secondary d-block mb-2">
+                    Share of each day's readings, across all rooms, that were inside the room's recommended range.
+                </MudText>
+                @if (_comfortCompliancePoints.Count == 0)
                 {
                     <MudAlert Severity="Severity.Info" Dense="true">No compliance data yet.</MudAlert>
                 }
                 else
                 {
-                    <MudChart T="double"
-                              ChartType="ChartType.Line"
-                              ChartSeries="_comfortComplianceSeries"
-                              ChartLabels="_comfortComplianceLabels"
-                              ChartOptions="_comfortComplianceLineOptions"
-                              Width="100%"
-                              MatchBoundsToSize="true"
-                              Class="mud-chart-responsive chart-in-split-row" />
+                    <CategoryChart Id="comfort-compliance"
+                                   Points="_comfortCompliancePoints"
+                                   Name="In range"
+                                   Bar="false"
+                                   Unit="%"
+                                   Decimals="0"
+                                   YMin="0"
+                                   YMax="100"
+                                   Height="300" />
                 }
             </MudPaper>
         </MudItem>
@@ -475,19 +430,24 @@
                 <MudText Typo="Typo.h6" Class="mb-2">
                     <i class="fa-solid fa-sliders"></i> Current Deviation Chart (vs target midpoint)
                 </MudText>
-                @if (_currentDeviationLabels.Length == 0 || _currentDeviationSeries.Count == 0)
+                <MudText Typo="Typo.caption" Class="mud-text-secondary d-block mb-2">
+                    Current temperature minus the middle of each room's recommended range: orange is warmer, blue is colder.
+                </MudText>
+                @if (_currentDeviationPoints.Count == 0)
                 {
                     <MudAlert Severity="Severity.Info" Dense="true">No deviation data yet.</MudAlert>
                 }
                 else
                 {
-                    <MudChart T="double"
-                              ChartType="ChartType.Bar"
-                              ChartSeries="_currentDeviationSeries"
-                              ChartLabels="_currentDeviationLabels"
-                              Width="100%"
-                              MatchBoundsToSize="true"
-                              Class="mud-chart-responsive mud-chart-responsive--pair" />
+                    <CategoryChart Id="current-deviation"
+                                   Points="_currentDeviationPoints"
+                                   Name="Deviation"
+                                   Horizontal="true"
+                                   Unit=" °C"
+                                   Decimals="1"
+                                   AxisDecimals="1"
+                                   Color="@ApexTheme.Orange"
+                                   NegativeColor="@ApexTheme.Blue" />
                 }
             </MudPaper>
         </MudItem>
@@ -496,19 +456,21 @@
                 <MudText Typo="Typo.h6" Class="mb-2">
                     <i class="fa-solid fa-clock"></i> Heating Runtime Distribution (local hour of day)
                 </MudText>
-                @if (_runtimeDistributionLabels.Length == 0 || _runtimeDistributionSeries.Count == 0)
+                <MudText Typo="Typo.caption" Class="mud-text-secondary d-block mb-2">
+                    Boiler relay-on minutes by hour of day over the selected window.
+                </MudText>
+                @if (_runtimeDistributionPoints.Count == 0)
                 {
                     <MudAlert Severity="Severity.Info" Dense="true">No heating runtime data yet.</MudAlert>
                 }
                 else
                 {
-                    <MudChart T="double"
-                              ChartType="ChartType.Bar"
-                              ChartSeries="_runtimeDistributionSeries"
-                              ChartLabels="_runtimeDistributionLabels"
-                              Width="100%"
-                              MatchBoundsToSize="true"
-                              Class="mud-chart-responsive mud-chart-responsive--pair" />
+                    <CategoryChart Id="runtime-distribution"
+                                   Points="_runtimeDistributionPoints"
+                                   Name="Relay on"
+                                   Unit=" min"
+                                   Decimals="0"
+                                   Height="300" />
                 }
             </MudPaper>
         </MudItem>
@@ -545,22 +507,24 @@
         {
             <MudAlert Severity="Severity.Info" Dense="true">Select two different rooms to compare.</MudAlert>
         }
-        else if (_compareSeries.Count == 0)
+        else if (CompareLines.Count == 0)
         {
             <MudAlert Severity="Severity.Info" Dense="true">No data for the selected rooms in this window.</MudAlert>
         }
         else
         {
-            <MudChart T="double"
-                      ChartType="ChartType.Line"
-                      ChartSeries="_compareSeries"
-                      ChartLabels="_compareLabels"
-                      ChartOptions="_compareTempLineOptions"
-                      Width="100%"
-                      Height="240px"
-                      MatchBoundsToSize="false"
-                      Class="mud-chart-responsive"
-                      @key="@($"cmp-{_compareRenderKey}")" />
+            var cmpRange = RoomHistoryChartBuilder.TemperatureRange(CompareLines.Select(static l => l.Points).ToArray());
+            <TimeLinesChart Id="compare-rooms"
+                            Group="compare-rooms"
+                            Lines="CompareLines"
+                            Unit="°C"
+                            Decimals="1"
+                            YMin="cmpRange.Min"
+                            YMax="cmpRange.Max"
+                            YTickAmount="@((int)((cmpRange.Max - cmpRange.Min) / cmpRange.Step))"
+                            Height="280"
+                            ZoomState="_compareZoom"
+                            ResetKey="@($"{_compareRoomA}|{_compareRoomB}|{_hours}")" />
         }
     </MudPaper>
 
@@ -699,54 +663,35 @@
     private int _qualityTotal24h;
     private List<DataQualityReasonCount> _qualityReasons24h = [];
 
-    private string[] _labels = [];
-    private long[] _pointTs = [];
-    private List<ChartSeries<double>> _roomTrendTempSeries = [];
-    private List<ChartSeries<double>> _roomTrendValveSeries = [];
-    private bool _roomTrendHasValveSeries;
-    private readonly HashSet<string> _roomTrendHiddenSeries = new(StringComparer.OrdinalIgnoreCase);
-    private int _roomTrendChartRenderKey;
-    private List<ChartSeries<double>> _heatCallingTempTsSeries = [];
-    private List<ChartSeries<double>> _heatCallingValveTsSeries = [];
+    private RoomHistoryChartBuilder.Result? _roomTrend;
+    private List<AlignedSeries> _heatCallingTemp = [];
+    private List<AlignedSeries> _heatCallingValve = [];
     private bool _heatCallingHasAnyPlottedSeries;
     private readonly HashSet<string> _heatCallingHiddenRooms = new(StringComparer.OrdinalIgnoreCase);
     private List<string> _heatCallingRoomPickerNames = [];
+    private readonly ChartZoomState _heatCallingZoom = new();
+    private readonly ChartZoomState _compareZoom = new();
 
     private bool HeatCallingAnyRoomVisible =>
-        _heatCallingTempTsSeries.Exists(static s => s.Visible) || _heatCallingValveTsSeries.Exists(static s => s.Visible);
+        _heatCallingRoomPickerNames.Exists(n => !_heatCallingHiddenRooms.Contains(n));
 
-    private readonly TimeSeriesChartOptions _heatCallingTempTsOptions = new()
-    {
-        InterpolationOption = InterpolationOption.Straight,
-        ShowToolTips = true,
-        TimeLabelFormat = "HH:mm",
-        TimeLabelSpacing = TimeSpan.FromHours(2),
-        TimeLabelSpacingRounding = true,
-        TimeLabelSpacingRoundingPadSeries = true,
-        TooltipTimeLabelFormat = "g",
-        XAxisTitle = "Time (local, last 24h)",
-        YAxisTitle = "°C",
-        // Default grid step is 20 — Room °C in a ~15–25 band was pinned to 0–40. Use 1 °C steps; Clamp expands if the span is huge.
-        YAxisTicks = 1,
-        MaxNumYAxisTicks = 22,
-        YAxisFormat = "F2",
-    };
-    private readonly TimeSeriesChartOptions _heatCallingValveTsOptions = new()
-    {
-        InterpolationOption = InterpolationOption.Straight,
-        ShowToolTips = true,
-        TimeLabelFormat = "HH:mm",
-        TimeLabelSpacing = TimeSpan.FromHours(2),
-        TimeLabelSpacingRounding = true,
-        TimeLabelSpacingRoundingPadSeries = true,
-        TooltipTimeLabelFormat = "g",
-        XAxisTitle = "Time (local, last 24h)",
-        YAxisTitle = "Valve %",
-        YAxisSuggestedMax = 100,
-        YAxisRequireZeroPoint = true,
-        YAxisTicks = 10,
-        MaxNumYAxisTicks = 16,
-    };
+    private string HeatCallingResetKey => string.Join(",", _heatCallingHiddenRooms.Order(StringComparer.OrdinalIgnoreCase));
+
+    /// <summary>Colour follows the room (its position in the picker), so hiding a room never repaints the others.</summary>
+    private IReadOnlyList<TimeLine> HeatCallingTempLines => HeatCallingLines(_heatCallingTemp, ApexCharts.Curve.Smooth, 2);
+
+    private IReadOnlyList<TimeLine> HeatCallingValveLines => HeatCallingLines(_heatCallingValve, ApexCharts.Curve.Stepline, 1.5);
+
+    private List<TimeLine> HeatCallingLines(List<AlignedSeries> series, ApexCharts.Curve curve, double width) =>
+        series
+            .Where(s => !_heatCallingHiddenRooms.Contains(s.Name))
+            .Select(s =>
+            {
+                var i = _heatCallingRoomPickerNames.IndexOf(s.Name);
+                return new TimeLine(s.Name, s.Points, ApexTheme.ColorAt(i), curve, width, ApexTheme.DashAt(i));
+            })
+            .ToList();
+
     private readonly List<RoomHeatTile> _roomTiles = [];
     private readonly List<DailySummaryRow> _dailyRows = [];
     private readonly List<GasWeekInsightRow> _gasWeekRows = [];
@@ -756,72 +701,15 @@
     private int _gasWeeksToShow = 8;
     private bool _gasWeekHasReceipt;
     private int _gasWeekReadingPairs;
-    private string[] _comfortComplianceLabels = [];
-    private List<ChartSeries<double>> _comfortComplianceSeries = [];
-    private string[] _currentDeviationLabels = [];
-    private List<ChartSeries<double>> _currentDeviationSeries = [];
-    private string[] _runtimeDistributionLabels = [];
-    private List<ChartSeries<double>> _runtimeDistributionSeries = [];
+    private List<CategoryPoint> _comfortCompliancePoints = [];
+    private List<CategoryPoint> _currentDeviationPoints = [];
+    private List<CategoryPoint> _runtimeDistributionPoints = [];
     private Dictionary<string, bool> _roomIsActiveMap = new(StringComparer.OrdinalIgnoreCase);
     private Dictionary<string, HubLiveRoom>? _liveHubByRoom;
-    private readonly Guid _viewportObserverId = Guid.NewGuid();
-    private bool _compactChartAxes;
     private const double ShortCycleThresholdMinutes = 5.0;
     private const string ChartRoomStorageKey = "wiser-chart-room";
     private const string ChartHoursStorageKey = "wiser-chart-hours";
     private const string ChartOutdoorStorageKey = "wiser-chart-include-outdoor";
-    private readonly LineChartOptions _roomTrendTempLineOptions = new()
-    {
-        InterpolationOption = InterpolationOption.Straight,
-        ShowToolTips = true,
-        YAxisTitle = "°C",
-        YAxisTicks = 1,
-        MaxNumYAxisTicks = 12,
-        YAxisFormat = "F0",
-    };
-    private readonly LineChartOptions _roomTrendValveLineOptions = new()
-    {
-        InterpolationOption = InterpolationOption.Straight,
-        ShowToolTips = true,
-        YAxisTitle = "Valve %",
-        YAxisSuggestedMax = 100,
-        YAxisRequireZeroPoint = true,
-        YAxisTicks = 20,
-        MaxNumYAxisTicks = 16,
-    };
-
-    private readonly LineChartOptions _comfortComplianceLineOptions = new()
-    {
-        InterpolationOption = InterpolationOption.Straight,
-        ShowToolTips = true,
-        YAxisTitle = "% in range",
-        YAxisSuggestedMax = 100,
-        YAxisRequireZeroPoint = true,
-        YAxisTicks = 20,
-        TooltipTitleFormat = "{{SERIES_NAME}}",
-        TooltipSubtitleFormat = "{{Y_VALUE}}",
-    };
-
-    private static readonly string[] RoomTrendToggleableNames =
-    [
-        RoomTrendChartBuilder.SeriesRoom,
-        RoomTrendChartBuilder.SeriesTarget,
-        RoomTrendChartBuilder.SeriesOutdoor,
-    ];
-
-    private IEnumerable<string> RoomTrendToggleableNamesPresent =>
-        RoomTrendToggleableNames.Where(n => _roomTrendTempSeries.Exists(s => s.Name == n));
-
-    private bool RoomTrendToggleChipsVisible => RoomTrendToggleableNamesPresent.Any();
-
-    private bool RoomTrendAnyTempSeriesVisible =>
-        _roomTrendTempSeries.Exists(static s => s.Visible);
-
-    private string ChartHostClass => _hours >= 168
-        ? "mud-chart-responsive chart-range-long"
-        : _hours > 24
-            ? "mud-chart-responsive chart-range-medium"
-            : "mud-chart-responsive";
     private string LastUpdatedText => _lastRefreshAt is null
         ? "Last updated: never"
         : $"Last updated: {_lastRefreshAt.Value:HH:mm:ss} ({(int)Math.Max(0, (DateTimeOffset.Now - _lastRefreshAt.Value).TotalSeconds)}s ago)";
@@ -833,15 +721,6 @@
     {
         if (!firstRender)
             return;
-        await Viewport.SubscribeAsync(
-            _viewportObserverId,
-            OnViewportChangedAsync,
-            new ResizeOptions
-            {
-                ReportRate = 200,
-                NotifyOnBreakpointOnly = true,
-            },
-            fireImmediately: true);
         // JS interop and initial chart load must run here — JS unavailable during pre-render.
         await TryLoadPersistedChartFiltersAsync();
         ValidateChartFilters();
@@ -871,66 +750,12 @@
         }
     }
 
-    private async Task OnViewportChangedAsync(BrowserViewportEventArgs _)
-    {
-        var compact = await Viewport.IsBreakpointWithinWindowSizeAsync(Breakpoint.MdAndDown);
-        if (_compactChartAxes == compact)
-            return;
-        _compactChartAxes = compact;
-        RefreshChartPresentationForBreakpoint();
-        await InvokeAsync(StateHasChanged);
-    }
-
-    private void RefreshChartPresentationForBreakpoint()
-    {
-        ApplyResponsiveHeatCallingChartOptions();
-        if (_pointTs.Length > 0)
-        {
-            _labels = RoomTrendChartBuilder.BuildSparseTimeLabels(_pointTs, _hours, DisplayZone, _compactChartAxes);
-            ApplyRoomTrendLineOptions(_pointTs.Length);
-        }
-
-        _roomTrendChartRenderKey++;
-    }
-
-    private void ApplyResponsiveHeatCallingChartOptions()
-    {
-        if (_compactChartAxes)
-        {
-            _heatCallingTempTsOptions.TimeLabelSpacing = TimeSpan.FromHours(6);
-            _heatCallingTempTsOptions.XAxisTitle = null;
-            _heatCallingTempTsOptions.YAxisTitle = null;
-            _heatCallingTempTsOptions.YAxisTicks = 2;
-            _heatCallingTempTsOptions.MaxNumYAxisTicks = 10;
-
-            _heatCallingValveTsOptions.TimeLabelSpacing = TimeSpan.FromHours(6);
-            _heatCallingValveTsOptions.XAxisTitle = null;
-            _heatCallingValveTsOptions.YAxisTitle = null;
-            _heatCallingValveTsOptions.YAxisTicks = 25;
-            _heatCallingValveTsOptions.MaxNumYAxisTicks = 8;
-        }
-        else
-        {
-            _heatCallingTempTsOptions.TimeLabelSpacing = TimeSpan.FromHours(2);
-            _heatCallingTempTsOptions.XAxisTitle = "Time (local, last 24h)";
-            _heatCallingTempTsOptions.YAxisTitle = "°C";
-            _heatCallingTempTsOptions.YAxisTicks = 1;
-            _heatCallingTempTsOptions.MaxNumYAxisTicks = 22;
-
-            _heatCallingValveTsOptions.TimeLabelSpacing = TimeSpan.FromHours(2);
-            _heatCallingValveTsOptions.XAxisTitle = "Time (local, last 24h)";
-            _heatCallingValveTsOptions.YAxisTitle = "Valve %";
-            _heatCallingValveTsOptions.YAxisTicks = 10;
-            _heatCallingValveTsOptions.MaxNumYAxisTicks = 16;
-        }
-    }
-
-    public async ValueTask DisposeAsync()
+    public ValueTask DisposeAsync()
     {
         _chartsRefreshCts?.Cancel();
         _chartsRefreshCts?.Dispose();
         _chartsRefreshTimer?.Dispose();
-        await Viewport.UnsubscribeAsync(_viewportObserverId);
+        return ValueTask.CompletedTask;
     }
 
     protected override Task OnInitializedAsync()
@@ -1038,22 +863,15 @@
     {
         _roomRanges = await Task.Run(() => Store.GetRoomRanges()).ConfigureAwait(false);
         _error = null;
-        _roomTrendTempSeries = [];
-        _roomTrendValveSeries = [];
-        _roomTrendHasValveSeries = false;
-        _labels = [];
-        _pointTs = [];
-        _heatCallingTempTsSeries = [];
-        _heatCallingValveTsSeries = [];
+        _roomTrend = null;
+        _heatCallingTemp = [];
+        _heatCallingValve = [];
         _heatCallingHasAnyPlottedSeries = false;
         _heatCallingRoomPickerNames = [];
         _roomTiles.Clear();
-        _comfortComplianceLabels = [];
-        _comfortComplianceSeries = [];
-        _currentDeviationLabels = [];
-        _currentDeviationSeries = [];
-        _runtimeDistributionLabels = [];
-        _runtimeDistributionSeries = [];
+        _comfortCompliancePoints = [];
+        _currentDeviationPoints = [];
+        _runtimeDistributionPoints = [];
         _roomEfficiencyRows.Clear();
         _boilerCycleSummary = null;
         _systemRowsWindow = [];
@@ -1078,28 +896,11 @@
 
             if (!string.IsNullOrWhiteSpace(_selectedRoom))
             {
-                var built = RoomTrendChartBuilder.Build(
-                    Store,
-                    Options,
-                    _selectedRoom,
-                    _hours,
-                    DisplayZone,
-                    _includeOutdoor,
-                    _compactChartAxes);
-                if (built is not null)
-                {
-                    _pointTs = built.PointTs;
-                    _labels = built.ChartLabels;
-                    _roomTrendTempSeries = built.TempSeries;
-                    _roomTrendValveSeries = built.ValveSeries;
-                    _roomTrendHasValveSeries = built.HasValveSeries;
-                    ApplyRoomTrendLineOptions(built.PointTs.Length);
-
-                    var presentNames = _roomTrendTempSeries.Select(static s => s.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
-                    _roomTrendHiddenSeries.IntersectWith(presentNames);
-                    ApplyRoomTrendSeriesVisibility();
-                    _roomTrendChartRenderKey++;
-                }
+                var trendRows = await Task.Run(() => Store.SeriesRoom(_selectedRoom, since)).ConfigureAwait(false);
+                var outdoor = _includeOutdoor && Options.OpenMeteoLat is not null
+                    ? await Task.Run(() => Store.SeriesOutdoor(since)).ConfigureAwait(false)
+                    : null;
+                _roomTrend = RoomHistoryChartBuilder.Build(trendRows, outdoor, DisplayZone);
             }
 
             BuildRoomHeatMap(since);
@@ -1154,225 +955,13 @@
         _qualityReasons24h = summary.ByReason.Take(4).ToList();
     }
 
-    private void ApplyRoomTrendLineOptions(int pointCount)
-    {
-        var rotation = _compactChartAxes
-            ? (_hours <= 24 ? 0 : 40)
-            : _hours switch
-            {
-                <= 12 => 0,
-                <= 24 => 32,
-                <= 48 => 48,
-                _ => 58,
-            };
-        var xTitle = _compactChartAxes
-            ? null
-            : _hours >= 168
-                ? "Time (local, ~7 days)"
-                : _hours > 24
-                    ? "Time (local)"
-                    : null;
-
-        // Only show markers when data is genuinely sparse — many dots clutter the chart.
-        var manyPoints = pointCount > 48;
-        var markers = _hours <= 24 && !manyPoints && !_compactChartAxes;
-
-        foreach (var opt in new[] { _roomTrendTempLineOptions, _roomTrendValveLineOptions })
-        {
-            opt.XAxisLabelRotation = rotation;
-            opt.XAxisTitle = xTitle;
-        }
-        _roomTrendTempLineOptions.ShowDataMarkers = markers;
-        // Valve is a step series — markers on every step look like noise regardless of density.
-        _roomTrendValveLineOptions.ShowDataMarkers = false;
-
-        _roomTrendTempLineOptions.YAxisTicks = _compactChartAxes ? 2 : 1;
-        _roomTrendTempLineOptions.MaxNumYAxisTicks = _compactChartAxes ? 6 : 12;
-        _roomTrendValveLineOptions.YAxisTicks = _compactChartAxes ? 25 : 20;
-        _roomTrendValveLineOptions.MaxNumYAxisTicks = _compactChartAxes ? 8 : 16;
-        _roomTrendTempLineOptions.YAxisTitle = _compactChartAxes ? null : "°C";
-        _roomTrendValveLineOptions.YAxisTitle = _compactChartAxes ? null : "Valve %";
-    }
-
-    private void ApplyRoomTrendSeriesVisibility()
-    {
-        foreach (var s in _roomTrendTempSeries)
-            s.Visible = !_roomTrendHiddenSeries.Contains(s.Name);
-    }
-
-    private void ToggleRoomTrendSeriesVisibility(string name)
-    {
-        if (_roomTrendHiddenSeries.Contains(name))
-            _roomTrendHiddenSeries.Remove(name);
-        else
-            _roomTrendHiddenSeries.Add(name);
-
-        ApplyRoomTrendSeriesVisibility();
-        _roomTrendChartRenderKey++;
-        StateHasChanged();
-    }
-
-    private void ClearRoomTrendHiddenSeries()
-    {
-        _roomTrendHiddenSeries.Clear();
-        ApplyRoomTrendSeriesVisibility();
-        _roomTrendChartRenderKey++;
-        StateHasChanged();
-    }
-
     private const int HeatCallingTrendHours = 24;
-
-    private DateTime TsToHeatChartDateTime(long tsUtc) =>
-        TimeZoneInfo.ConvertTime(DateTimeOffset.FromUnixTimeSeconds(tsUtc), DisplayZone).DateTime;
 
     private static bool IsPlausibleHeatChartTemp(double tempC) => tempC is > -45 and < 75;
 
     /// <summary>
-    /// MudChart timeseries draws straight segments only; a short moving average softens jagged poll-to-poll noise.
-    /// </summary>
-    private static List<(DateTime T, double Y)> SmoothHeatCallingTemperatureSeries(IReadOnlyList<(DateTime T, double Y)> pts, int window = 5)
-    {
-        if (pts.Count < 3)
-            return [.. pts];
-        var n = pts.Count;
-        var half = window / 2;
-        var result = new List<(DateTime T, double Y)>(n);
-        for (var i = 0; i < n; i++)
-        {
-            var lo = Math.Max(0, i - half);
-            var hi = Math.Min(n - 1, i + half);
-            double sum = 0;
-            var c = 0;
-            for (var j = lo; j <= hi; j++)
-            {
-                sum += pts[j].Y;
-                c++;
-            }
-            result.Add((pts[i].T, sum / c));
-        }
-        return result;
-    }
-
-    /// <summary>
-    /// Valve demand series: keep 0% samples between peaks, but omit leading idle before the first &gt;0
-    /// and trailing idle after the first 0% following the last &gt;0 (so the line does not span the full 24h at 0).
-    /// </summary>
-    private static List<(DateTime T, double Y)> TrimValveDemandWindowForChart(IReadOnlyList<(DateTime T, double Y)> pts)
-    {
-        if (pts.Count == 0)
-            return [];
-
-        var first = -1;
-        for (var i = 0; i < pts.Count; i++)
-        {
-            if (pts[i].Y > 0)
-            {
-                first = i;
-                break;
-            }
-        }
-
-        if (first < 0)
-            return [];
-
-        var lastPos = -1;
-        for (var i = pts.Count - 1; i >= first; i--)
-        {
-            if (pts[i].Y > 0)
-            {
-                lastPos = i;
-                break;
-            }
-        }
-
-        var end = lastPos;
-        for (var i = lastPos + 1; i < pts.Count; i++)
-        {
-            end = i;
-            if (pts[i].Y == 0)
-                break;
-        }
-
-        return pts.Skip(first).Take(end - first + 1).ToList();
-    }
-
-    /// <summary>
-    /// Extends plotted points to <paramref name="ws"/>..<paramref name="we"/> so multi-room charts share the same time domain (aligned with temperature).
-    /// </summary>
-    private static List<(DateTime T, double Y)> ExpandHeatCallingTempToWindow(IReadOnlyList<(DateTime T, double Y)> pts, DateTime ws, DateTime we)
-    {
-        if (pts.Count == 0)
-            return [];
-        var list = pts.ToList();
-        if (list[0].T > ws)
-            list.Insert(0, (ws, list[0].Y));
-        if (list[^1].T < we)
-            list.Add((we, list[^1].Y));
-        return list;
-    }
-
-    /// <summary>Core valve samples (trimmed active window when possible); empty if there are no % samples at all.</summary>
-    private static List<(DateTime T, double Y)> ValveCorePointsForHeatChart(IReadOnlyList<(DateTime T, double Y)> valvePairsFull)
-    {
-        var trimmed = TrimValveDemandWindowForChart(valvePairsFull);
-        if (trimmed.Count > 0)
-            return trimmed;
-        return valvePairsFull.Count > 0 ? [.. valvePairsFull] : [];
-    }
-
-    /// <summary>
-    /// Valve % is held between hub polls until the next sample. Expand to step segments so MudChart
-    /// draws horizontal-then-vertical moves instead of long diagonals between sparse points.
-    /// Rooms with no % samples get a flat 0% segment across the history window (legend parity only).
-    /// </summary>
-    private static List<(DateTime T, double Y)> BuildHeatCallingValvePlotPoints(
-        IReadOnlyList<(DateTime T, double Y)> core,
-        DateTime ws,
-        DateTime we)
-    {
-        if (core.Count == 0)
-            return [(ws, 0.0), (we, 0.0)];
-        var steps = ValvePercentToStepSeries(core);
-        // Anchor at 0 from the window start. To avoid a diagonal, hold at 0 horizontally
-        // until the first data point's time, then let the existing step jump up vertically.
-        if (steps.Count > 0 && steps[0].Y != 0.0)
-        {
-            if (steps[0].T > ws)
-                steps.Insert(0, (steps[0].T, 0.0));
-            steps.Insert(0, (ws, 0.0));
-        }
-        return steps;
-    }
-
-    private static List<(DateTime T, double Y)> ValvePercentToStepSeries(IReadOnlyList<(DateTime T, double Y)> core)
-    {
-        if (core.Count == 0)
-            return [];
-        if (core.Count == 1)
-            return [core[0]];
-
-        var list = new List<(DateTime T, double Y)>(core.Count * 2) { core[0] };
-        for (var i = 1; i < core.Count; i++)
-        {
-            var prev = core[i - 1];
-            var curr = core[i];
-            if (curr.T < prev.T)
-                continue;
-            if (curr.T == prev.T)
-            {
-                list[^1] = curr;
-                continue;
-            }
-
-            list.Add((curr.T, prev.Y));
-            list.Add(curr);
-        }
-
-        return list;
-    }
-
-    /// <summary>
-    /// Multi-room 24h view: same per-room series as <see cref="LoadChartAsync"/> (temp + valve %), using MudChart timeseries (DateTime X).
+    /// Multi-room 24h view: per-room temperature (smoothed) and valve demand %, aligned on one time axis
+    /// so the shared tooltip lists every room at the hovered time.
     /// </summary>
     private void BuildHeatCallingRoomsTimeseries(long sinceTsUtc)
     {
@@ -1394,80 +983,37 @@
 
         _heatCallingRoomPickerNames = [.. orderedRooms.Select(static x => x.Room)];
 
-        DateTime ws = DateTime.MaxValue;
-        DateTime we = DateTime.MinValue;
-        foreach (var (_, rows) in orderedRooms)
-        {
-            foreach (var r in rows)
-            {
-                var t = TsToHeatChartDateTime(r.Ts);
-                if (t < ws)
-                    ws = t;
-                if (t > we)
-                    we = t;
-            }
-        }
-
-        if (we <= ws)
-            we = ws.AddMinutes(1);
-
-        var tempSeries = new List<ChartSeries<double>>(orderedRooms.Count);
-        var valveSeries = new List<ChartSeries<double>>(orderedRooms.Count);
-
-        foreach (var (room, rows) in orderedRooms)
-        {
-            var visible = !_heatCallingHiddenRooms.Contains(room);
-            var dedup = rows.GroupBy(static r => r.Ts).Select(static g => g.Last()).ToList();
-
-            var tempPairsRaw = dedup
-                .Where(r => IsPlausibleHeatChartTemp(r.TempC))
-                .Select(r => (TsToHeatChartDateTime(r.Ts), r.TempC))
-                .OrderBy(x => x.Item1)
-                .ToList();
-
-            if (tempPairsRaw.Count > 0)
-            {
-                var tempSmoothed = SmoothHeatCallingTemperatureSeries(tempPairsRaw);
-                var tempPairs = ExpandHeatCallingTempToWindow(tempSmoothed, ws, we);
-                tempSeries.Add(new ChartSeries<double>
-                {
-                    Name = room,
-                    Visible = visible,
-                    Data = tempPairs,
-                    TooltipYValueFormat = "F1",
-                    TooltipTitleFormat = "{{SERIES_NAME}}",
-                    TooltipSubtitleFormat = "{{Y_VALUE}} °C",
-                });
-            }
-
-            var valvePairsFull = dedup
+        var temps = orderedRooms
+            .Select(x => (x.Room, (IReadOnlyList<(long Ts, double Value)>)SmoothedTemps(x.Rows)))
+            .ToList();
+        var valves = orderedRooms
+            .Select(x => (x.Room, (IReadOnlyList<(long Ts, double Value)>)x.Rows
                 .Where(static r => r.PercentageDemand.HasValue)
-                .Select(r => (TsToHeatChartDateTime(r.Ts), (double)r.PercentageDemand!.Value))
-                .OrderBy(x => x.Item1)
-                .ToList();
+                .Select(static r => (r.Ts, (double)r.PercentageDemand!.Value))
+                .ToList()))
+            .ToList();
 
-            var valveCore = ValveCorePointsForHeatChart(valvePairsFull);
-            var valvePairs = BuildHeatCallingValvePlotPoints(valveCore, ws, we);
+        _heatCallingTemp = MultiSeriesAligner.Align(temps, DisplayZone, MultiSeriesAligner.Aggregate.Average, decimals: 2)
+            .Where(static s => s.Points.Any(static p => p.Y is not null))
+            .ToList();
+        _heatCallingValve = MultiSeriesAligner.Align(valves, DisplayZone, MultiSeriesAligner.Aggregate.Max, decimals: 0)
+            .Where(static s => s.Points.Any(static p => p.Y is not null))
+            .ToList();
+        _heatCallingHasAnyPlottedSeries = _heatCallingTemp.Count > 0 || _heatCallingValve.Count > 0;
+    }
 
-            valveSeries.Add(new ChartSeries<double>
-            {
-                Name = room,
-                Visible = visible,
-                Data = valvePairs,
-                TooltipYValueFormat = "F0",
-                TooltipTitleFormat = "{{SERIES_NAME}}",
-                TooltipSubtitleFormat = "{{Y_VALUE}} %",
-            });
-        }
-
-        _heatCallingTempTsSeries = tempSeries;
-        _heatCallingValveTsSeries = valveSeries;
-        _heatCallingHasAnyPlottedSeries = tempSeries.Count > 0 || valveSeries.Count > 0;
-
-        var estPoints = orderedRooms.Sum(x => x.Rows.Count);
-        var showMarkers = estPoints <= 200 && !_compactChartAxes;
-        _heatCallingTempTsOptions.ShowDataMarkers = showMarkers;
-        _heatCallingValveTsOptions.ShowDataMarkers = showMarkers;
+    /// <summary>Plausible readings, one per timestamp, lightly smoothed (0.1 °C sensor steps).</summary>
+    private static List<(long Ts, double Value)> SmoothedTemps(IReadOnlyList<RoomSeriesRow> rows)
+    {
+        var pts = rows
+            .Where(static r => IsPlausibleHeatChartTemp(r.TempC))
+            .GroupBy(static r => r.Ts)
+            .Select(static g => g.Last())
+            .OrderBy(static r => r.Ts)
+            .ToList();
+        var values = pts.Select(static r => r.TempC).ToArray();
+        RoomHistoryChartBuilder.SmoothInPlace(values);
+        return pts.Select((r, i) => (r.Ts, values[i])).ToList();
     }
 
     private void ToggleHeatCallingRoomVisibility(string room)
@@ -1486,16 +1032,7 @@
         ApplyHeatCallingSeriesVisibility();
     }
 
-    private void ApplyHeatCallingSeriesVisibility()
-    {
-        foreach (var s in _heatCallingTempTsSeries)
-            s.Visible = !_heatCallingHiddenRooms.Contains(s.Name);
-
-        foreach (var s in _heatCallingValveTsSeries)
-            s.Visible = !_heatCallingHiddenRooms.Contains(s.Name);
-
-        StateHasChanged();
-    }
+    private void ApplyHeatCallingSeriesVisibility() => StateHasChanged();
 
     private double ResolveDisplayTempC(string room, double storedTempC)
     {
@@ -1670,39 +1207,10 @@
         if (!hasAnySample)
             return;
 
-        FillComplianceNaNGapsForLineChart(values);
-
-        _comfortComplianceLabels = labels;
-        _comfortComplianceSeries =
-        [
-            new ChartSeries<double>
-            {
-                Name = "Comfort compliance %",
-                Data = values,
-            },
-        ];
-    }
-
-    /// <summary>Mud line charts break Y scaling / splines when points are NaN; bridge gaps for display (no samples that day).</summary>
-    private static void FillComplianceNaNGapsForLineChart(double[] values)
-    {
-        double? last = null;
-        for (var i = 0; i < values.Length; i++)
-        {
-            if (!double.IsNaN(values[i]))
-                last = values[i];
-            else if (last is { } lv)
-                values[i] = lv;
-        }
-
-        double? next = null;
-        for (var i = values.Length - 1; i >= 0; i--)
-        {
-            if (!double.IsNaN(values[i]))
-                next = values[i];
-            else if (next is { } nv)
-                values[i] = nv;
-        }
+        // Days without samples stay as gaps rather than being bridged.
+        _comfortCompliancePoints = labels
+            .Select((label, i) => new CategoryPoint(label, double.IsNaN(values[i]) ? null : Math.Round((decimal)values[i], 1)))
+            .ToList();
     }
 
     private void BuildCurrentDeviationChart()
@@ -1710,30 +1218,17 @@
         if (_roomTiles.Count == 0)
             return;
 
-        var labels = _roomTiles.Select(static t =>
-            t.Room.Length > 10 ? t.Room[..9] + "…" : t.Room).ToArray();
-        var values = _roomTiles
+        _currentDeviationPoints = _roomTiles
             .Select(t =>
             {
                 if (t.TempC is null)
-                    return double.NaN;
+                    return new CategoryPoint(t.Room, null);
                 var isActive = !_roomIsActiveMap.TryGetValue(t.Room, out var activeFlag) || activeFlag;
                 var (targetMin, targetMax) = GetRecommendedTempRange(t.Room, isActive);
                 var targetMid = (targetMin + targetMax) / 2.0;
-                return Math.Round(t.TempC.Value - targetMid, 2);
+                return new CategoryPoint(t.Room, Math.Round((decimal)(t.TempC.Value - targetMid), 1));
             })
-            .ToArray();
-
-        _currentDeviationLabels = labels;
-        _currentDeviationSeries =
-        [
-            new ChartSeries<double>
-            {
-                Name = "Deviation °C (+ warm / - cold)",
-                Data = values,
-                TooltipYValueFormat = "F1",
-            },
-        ];
+            .ToList();
     }
 
     private void BuildHeatingRuntimeDistribution()
@@ -1754,17 +1249,9 @@
             minutesByHour[hour] += minutesPerSample;
         }
 
-        _runtimeDistributionLabels = Enumerable.Range(0, 24)
-            .Select(static h => h.ToString("00", CultureInfo.InvariantCulture))
-            .ToArray();
-        _runtimeDistributionSeries =
-        [
-            new ChartSeries<double>
-            {
-                Name = $"Relay runtime minutes ({_hours}h window)",
-                Data = minutesByHour,
-            },
-        ];
+        _runtimeDistributionPoints = Enumerable.Range(0, 24)
+            .Select(h => new CategoryPoint(h.ToString("00", CultureInfo.InvariantCulture), Math.Round((decimal)minutesByHour[h], 0)))
+            .ToList();
     }
 
     private void BuildRoomEfficiencyScores(long sinceTs)
@@ -1853,18 +1340,12 @@
 
     private string _compareRoomA = string.Empty;
     private string _compareRoomB = string.Empty;
-    private string[] _compareLabels = [];
-    private List<ChartSeries<double>> _compareSeries = [];
-    private int _compareRenderKey;
-    private readonly LineChartOptions _compareTempLineOptions = new()
-    {
-        InterpolationOption = InterpolationOption.Straight,
-        ShowToolTips = true,
-        YAxisTitle = "°C",
-        YAxisTicks = 1,
-        MaxNumYAxisTicks = 12,
-        YAxisFormat = "F0",
-    };
+    private List<AlignedSeries> _compareSeries = [];
+
+    private IReadOnlyList<TimeLine> CompareLines =>
+        _compareSeries
+            .Select((s, i) => new TimeLine(s.Name, s.Points, ApexTheme.ColorAt(i), ApexCharts.Curve.Smooth, 2))
+            .ToList();
 
     private (double Min, double Max) GetRecommendedTempRange(string roomName, bool isActive) =>
         RoomDisplayHelpers.GetRecommendedTempRange(roomName, isActive, _roomRanges);
@@ -1895,53 +1376,17 @@
     private void BuildComparisonChart()
     {
         _compareSeries = [];
-        _compareLabels = [];
         if (string.IsNullOrWhiteSpace(_compareRoomA) || string.IsNullOrWhiteSpace(_compareRoomB)
             || string.Equals(_compareRoomA, _compareRoomB, StringComparison.OrdinalIgnoreCase))
             return;
 
-        long[]? sharedTs = null;
-        var series = new List<ChartSeries<double>>();
-        foreach (var room in new[] { _compareRoomA, _compareRoomB })
-        {
-            var built = RoomTrendChartBuilder.Build(
-                Store, Options, room, _hours, DisplayZone,
-                includeOutdoor: false, compactAxes: _compactChartAxes);
-            if (built is null)
-                continue;
-
-            sharedTs ??= built.PointTs;
-            var tempSeries = built.TempSeries.FirstOrDefault(s => s.Name == RoomTrendChartBuilder.SeriesRoom);
-            if (tempSeries is null)
-                continue;
-
-            series.Add(new ChartSeries<double>
-            {
-                Name = room,
-                Data = tempSeries.Data,
-                Visible = true,
-                TooltipYValueFormat = "F1",
-                TooltipTitleFormat = "{{SERIES_NAME}}",
-                TooltipSubtitleFormat = "{{Y_VALUE}} °C",
-            });
-        }
-
-        if (series.Count == 0)
-            return;
-
-        _compareSeries = series;
-        _compareLabels = sharedTs is not null
-            ? RoomTrendChartBuilder.BuildSparseTimeLabels(sharedTs, _hours, DisplayZone, _compactChartAxes)
-            : [];
-
-        var rotation = _compactChartAxes ? (_hours <= 24 ? 0 : 40) : _hours switch
-        {
-            <= 12 => 0, <= 24 => 32, <= 48 => 48, _ => 58,
-        };
-        _compareTempLineOptions.XAxisLabelRotation = rotation;
-        _compareTempLineOptions.YAxisTicks = _compactChartAxes ? 2 : 1;
-        _compareTempLineOptions.MaxNumYAxisTicks = _compactChartAxes ? 6 : 12;
-        _compareRenderKey++;
+        var since = DateTimeOffset.UtcNow.ToUnixTimeSeconds() - (_hours * 3600L);
+        var input = new[] { _compareRoomA, _compareRoomB }
+            .Select(room => (room, (IReadOnlyList<(long Ts, double Value)>)SmoothedTemps(Store.SeriesRoom(room, since))))
+            .ToList();
+        _compareSeries = MultiSeriesAligner.Align(input, DisplayZone, MultiSeriesAligner.Aggregate.Average, decimals: 2)
+            .Where(static s => s.Points.Any(static p => p.Y is not null))
+            .ToList();
     }
 
     private static bool EfficiencyRowNeedsReview(RoomEfficiencyRow r)

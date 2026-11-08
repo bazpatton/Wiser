@@ -1,0 +1,77 @@
+@namespace Wiser.Monitor.Components.Charts
+@using ApexCharts
+
+@* One room: temperature / target / outdoor, plus valve demand. Both charts share a zoom group. *@
+<MudText Typo="Typo.subtitle2" Class="mb-1">Room temperature &amp; target (°C)</MudText>
+<TimeLinesChart Id="@($"{GroupId}-temp")"
+                Group="@GroupId"
+                Lines="TempLines"
+                Unit="°C"
+                Decimals="1"
+                YMin="Data.YMin"
+                YMax="Data.YMax"
+                YTickAmount="Data.YTickAmount"
+                Height="TempHeight"
+                ShadedRanges="Data.OffRanges"
+                NullLabels="TargetOffLabel"
+                ZoomState="_zoom"
+                ResetKey="@ResetKey" />
+
+<MudText Typo="Typo.subtitle2" Class="mb-1 mt-3">Valve demand (%)</MudText>
+@if (!Data.HasValve)
+{
+    <MudAlert Severity="Severity.Info" Dense="true" Class="mb-0">
+        No valve percentage samples in this window.
+    </MudAlert>
+}
+else
+{
+    <TimeLinesChart Id="@($"{GroupId}-valve")"
+                    Group="@GroupId"
+                    Lines="ValveLines"
+                    Unit=" %"
+                    Decimals="0"
+                    YMin="0"
+                    YMax="100"
+                    YTickAmount="2"
+                    Height="ValveHeight"
+                    ShowLegend="false"
+                    ZoomState="_zoom"
+                    ResetKey="@ResetKey" />
+}
+
+@code {
+    public const string SeriesRoom = "Room";
+    public const string SeriesTarget = "Target";
+    public const string SeriesOutdoor = "Outdoor";
+    public const string SeriesValve = "Valve demand";
+
+    private static readonly IReadOnlyDictionary<string, string> TargetOffLabel =
+        new Dictionary<string, string> { [SeriesTarget] = "Off" };
+
+    [Parameter, EditorRequired] public RoomHistoryChartBuilder.Result Data { get; set; } = default!;
+    [Parameter] public bool ShowOutdoor { get; set; } = true;
+    /// <summary>Unique per page section; also the ApexCharts group that syncs crosshair and zoom.</summary>
+    [Parameter, EditorRequired] public string GroupId { get; set; } = "";
+    [Parameter] public string ResetKey { get; set; } = "";
+    [Parameter] public int TempHeight { get; set; } = 300;
+    [Parameter] public int ValveHeight { get; set; } = 170;
+
+    private readonly ChartZoomState _zoom = new();
+
+    private IReadOnlyList<TimeLine> TempLines
+    {
+        get
+        {
+            var lines = new List<TimeLine> { new(SeriesRoom, Data.Room, ApexTheme.Blue, Curve.Smooth, 2.5) };
+            if (Data.HasTarget)
+                lines.Add(new(SeriesTarget, Data.Target, ApexTheme.Orange, Curve.Stepline, 2));
+            if (ShowOutdoor && Data.HasOutdoor)
+                lines.Add(new(SeriesOutdoor, Data.Outdoor, ApexTheme.Aqua, Curve.Smooth, 1.5, Dash: 5));
+            return lines;
+        }
+    }
+
+    private IReadOnlyList<TimeLine> ValveLines =>
+        [new(SeriesValve, Data.Valve, ApexTheme.Red, Curve.Straight, 1.5, Area: true)];
+}

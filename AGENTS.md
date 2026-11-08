@@ -8,7 +8,7 @@ This monorepo contains three components for monitoring/controlling a Drayton Wis
 
 | Component | Tech | Port | Purpose |
 |---|---|---|---|
-| `Wiser.Monitor/` | ASP.NET Core 9 (C#) | 8080 | Hub polling, SQLite history, Chart.js dashboard, ntfy alerts |
+| `Wiser.Monitor/` | ASP.NET Core 9 (C#) | 8080 | Hub polling, SQLite history, ApexCharts dashboard, ntfy alerts |
 | `wiser-monitor/` | Python 3.12 / FastAPI | 8080 | Same functionality, Python implementation |
 | `Wiser.Control/` | .NET MAUI (C#) | N/A | Cross-platform mobile/desktop app (cannot build on Linux) |
 
