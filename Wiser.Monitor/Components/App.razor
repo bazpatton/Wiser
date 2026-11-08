@@ -1,3 +1,4 @@
+@inject IWebHostEnvironment Env
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -10,7 +11,7 @@
     <meta name="theme-color" content="#1976D2" />
     <link href="_content/MudBlazor/MudBlazor.min.css" rel="stylesheet" />
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.7.2/css/all.min.css" rel="stylesheet" />
-    <link href="app.css" rel="stylesheet" />
+    <link href="@($"app.css?v={AppCssVersion}")" rel="stylesheet" />
     <HeadOutlet @rendermode="InteractiveServer" />
 </head>
 <body>
@@ -196,3 +197,9 @@
     </script>
 </body>
 </html>
+
+@code {
+    // Cache-bust app.css per deploy (UseStaticFiles has no fingerprinting).
+    private string AppCssVersion =>
+        Env.WebRootFileProvider.GetFileInfo("app.css").LastModified.ToUnixTimeSeconds().ToString();
+}

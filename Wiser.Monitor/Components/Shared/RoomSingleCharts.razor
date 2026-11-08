@@ -286,13 +286,14 @@
             Group = ChartGroup,
             Background = "transparent",
             FontFamily = "inherit",
+            ForeColor = "#94a3b8", // readable on both themes even before app.css applies
             Animations = new Animations { Enabled = false },
             Toolbar = new Toolbar
             {
                 Show = true,
-                Tools = new Tools { Download = false, Pan = false, Zoomin = false, Zoomout = false, Selection = false },
+                Tools = new Tools { Download = false, Pan = false, Selection = false, Zoom = true, Zoomin = true, Zoomout = true, Reset = true },
             },
-            Zoom = new Zoom { Enabled = true, AutoScaleYaxis = false },
+            Zoom = new Zoom { Enabled = true, AutoScaleYaxis = false, AllowMouseWheelZoom = true },
         },
         Xaxis = new XAxis
         {
